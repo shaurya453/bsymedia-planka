@@ -21,8 +21,8 @@ system resources — always check what's running before touching shared files li
   (`docker-ce`, `docker-ce-cli`, `containerd.io`, `docker-compose-plugin`) on 2026-08-04.
   `deploy` user was added to the `docker` group but commands in this doc use `sudo docker`
   since that's what was verified working end-to-end.
-- Host port `3000` is already taken by another app — PLANKA is bound to `127.0.0.1:3001` for
-  now (not exposed externally). This will change once real domain + Caddy wiring happens.
+- Host port `3000` is already taken by another app — PLANKA is bound to `127.0.0.1:3001`,
+  fronted by Caddy (see Domain/TLS section below), never exposed directly on a public port.
 - A pending kernel upgrade was flagged during `apt install` (running `7.0.0-15-generic`, staged
   `7.0.0-28-generic`). Not applied — a host reboot is a shared-infra risk and needs explicit
   go-ahead, not something to do silently mid-deployment.
@@ -54,9 +54,36 @@ system resources — always check what's running before touching shared files li
     password from `.env` should not be the permanent auth model for 100 users.
 - `.env` — real secrets (`SECRET_KEY` via `openssl rand -hex 64`, `POSTGRES_PASSWORD` via
   `openssl rand -hex 32`), gitignored. `.env.example` has dummy values, is committed.
-- `BASE_URL` is currently `http://localhost:3001` — a **placeholder**. Must be updated to the
-  real domain (`https://<real-domain>`) and the stack restarted before this goes live or before
-  OIDC redirect URIs are configured, since PLANKA derives callback URLs from `BASE_URL`.
+- `BASE_URL=https://bsymedia.duckdns.org` — real, live.
+
+## Domain / TLS (2026-08-04)
+
+- Domain: `bsymedia.duckdns.org`, a free DuckDNS subdomain the client/contractor already
+  controls (same DuckDNS account as `autovidgen.duckdns.org`, which is a *different, unrelated*
+  product on this same box — one DuckDNS account, multiple independent subdomains, each can
+  point anywhere; both currently point at this host's IP `167.233.63.45`).
+- **This is a placeholder-quality domain, not a final decision.** DuckDNS is free and fine for
+  getting unblocked, but a client-facing production tool for ~100 staff would normally get a
+  real domain/subdomain the client owns outright (e.g. `planka.clientdomain.com`) rather than a
+  third-party dynamic-DNS service. Revisit before calling this "done" — migrating later just
+  means: point new DNS at `167.233.63.45`, add a new Caddy block, update `BASE_URL`, restart.
+- Caddy automatically provisions/renews TLS for the domain (Let's Encrypt, `tls-alpn-01`
+  challenge — confirmed via `journalctl -u caddy`, cert obtained in ~7s). No manual cert
+  management needed.
+- **Keep-alive**: DuckDNS doesn't auto-track IP changes; the box's IP must be re-pushed
+  periodically. A cron job (`*/5 * * * * /home/deploy/planka/scripts/duckdns-update.sh`) does
+  this, reading the token from `/home/deploy/planka/.secrets/duckdns.env` (chmod 600,
+  gitignored). This **deliberately duplicates** an existing, near-identical script already
+  running for the other product (`/home/deploy/portal/scripts/duckdns-update.sh`) — same
+  DuckDNS account/token family, but kept as separate scripts/cron entries/secrets files per
+  project so PLANKA stays self-contained and portable if handed to a different maintainer or
+  moved off this box later. Do not consolidate them without deliberately deciding to couple the
+  two projects.
+- `/etc/caddy/Caddyfile` is **shared** with the other product. PLANKA's block was *appended*,
+  nothing else was touched. A timestamped backup was taken before editing
+  (`/etc/caddy/Caddyfile.bak-<timestamp>`). Applied via `caddy validate` (passed) then
+  `systemctl reload caddy` (graceful — doesn't drop the other product's connections), not
+  `restart`. Verified both domains independently afterward.
 
 ## Verified, not just assumed (2026-08-04)
 
@@ -75,13 +102,13 @@ running container, not the docs alone:
   Compose v5.4.0 without Swarm mode — confirmed via `docker inspect` showing the limits applied
   and the app still starting cleanly under them.
 - Test project/board/list/card were deleted after verification — the instance is clean.
+- Repeated the full auth-flow + authenticated API verification a second time through the real
+  public HTTPS domain (`https://bsymedia.duckdns.org`) after Caddy/TLS was wired up — not just
+  against `127.0.0.1` — to confirm the proxy hop doesn't break anything (cookies, redirects,
+  `TRUST_PROXY` behavior).
 
 ## Not yet done (remaining Phase 1 gate items)
 
-- **Reverse proxy / TLS**: blocked on the real domain (client hasn't provided one yet). Caddy is
-  already running on this host for another product — adding a PLANKA site block means editing
-  shared `/etc/caddy/Caddyfile`, which needs explicit confirmation before touching (per the
-  brief's ground rules) since a config error could take down the other product's routing too.
 - **Host reboot test**: restart policy (`unless-stopped`) + `docker` enabled at boot
   (`systemctl is-enabled docker` → `enabled`) means containers *should* come back after a real
   reboot, but this hasn't been tested with an actual reboot — that's disruptive on a shared box
