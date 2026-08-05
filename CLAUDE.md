@@ -233,6 +233,37 @@ no native support for it — living at `invite-service/`, deployed as its own co
   product on this box — already gets its own timestamped `.bak` file on every edit, but isn't
   part of any recurring backup job).
 
+## In-app "Invite users" button (2026-08-05)
+
+Admins asked for a way to reach the invite tool without remembering/typing `/invite/` by hand.
+PLANKA has **no native customization hook** for this — confirmed against live source
+(`config/custom.js`, `api/`) that there's no custom-menu/custom-link/custom-HTML setting to hook
+into. Patching the compiled React bundle (`/app/public/assets/*.js`, hashed/minified filenames
+that change every version) to add a real nav-bar item would be fragile reverse-engineering, so
+instead: `planka-custom/` is a thin wrapper `Dockerfile` (`FROM
+ghcr.io/plankanban/planka:2.1.1`, the same pinned tag as before) that patches only
+`/app/views/index.ejs` — the small server-rendered HTML shell, not the JS bundle — inserting a
+floating "Invite users" link (`planka-custom/invite-button.html`) that opens `/invite/` in a new
+tab. `docker-compose.yml`'s `planka` service now builds this instead of pulling the image
+directly (`build: ./planka-custom` in place of `image: ghcr.io/...`) — version pin is preserved,
+just one layer removed; bumping PLANKA's version means bumping the `FROM` line here too.
+
+- Upstream's image runs as the non-root `node` user; the patch step needs `USER root` (to write
+  `/app/views/index.ejs` and clean up `/tmp`), then switches back to `USER node` before the image
+  is done, so the container still runs unprivileged at runtime as upstream intends.
+- **Shown to everyone, not just admins** — deliberate simplicity trade-off. PLANKA's frontend
+  doesn't expose the logged-in user's role in an easily-readable way from a static HTML injection
+  (its access token/role state lives in `localStorage` under a dynamically-minified key name;
+  chasing that down would mean parsing the compiled bundle and re-verifying it on every PLANKA
+  update — not worth it for a small unobtrusive button). Non-admin staff who click it just hit
+  invite-service's existing "Only PLANKA admins can send invites" message — harmless, not broken.
+- Verified live: PLANKA still returns HTTP 200 after the rebuild, and the button's HTML is
+  confirmed present in the actual served page (not just "the build succeeded").
+- On every future PLANKA version bump: re-check that `/app/views/index.ejs` still contains the
+  `<div id="root"></div>` line the `sed` insertion anchors on — if upstream changes that template,
+  the patch silently no-ops (PLANKA still works fine, the button just won't appear) rather than
+  breaking the build, so it's easy to miss without a manual check.
+
 ## Licensing
 
 Confirmed via live read of `LICENSE.md` and `LICENSES/PLANKA License Guide EN.md` on 2026-08-04:
