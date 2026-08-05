@@ -1,0 +1,17 @@
+{
+  "name": "planka-invite-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Admin-only invite-and-activate flow for PLANKA (email invite -> user sets own password -> account created via PLANKA API).",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "connect-pg-simple": "^10.0.0",
+    "express": "^5.2.1",
+    "express-session": "^1.19.0",
+    "nodemailer": "^9.0.4",
+    "pg": "^8.22.0"
+  }
+}

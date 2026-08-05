@@ -117,6 +117,84 @@ running container, not the docs alone:
   human-readable value — fine for now since only the operator has host access, but flag this
   before handover.
 
+## Invite service (replaces Phase 2's original OIDC plan)
+
+**Why this exists instead of SSO**: the original plan (Phase 2) was Google Workspace OIDC. The
+client confirmed BSY Media has no real Google Workspace — staff use personal Gmail accounts only
+— which rules out domain-restricted login, group-claim role mapping, and org-level offboarding.
+Instead we built an **invite-and-activate flow**: an admin invites someone by email + role +
+board from a small internal tool; the invitee gets an emailed one-time link, sets their own
+password, and lands in PLANKA with a real account. This is a custom-built service — PLANKA has
+no native support for it — living at `invite-service/`, deployed as its own container.
+
+### Design decisions
+
+- **v1 is admin-only**, not delegated to project managers. PLANKA's own permission model
+  requires instance-admin (`role: 'admin'`) to call `POST /api/users` at all — there's no
+  project-manager-scoped "create user" capability to delegate into, so PM-level self-service
+  invites are not currently possible without either giving PMs admin (too broad) or building a
+  privilege-escalation layer (out of scope for v1).
+- **Invited users always get PLANKA's `boardUser` instance role.** The role picker in the invite
+  form controls *board-level* role (`editor`/`viewer` on the specific board being invited to),
+  not the instance-wide role. This matches what the brief actually asked for (per-board access
+  control) — nobody gets instance-admin through this flow.
+- **Dedicated service account** (`PLANKA_SERVICE_EMAIL` / `PLANKA_SERVICE_PASSWORD` in `.env`,
+  `invite-service@planka.local`, role `admin`) is what actually creates the account and board
+  membership when someone completes an invite — not the inviting admin's own session. The
+  accept-flow is intentionally unauthenticated (the invitee has no PLANKA session yet), so it
+  can't depend on the original admin still being logged in.
+- **Caddy mounts this at `/invite/*`** on the same public domain (`bsymedia.duckdns.org`),
+  stripping the prefix before proxying to the container. Every server-side redirect in
+  `index.js` re-adds the `/invite` prefix via a `BASE_PATH` constant — Express's own view of its
+  routes has no prefix, so a bare `res.redirect('/')` would resolve against the domain root
+  (PLANKA itself), not this service. **Trailing slash matters**: Caddy's `handle_path /invite/*`
+  only matches with a trailing slash; `/invite` alone falls through to the next block's
+  catch-all `reverse_proxy` (PLANKA), which confusingly returns HTTP 200 (PLANKA's SPA serves
+  `index.html` for any unmatched path) — makes the bug look like a false success under a naive
+  test. Caught via `curl .../invite` (200, wrong app) vs `curl .../invite/` (302, correct) during
+  build; fixed by using `` `${BASE_PATH}/` `` specifically on the post-login redirect.
+- **Sessions are Postgres-backed** (`connect-pg-simple` against a dedicated `planka_ops`
+  database, separate from PLANKA's own `planka` database — created idempotently on startup via
+  `pg_database` existence check, since Postgres has no `CREATE DATABASE IF NOT EXISTS`), not
+  in-memory — survives container restarts, avoids a second stateful dependency (e.g. Redis).
+- **Invite tokens**: `crypto.randomBytes(32)`, SHA-256 hashed before storage (raw token only
+  ever exists in the emailed URL and briefly in memory — DB compromise doesn't leak usable
+  tokens), single-use (`used_at` checked), 7-day expiry.
+- **CSRF protection**: session-bound random token + `crypto.timingSafeEqual` comparison on every
+  POST (login, send, accept).
+
+### Email delivery (Gmail SMTP)
+
+- `mailer.js` uses Nodemailer against Gmail. **Do not use the `service: 'gmail'` shorthand** —
+  it defaults to port 465 (implicit TLS), which this host's outbound firewall blocks (confirmed
+  via a raw `net.createConnection` test: 465 → `ETIMEDOUT`, 587 → connects immediately). Use
+  explicit `host: 'smtp.gmail.com', port: 587, secure: false` (STARTTLS) instead.
+- Explicit `connectionTimeout`/`greetingTimeout`/`socketTimeout` (10s each) are set deliberately
+  — without them, a bad account/blocked port hangs the request indefinitely instead of failing
+  back to the admin with a visible error.
+- Sending identity is one fixed mailbox for the whole service (`GMAIL_USER` /
+  `GMAIL_APP_PASSWORD` in `.env`, currently `admin@bsymedia.com` with a Google App Password —
+  requires 2-Step Verification on that account). This is **independent of PLANKA login
+  credentials** — same email can be both the SMTP sending identity and a human's PLANKA admin
+  login, with two unrelated passwords, since one is a Google-account credential and the other is
+  a password hash inside PLANKA's own database. The admin who's logged into the invite tool at
+  send-time (`inviterEmail`) only appears in the email body copy, never in the SMTP envelope/
+  From header.
+- Verified end-to-end on 2026-08-05: real invite sent via live Gmail SMTP through the public
+  domain, no errors in `docker compose logs invite-service`, confirmed via the `success=` query
+  param on redirect. Test project/board and test invite-DB rows were deleted afterward (see
+  "Verified" section below) — instance holds 0 projects and exactly the 2 real accounts
+  (bootstrap admin, invite-service) as of last check.
+
+### Compose / env additions
+
+- New service `invite-service` in `docker-compose.yml`: built from `./invite-service`, bound to
+  `127.0.0.1:3002:3000`, resource limits 0.5 CPU / 256MB (small — session store + a few HTTP
+  routes, not a persistent workload), depends on `postgres` (healthy) and `planka` (started).
+- New `.env` keys: `PUBLIC_URL`, `PLANKA_PUBLIC_URL`, `PLANKA_INTERNAL_URL`
+  (`http://planka:1337`, container-to-container), `SESSION_SECRET`, `OPS_DATABASE_URL`,
+  `PLANKA_SERVICE_EMAIL`/`PASSWORD`, `GMAIL_USER`/`GMAIL_APP_PASSWORD`.
+
 ## Licensing
 
 Confirmed via live read of `LICENSE.md` and `LICENSES/PLANKA License Guide EN.md` on 2026-08-04:

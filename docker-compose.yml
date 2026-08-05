@@ -15,7 +15,6 @@ services:
       - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD}
       - DEFAULT_ADMIN_NAME=${DEFAULT_ADMIN_NAME}
       - DEFAULT_ADMIN_USERNAME=${DEFAULT_ADMIN_USERNAME}
-      # OIDC vars land here in Phase 2 once Google Workspace SSO is configured.
     depends_on:
       postgres:
         condition: service_healthy
@@ -24,6 +23,32 @@ services:
         limits:
           cpus: "1.5"
           memory: 1.5G
+
+  invite-service:
+    build: ./invite-service
+    restart: unless-stopped
+    ports:
+      - 127.0.0.1:3002:3000
+    environment:
+      - PUBLIC_URL=${PUBLIC_URL}
+      - PLANKA_PUBLIC_URL=${PLANKA_PUBLIC_URL}
+      - PLANKA_INTERNAL_URL=${PLANKA_INTERNAL_URL}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - OPS_DATABASE_URL=${OPS_DATABASE_URL}
+      - PLANKA_SERVICE_EMAIL=${PLANKA_SERVICE_EMAIL}
+      - PLANKA_SERVICE_PASSWORD=${PLANKA_SERVICE_PASSWORD}
+      - GMAIL_USER=${GMAIL_USER}
+      - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      planka:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
 
   postgres:
     image: postgres:16-alpine
