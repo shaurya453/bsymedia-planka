@@ -195,6 +195,44 @@ no native support for it — living at `invite-service/`, deployed as its own co
   (`http://planka:1337`, container-to-container), `SESSION_SECRET`, `OPS_DATABASE_URL`,
   `PLANKA_SERVICE_EMAIL`/`PASSWORD`, `GMAIL_USER`/`GMAIL_APP_PASSWORD`.
 
+## Backups (Phase 5, 2026-08-05)
+
+- **Local-only, by deliberate choice.** Client was offered Hetzner Storage Box, an S3-compatible
+  bucket, or Google Drive; Google Drive turned out to require real setup friction — confirmed
+  live against rclone's own docs that rclone's shared Google API client_id is being retired
+  during 2026, so Drive now needs a self-created Google Cloud project, a custom OAuth client
+  (Desktop app type), a configured consent screen, and a one-time interactive browser
+  authorization — none of which can be done on the client's behalf without their own Google Cloud
+  Console access. Service accounts (which would skip the browser step) only get usable Drive
+  storage on a real Google Workspace domain, which BSY Media doesn't have (see Invite service
+  section above) — so that shortcut doesn't apply either. Given that friction, client chose
+  local-only for now. **This does not protect against the VPS or its disk failing** — only
+  against accidental deletion/corruption inside PLANKA itself. Revisit an offsite target later.
+- `scripts/backup.sh` — dumps both Postgres databases (`planka`, and `planka_ops` which holds
+  invite-service state) via `pg_dump` over the container's local Unix socket (confirmed: no
+  password needed for local-socket connections even though `POSTGRES_PASSWORD` is set and
+  required for TCP — Postgres's default `pg_hba.conf` only enforces password auth on `host`
+  entries, not `local`), gzips them, and tars the `planka_data` volume (PLANKA's uploaded
+  attachments) via a disposable `alpine:3.22` container with the volume mounted read-only —
+  avoids needing the volume's on-disk path to be reachable from the host filesystem directly.
+  Output lands in timestamped directories under `/home/deploy/planka-backups/`, **deliberately
+  kept outside this git repo entirely** (not just gitignored) so a `git add -A` mistake can never
+  stage a dump full of real user data. Retention: 14 days, pruned automatically each run.
+  Idempotent/safe to re-run anytime (new timestamped dir each time, no shared state to corrupt).
+- Logs to `logs/backup.log` (gitignored), matching the existing `duckdns-update.sh` pattern.
+- Scheduled via cron, `0 3 * * *` (daily, 3am).
+- **Restore drill performed, not just assumed working**: restored a real dump into a scratch
+  `restore_drill` database inside the same running Postgres container (never touched the live
+  `planka` database), then compared `user_account`/`project` row counts between live and restored
+  — matched exactly. Scratch database dropped immediately after. This should be re-run
+  periodically (e.g. after the Trello import lands real data) — a backup that's never been test-
+  restored isn't a verified backup, and today's drill only proves the pipeline works on today's
+  near-empty dataset.
+- **Not yet covered by this backup**: the `invite-service` container image/build context (fine —
+  it's in git) and the host-level Caddy config (`/etc/caddy/Caddyfile`, shared with the other
+  product on this box — already gets its own timestamped `.bak` file on every edit, but isn't
+  part of any recurring backup job).
+
 ## Licensing
 
 Confirmed via live read of `LICENSE.md` and `LICENSES/PLANKA License Guide EN.md` on 2026-08-04:
