@@ -1,13 +1,27 @@
 # PLANKA deployment — technical notes
 
-For the client's own admin, see `RUNBOOK.md` (written in Phase 6). This file is for whoever
-maintains the stack technically next.
+For the client's own admin, see `RUNBOOK.md` (written as part of Phase 1 handover work). This
+file is for whoever maintains the stack technically next.
 
 ## What this is
 
 Self-hosted PLANKA (Trello-alternative) for ~100 internal staff of one organization, replacing
 their Trello workspace for cost reasons. Deployed per the brief in `planka-start.md` (repo root's
 parent — kept outside this repo since it's the contractor's working brief, not a deliverable).
+
+## Roadmap (3 phases, per the brief's priority order)
+
+The brief lists three deliverables in priority order — that's the canonical phase numbering for
+this project (supersedes an earlier, more granular phase-1..6 breakdown used mid-build, whose
+sub-parts now all live under Phase 1 below):
+
+1. **Phase 1 — Stable, secured, backed-up instance.** Deployment, the invite-service (which
+   replaced the original OIDC/SSO plan), backups, the in-app invite button, self-signup +
+   batch-assign, and `RUNBOOK.md` handover all fall under this phase — see the dedicated sections
+   below. In progress; see "Not yet done" for open gate items.
+2. **Phase 2 — Trello migration.** Not started. See "Trello import" section below for the plan.
+3. **Phase 3 — Cycle-time reporting.** Not started, blocked on one open decision: presentation
+   format (dashboard vs. scheduled export vs. other) — see "Cycle-time reporting" section below.
 
 ## Host
 
@@ -49,8 +63,8 @@ system resources — always check what's running before touching shared files li
     engineering estimate for ~100 non-concurrent staff, not an official recommendation. Watch
     actual usage and adjust.
   - `TRUST_PROXY=true` set in advance for when Caddy fronts it (harmless without a proxy)
-  - `DEFAULT_ADMIN_*` vars seed the bootstrap admin account. **Rotate or remove these once OIDC
-    (Phase 2) is wired up and is the primary login path** — an admin account with a static
+  - `DEFAULT_ADMIN_*` vars seed the bootstrap admin account. **Rotate or remove these once
+    invite-service (see below) is fully the primary login path** — an admin account with a static
     password from `.env` should not be the permanent auth model for 100 users.
 - `.env` — real secrets (`SECRET_KEY` via `openssl rand -hex 64`, `POSTGRES_PASSWORD` via
   `openssl rand -hex 32`), gitignored. `.env.example` has dummy values, is committed.
@@ -96,7 +110,7 @@ running container, not the docs alone:
 - Created a real project → board → list → card via the API, then confirmed
   `GET /cards/{id}/actions` returns `createCard` and `moveCard` (with `fromList`/`toList`
   including list name and type) exactly as the API source suggested. **This is the data source
-  Phase 4's cycle-time collector will use** — confirmed live, not just from reading the
+  Phase 3's cycle-time collector will use** — confirmed live, not just from reading the
   controller source.
 - Resource limits (`deploy.resources.limits`) are honored by plain `docker compose up` on
   Compose v5.4.0 without Swarm mode — confirmed via `docker inspect` showing the limits applied
@@ -117,9 +131,9 @@ running container, not the docs alone:
   human-readable value — fine for now since only the operator has host access, but flag this
   before handover.
 
-## Invite service (replaces Phase 2's original OIDC plan)
+## Invite service (Phase 1 — replaces the original OIDC/SSO sub-plan)
 
-**Why this exists instead of SSO**: the original plan (Phase 2) was Google Workspace OIDC. The
+**Why this exists instead of SSO**: the original sub-plan was Google Workspace OIDC. The
 client confirmed BSY Media has no real Google Workspace — staff use personal Gmail accounts only
 — which rules out domain-restricted login, group-claim role mapping, and org-level offboarding.
 Instead we built an **invite-and-activate flow**: an admin invites someone by email + role +
@@ -242,7 +256,7 @@ new routes on the same `invite-service`, no new containers/infra:
   artifacts (project, board, test user) were deleted — instance back to 0 projects / 3 real
   accounts (bootstrap admin, invite-service, `admin@bsymedia.com`) as of last check.
 
-## Backups (Phase 5, 2026-08-05)
+## Backups (Phase 1, 2026-08-05)
 
 - **Local-only, by deliberate choice.** Client was offered Hetzner Storage Box, an S3-compatible
   bucket, or Google Drive; Google Drive turned out to require real setup friction — confirmed
@@ -280,7 +294,7 @@ new routes on the same `invite-service`, no new containers/infra:
   product on this box — already gets its own timestamped `.bak` file on every edit, but isn't
   part of any recurring backup job).
 
-## In-app "Invite users" button (2026-08-05)
+## In-app "Invite users" button (Phase 1, 2026-08-05)
 
 Admins asked for a way to reach the invite tool without remembering/typing `/invite/` by hand.
 PLANKA has **no native customization hook** for this — confirmed against live source
@@ -310,6 +324,58 @@ just one layer removed; bumping PLANKA's version means bumping the `FROM` line h
   `<div id="root"></div>` line the `sed` insertion anchors on — if upstream changes that template,
   the patch silently no-ops (PLANKA still works fine, the button just won't appear) rather than
   breaking the build, so it's easy to miss without a manual check.
+
+## Trello import (Phase 2 — not started)
+
+Deferred so far at the client's explicit direction ("leave the trello import" — 2026-08-06). Plan
+below is carried over from the brief, not yet executed against a real export.
+
+- **Inventory first.** Parse the Trello export and report counts (boards, lists, cards, comments,
+  attachments, checklists, labels, members, custom fields) before writing anything, and identify
+  what PLANKA can and cannot represent.
+- **Gap analysis before importing anything** — the client needs to know in advance what won't
+  survive the move. Nothing gets silently dropped.
+- **Attachments** are referenced by URL in a Trello export, not embedded — the importer has to
+  download and re-upload each one, flagging anything inaccessible.
+- **Member mapping**: Trello members with no matching PLANKA/invite-service account get listed
+  for manual resolution, never auto-created or silently skipped.
+- **Dry-run mode is mandatory.** Report exactly what would be created, without writing. Migrate
+  one representative board first for the client to eyeball before doing the rest.
+- **Verification script**: compare source vs. destination counts per board, report discrepancies.
+- **Don't discard the Trello action history.** The export's `createCard`/`updateCard` actions
+  (with `listBefore`/`listAfter` and timestamps) are exactly what Phase 3's cycle-time metric
+  needs as seed data — extract this during import rather than letting Phase 3 start from an empty
+  history. Confirm the export actually contains this (check the real JSON structure) before
+  promising it to the client.
+- Not yet obtained from the client: the actual Trello export file, and a board count to migrate.
+  Both are blocking — nothing here can start until they're in hand.
+
+## Cycle-time reporting (Phase 3 — not started)
+
+Blocked on one decision from the client: presentation format (dashboard vs. scheduled CSV/email
+export vs. something else) — asked, not yet answered as of last check.
+
+- **Data source already verified live** (2026-08-04, see "Verified" section above): `GET
+  /cards/{id}/actions` returns `createCard` and `moveCard` events, with `moveCard` including
+  `fromList`/`toList` (name + type) — sufficient to compute both metrics below via the API,
+  without needing direct Postgres reads against PLANKA's `actions` table.
+- Two numbers per card, not one, per the brief: **lead time** (created → moved to Finished) and
+  **cycle time** (moved into the first in-progress list → moved to Finished) — lead time alone
+  mostly measures backlog sitting time, not team speed.
+- Must store derived metrics in a separate database/table from PLANKA's own (never mutate
+  PLANKA's schema — it'll break on upgrade). `planka_ops` (already created for invite-service
+  state) is the natural home, or a fresh dedicated database if that pairing feels wrong later.
+- Edge cases the brief calls out explicitly, still to design for: cards that move backwards out
+  of Finished; cards that re-enter Finished more than once (use the final entry); cards that never
+  reach Finished (report as "in flight, N days open"); cards deleted/archived mid-flight; boards
+  whose done-list isn't literally named "Finished" (make the done-list identification
+  configurable per board, not a hardcoded string match).
+- Stuck-card alert (anything open past a configurable threshold) — the brief flags the client will
+  likely want this more than the averages he explicitly asked for.
+- If self-signup (see invite-service section above) brings in real project/board activity before
+  this is built, that data becomes real seed history rather than a synthetic test — worth
+  reconsidering build order once Phase 2's Trello import (which also seeds real action history)
+  lands.
 
 ## Licensing
 
