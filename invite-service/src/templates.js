@@ -49,7 +49,7 @@ function loginPage({ error, csrfToken }) {
   );
 }
 
-function invitePage({ boards, error, success, csrfToken, adminEmail }) {
+function invitePage({ boards, error, success, csrfToken, adminEmail, joinUrl }) {
   const options = boards
     .map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.projectName)} / ${escapeHtml(b.name)}</option>`)
     .join('');
@@ -58,7 +58,7 @@ function invitePage({ boards, error, success, csrfToken, adminEmail }) {
     'Send an invite',
     `
     <h1>Invite someone to a board</h1>
-    <p class="muted">Logged in as ${escapeHtml(adminEmail)} · <a href="/invite/logout">Log out</a></p>
+    <p class="muted">Logged in as ${escapeHtml(adminEmail)} · <a href="/invite/assign">Batch-assign users</a> · <a href="/invite/logout">Log out</a></p>
     ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
     ${success ? `<div class="success">${escapeHtml(success)}</div>` : ''}
     <form method="POST" action="/invite/send">
@@ -76,6 +76,82 @@ function invitePage({ boards, error, success, csrfToken, adminEmail }) {
         <option value="viewer">Viewer (read-only)</option>
       </select>
       <button type="submit">Send invite</button>
+    </form>
+    <div style="margin-top:28px;padding:12px;background:#f5f5f5;border-radius:4px;">
+      <strong>Self-signup link</strong>
+      <p class="muted">Share this once with staff so they can create their own account without you sending individual invites. They still need to be assigned to boards afterward — use "Batch-assign users" above.</p>
+      <input type="text" readonly value="${escapeHtml(joinUrl)}" onclick="this.select()" style="font-size:0.85rem;">
+    </div>
+  `,
+  );
+}
+
+function joinPage({ error, csrfToken }) {
+  return layout(
+    'Create your account',
+    `
+    <h1>Create your PLANKA account</h1>
+    <p class="muted">BSY Media internal tool — sign up with your work email.</p>
+    ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
+    <form method="POST" action="/invite/join">
+      <input type="hidden" name="_csrf" value="${csrfToken}">
+      <label>Your name</label>
+      <input type="text" name="name" required autofocus>
+      <label>Email</label>
+      <input type="email" name="email" required>
+      <label>Choose a password</label>
+      <input type="password" name="password" required minlength="8">
+      <p class="muted" style="margin-top:4px;">Must be reasonably strong — a common word plus a few digits (e.g. "password1234") will be rejected.</p>
+      <label>Confirm password</label>
+      <input type="password" name="passwordConfirm" required minlength="8">
+      <button type="submit">Create account</button>
+    </form>
+    <p class="muted">An admin will assign you to the right boards after you sign up.</p>
+  `,
+  );
+}
+
+function assignPage({ users, boards, error, success, csrfToken, adminEmail }) {
+  const userItems = users
+    .filter((u) => u.role !== 'admin')
+    .map(
+      (u) => `<label style="font-weight:400;display:flex;gap:8px;align-items:center;margin-top:6px;">
+        <input type="checkbox" name="userIds" value="${escapeHtml(u.id)}"> ${escapeHtml(u.name)} <span class="muted">(${escapeHtml(u.email || u.username || '')})</span>
+      </label>`,
+    )
+    .join('');
+
+  const boardItems = boards
+    .map(
+      (b) => `<label style="font-weight:400;display:flex;gap:8px;align-items:center;margin-top:6px;">
+        <input type="checkbox" name="boardIds" value="${escapeHtml(b.id)}"> ${escapeHtml(b.projectName)} / ${escapeHtml(b.name)}
+      </label>`,
+    )
+    .join('');
+
+  return layout(
+    'Batch-assign users',
+    `
+    <h1>Assign users to boards</h1>
+    <p class="muted">Logged in as ${escapeHtml(adminEmail)} · <a href="/invite/">Invite</a> · <a href="/invite/logout">Log out</a></p>
+    ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
+    ${success ? `<div class="success">${escapeHtml(success)}</div>` : ''}
+    <form method="POST" action="/invite/assign">
+      <input type="hidden" name="_csrf" value="${csrfToken}">
+      <label>Users</label>
+      <div style="max-height:220px;overflow-y:auto;border:1px solid #ccc;border-radius:4px;padding:8px;">
+        ${userItems || '<span class="muted">No users found.</span>'}
+      </div>
+      <label>Boards</label>
+      <div style="max-height:220px;overflow-y:auto;border:1px solid #ccc;border-radius:4px;padding:8px;">
+        ${boardItems || '<span class="muted">No boards found.</span>'}
+      </div>
+      <label>Role (applies to all selected boards)</label>
+      <select name="boardRole" required>
+        <option value="editor">Editor (can create/edit cards)</option>
+        <option value="viewer">Viewer (read-only)</option>
+      </select>
+      <button type="submit">Assign selected users to selected boards</button>
     </form>
   `,
   );
@@ -95,6 +171,7 @@ function acceptPage({ email, boardName, boardRole, error, csrfToken, token }) {
       <input type="text" name="name" required autofocus>
       <label>Choose a password</label>
       <input type="password" name="password" required minlength="8">
+      <p class="muted" style="margin-top:4px;">Must be reasonably strong — a common word plus a few digits (e.g. "password1234") will be rejected.</p>
       <label>Confirm password</label>
       <input type="password" name="passwordConfirm" required minlength="8">
       <button type="submit">Create account</button>
@@ -117,4 +194,12 @@ function messagePage(title, message) {
   return layout(title, `<h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p>`);
 }
 
-module.exports = { loginPage, invitePage, acceptPage, acceptSuccessPage, messagePage };
+module.exports = {
+  loginPage,
+  invitePage,
+  joinPage,
+  assignPage,
+  acceptPage,
+  acceptSuccessPage,
+  messagePage,
+};

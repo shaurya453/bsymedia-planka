@@ -94,4 +94,17 @@ async function createBoardMembership(boardId, userId, role, adminToken) {
   });
 }
 
-module.exports = { PlankaApiError, login, getMe, listBoards, createUser, createBoardMembership };
+async function listUsers(token) {
+  const data = await request('/api/users', { token });
+  return data.items || [];
+}
+
+module.exports = {
+  PlankaApiError,
+  login,
+  getMe,
+  listBoards,
+  createUser,
+  createBoardMembership,
+  listUsers,
+};

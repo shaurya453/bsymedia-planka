@@ -8,7 +8,15 @@ const { OPS_DB_NAME, ensureOpsDatabaseExists, ensureSchema } = require('./db');
 const planka = require('./planka');
 const { sendInviteEmail } = require('./mailer');
 const { ensureCsrfToken, verifyCsrfToken } = require('./csrf');
-const { loginPage, invitePage, acceptPage, acceptSuccessPage, messagePage } = require('./templates');
+const {
+  loginPage,
+  invitePage,
+  joinPage,
+  assignPage,
+  acceptPage,
+  acceptSuccessPage,
+  messagePage,
+} = require('./templates');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_URL = process.env.PUBLIC_URL; // e.g. https://bsymedia.duckdns.org
@@ -111,11 +119,107 @@ async function main() {
           adminEmail: req.session.adminEmail,
           error: req.query.error,
           success: req.query.success,
+          joinUrl: `${PUBLIC_URL}${BASE_PATH}/join`,
         }),
       );
     } catch (error) {
       res.status(500).send(messagePage('Error', `Could not load boards: ${error.message}`));
     }
+  });
+
+  // --- Self-signup (public, no gate by design - see CLAUDE.md) ---
+
+  app.get('/join', (req, res) => {
+    res.send(joinPage({ error: req.query.error, csrfToken: ensureCsrfToken(req) }));
+  });
+
+  app.post('/join', async (req, res) => {
+    if (!verifyCsrfToken(req, req.body._csrf)) {
+      return res.status(403).send(messagePage('Expired form', 'Please go back and try again.'));
+    }
+
+    const { name, email, password, passwordConfirm } = req.body;
+    const redirectWithError = (msg) =>
+      res.redirect(`${BASE_PATH}/join?error=${encodeURIComponent(msg)}`);
+
+    if (!name || !email || !password) return redirectWithError('All fields are required.');
+    if (password.length < 8) return redirectWithError('Password must be at least 8 characters.');
+    if (password !== passwordConfirm) return redirectWithError('Passwords do not match.');
+
+    try {
+      // Same rationale as the invite-accept flow: the visitor has no PLANKA
+      // session, so account creation goes through the dedicated service
+      // account rather than requiring an admin to be present.
+      const serviceToken = await planka.login(
+        process.env.PLANKA_SERVICE_EMAIL,
+        process.env.PLANKA_SERVICE_PASSWORD,
+      );
+      await planka.createUser({ email, password, name }, serviceToken);
+      res.send(acceptSuccessPage(PLANKA_PUBLIC_URL));
+    } catch (err) {
+      redirectWithError(`Could not create your account: ${err.message}`);
+    }
+  });
+
+  // --- Batch-assign users to boards (admin only) ---
+
+  app.get('/assign', requireAdmin, async (req, res) => {
+    try {
+      const [users, boards] = await Promise.all([
+        planka.listUsers(req.session.adminToken),
+        planka.listBoards(req.session.adminToken),
+      ]);
+      res.send(
+        assignPage({
+          users,
+          boards,
+          csrfToken: ensureCsrfToken(req),
+          adminEmail: req.session.adminEmail,
+          error: req.query.error,
+          success: req.query.success,
+        }),
+      );
+    } catch (error) {
+      res.status(500).send(messagePage('Error', `Could not load users/boards: ${error.message}`));
+    }
+  });
+
+  app.post('/assign', requireAdmin, async (req, res) => {
+    if (!verifyCsrfToken(req, req.body._csrf)) {
+      return res.status(403).send(messagePage('Expired form', 'Please go back and try again.'));
+    }
+
+    const { boardRole } = req.body;
+    const userIds = [].concat(req.body.userIds || []);
+    const boardIds = [].concat(req.body.boardIds || []);
+
+    if (userIds.length === 0 || boardIds.length === 0 || !['editor', 'viewer'].includes(boardRole)) {
+      return res.redirect(
+        `${BASE_PATH}/assign?error=${encodeURIComponent('Select at least one user and one board.')}`,
+      );
+    }
+
+    let added = 0;
+    let skipped = 0;
+    for (const userId of userIds) {
+      for (const boardId of boardIds) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await planka.createBoardMembership(boardId, userId, boardRole, req.session.adminToken);
+          added += 1;
+        } catch (err) {
+          // Most common cause: already a member of that board (409 conflict)
+          // - not worth aborting the whole batch over.
+          skipped += 1;
+        }
+      }
+    }
+
+    return res.redirect(
+      `${BASE_PATH}/assign?success=${encodeURIComponent(
+        `Added ${added} membership(s)${skipped ? `, skipped ${skipped} (already a member or error)` : ''}.`,
+      )}`,
+    );
   });
 
   app.post('/send', requireAdmin, async (req, res) => {

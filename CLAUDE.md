@@ -195,6 +195,53 @@ no native support for it — living at `invite-service/`, deployed as its own co
   (`http://planka:1337`, container-to-container), `SESSION_SECRET`, `OPS_DATABASE_URL`,
   `PLANKA_SERVICE_EMAIL`/`PASSWORD`, `GMAIL_USER`/`GMAIL_APP_PASSWORD`.
 
+### Self-signup link + batch-assign (2026-08-06)
+
+Added because the one-invite-at-a-time flow above doesn't scale to onboarding 100+ staff. Two
+new routes on the same `invite-service`, no new containers/infra:
+
+- **`GET/POST /invite/join`** — public, unauthenticated, no gate (deliberate choice — this is an
+  internal tool for BSY Media staff, not public-facing; client chose no passphrase/domain
+  restriction). Visitor picks their own name/email/password; account is created via the
+  `PLANKA_SERVICE_EMAIL` service account (same pattern as invite-accept) with `role: 'boardUser'`
+  and **no board membership** — self-signup only creates the account, it does not grant access to
+  anything. The admin invite page (`/invite/`) shows this link in a copyable box so it only needs
+  to be shared once (e.g. in a company-wide message), instead of an admin sending 100 individual
+  invite emails.
+  - **Known trade-off, accepted deliberately**: since there's no gate, anyone who obtains the
+    link can create a PLANKA account (with no project/board access) at any time — it's a
+    standing-open door, not single-use like the emailed invite tokens. Acceptable for an internal
+    tool; revisit (shared passphrase or `@bsymedia.com`-only email restriction, both trivial
+    additions to the existing `/join` POST handler) if abuse ever becomes a real concern.
+- **`GET/POST /invite/assign`** (admin-only, behind the same `requireAdmin` as `/invite/`) —
+  multi-select checkboxes for users (fetched via `GET /api/users`, admins filtered out of the
+  list) × boards (`GET /api/projects` included.boards, same helper `/invite/` already uses), one
+  role applied to all selected pairs. Submit loops `POST /boards/:id/board-memberships` once per
+  (user, board) pair server-side — **PLANKA has no batch membership endpoint**, confirmed by
+  reading `board-memberships/create.js`: `userId` is a single required field, not an array.
+  Per-pair failures (most commonly: already a member → 409) are counted and skipped rather than
+  aborting the whole batch; the result page reports `Added N, skipped M`.
+  - **PLANKA's access model is per-board, not per-project** — confirmed via `routes.js`: no
+    `project-memberships` concept exists, only `board-memberships` and a separate
+    `project-managers` relation (`POST /projects/:id/project-managers`, grants access to *every*
+    board in that project — the closest thing to a project-level bulk grant, not used by this
+    batch-assign screen, which stays at board granularity to match what `/invite/` already
+    offers).
+- **Pre-existing UX gap surfaced and fixed while building this**: PLANKA's password field uses
+  `zxcvbn(value).score >= 2`, not just a length check — a password like `password1234` passes the
+  8-char `minlength` on the form but gets rejected by the API with a generic "missing or invalid
+  parameter" message that doesn't explain why. This affects the original invite-accept flow too,
+  not just the new join page. Fixed by adding a hint under the password field on both `/join` and
+  `/accept/:token`: *"Must be reasonably strong — a common word plus a few digits ... will be
+  rejected."* Not fixed: the server-side error message itself is still PLANKA's generic one if a
+  weak password slips through — acceptable, since the hint should prevent most cases and a
+  clearer message would require guessing at PLANKA's internal validation from the outside.
+- Verified end-to-end on 2026-08-06 against the live site: self-signup created a real account via
+  `/invite/join`, batch-assign added that account to a temporary test board via `/invite/assign`
+  (confirmed via `GET /api/boards/:id` showing the new `boardMemberships` row), then all test
+  artifacts (project, board, test user) were deleted — instance back to 0 projects / 3 real
+  accounts (bootstrap admin, invite-service, `admin@bsymedia.com`) as of last check.
+
 ## Backups (Phase 5, 2026-08-05)
 
 - **Local-only, by deliberate choice.** Client was offered Hetzner Storage Box, an S3-compatible
