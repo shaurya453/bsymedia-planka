@@ -97,6 +97,7 @@ function joinPage({ error, csrfToken }) {
       <input type="hidden" name="_csrf" value="${csrfToken}">
       <label>Your name</label>
       <input type="text" name="name" required autofocus>
+      <p class="muted" style="margin-top:4px;">This is just your display name in PLANKA, not a login name — you'll always log in with your email below.</p>
       <label>Email</label>
       <input type="email" name="email" required>
       <label>Choose a password</label>
@@ -169,6 +170,7 @@ function acceptPage({ email, boardName, boardRole, error, csrfToken, token }) {
       <input type="hidden" name="_csrf" value="${csrfToken}">
       <label>Your name</label>
       <input type="text" name="name" required autofocus>
+      <p class="muted" style="margin-top:4px;">This is just your display name in PLANKA, not a login name — you'll always log in with your email above.</p>
       <label>Choose a password</label>
       <input type="password" name="password" required minlength="8">
       <p class="muted" style="margin-top:4px;">Must be reasonably strong — a common word plus a few digits (e.g. "password1234") will be rejected.</p>
