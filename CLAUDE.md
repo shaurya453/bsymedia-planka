@@ -23,6 +23,10 @@ sub-parts now all live under Phase 1 below):
 3. **Phase 3 — Cycle-time reporting.** Not started, blocked on one open decision: presentation
    format (dashboard vs. scheduled export vs. other) — see "Cycle-time reporting" section below.
 
+**Outside this 3-phase brief scope**: a second source, Taiga, was consolidated into the same
+instance on 2026-08-07 at the client's request — see "Taiga import" below. The generic import
+machinery built for it is what Phase 2 (Trello) will reuse.
+
 ## Host
 
 This runs on a **shared** Hetzner VPS (Ubuntu 26.04 "resolute"), not a dedicated box. Other
@@ -325,10 +329,123 @@ just one layer removed; bumping PLANKA's version means bumping the `FROM` line h
   the patch silently no-ops (PLANKA still works fine, the button just won't appear) rather than
   breaking the build, so it's easy to miss without a manual check.
 
+## Taiga import (2026-08-07)
+
+Client is consolidating a second source into the same PLANKA instance: some of BSY Media's work
+lived in Taiga (Kanban board, single project export, not a live API pull) and needed to move in
+alongside the still-pending Trello migration (see below). Source export file:
+`/home/deploy/yapmaster media - 07082026.json` (**note the space in the filename**) — kept outside
+this repo, same as the eventual Trello export will be, since it's a one-time source artifact
+containing real staff names/emails/comments, not a deliverable.
+
+### Generic import framework (`scripts/import/`)
+
+Built adapter-agnostic on purpose — this is meant to be Phase 2's starting point too, not a
+Taiga-only tool:
+- `lib/framework.js` — gap-analysis, dry-run, idempotent `apply`, count-verification, all working
+  against a normalized model (`{ project, columns, members, cards, gapNotes, stats }`) any adapter
+  can produce.
+- `lib/planka-client.js` — extended PLANKA API wrapper (projects/boards/lists/cards/task-lists/
+  tasks/comments/attachments/card-memberships/board-memberships), kept separate from
+  `invite-service/src/planka.js` since the two have different lifecycles and this one needs
+  multipart file upload.
+- `lib/db.js` — two new tables in the existing `planka_ops` database (never the PLANKA schema
+  itself, which must never be hand-mutated): `import_entities` (a manifest of every
+  `source/entityType/sourceRef → plankaId` mapping ever created — this is what makes `apply`
+  idempotent; reruns skip anything already recorded and only create what's missing) and
+  `cycle_time_events` (derived move-history seed data, kept separate from PLANKA's own action log
+  since the API has no way to backdate a card's real creation/move timestamps).
+- `adapters/taiga.js` — the actual Taiga-specific parsing; this is the only part that's genuinely
+  new per source. A future Trello adapter reuses everything above unchanged.
+- `run.sh` — runs the CLI inside a throwaway container built from the **existing invite-service
+  image** (`docker compose run --rm --no-deps`), reusing its network access to `planka`/`postgres`
+  and its already-installed `pg` package via `NODE_PATH=/app/node_modules`. Deliberately avoids
+  adding a new service to `docker-compose.yml`, installing new dependencies, or publishing any new
+  ports for what's a one-off migration tool.
+- Reports (`scripts/import/reports/*.md`) and any future state dir are gitignored — like the
+  backups, they can contain real staff PII (names, emails, comment text) and must never land in
+  git.
+
+### What the Taiga export actually looks like (verified against the real file, not assumed)
+
+- Kanban only, confirmed (`is_kanban_activated: true`, `is_backlog_activated: false`, no
+  sprints/points) — 15 columns (`us_statuses`), 180 cards (`user_stories`).
+- Swimlanes and WIP limits are both **configured-but-unused** in this particular export (0
+  swimlanes, no column has a `wip_limit` set) — so despite being unrepresentable in PLANKA, nothing
+  was actually lost for this project. Still surfaced in the gap-analysis report rather than assumed
+  safe to skip.
+- Attachments are **embedded as base64 directly in the export**, not URL references like Trello's
+  export — simpler than expected: decode + multipart-upload, no download step or broken-link risk.
+- The top-level `us_statuses` list has **no `id` field**, only names — but history entries
+  reference stable numeric status IDs, and 2 columns were renamed mid-project. Column identity for
+  historical move events has to be resolved by scanning every history entry's `values.status` map
+  and taking the chronologically-latest name per ID; verified this reconstructs all 17 IDs (15
+  story statuses + 2 task statuses) with zero orphans before trusting it for cycle-time seeding.
+- PLANKA can't post a comment "as" another user (`comments/create.js` always attributes to the
+  authenticated caller) — migrated comments are posted by the service account with a text prefix
+  (`_[originally posted by NAME <email> on DATE]_`) rather than silently losing the original
+  author.
+- Only 1 real Taiga `task` (checklist item) exists in the whole export — the "tasks under a story
+  → checklist items" mapping is real but affects almost no cards in this dataset.
+
+### Import result (2026-08-07, count-verified with zero discrepancies)
+
+180/180 cards, 331/331 comments (2 excluded — deleted in Taiga, `delete_comment_date` set,
+reversible if the client wants them back), 57/57 attachments (78.2MB, 0 failed uploads), 1/1
+checklist item, matched per-column too (all 15 lists). 1222 cycle-time events seeded into
+`planka_ops.cycle_time_events` (180 `created` + 1042 `moved`) — **this is real historical seed
+data for Phase 3**, not synthetic, the same way Phase 2's Trello import is meant to seed it (see
+both sections below).
+
+- **Member mapping**: 0 of 75 referenced Taiga members currently matched a PLANKA account (real
+  staff hadn't signed up via invite-service yet at import time) — 299 card assignments were
+  skipped rather than blocking the whole import on 100% signup turnout, which isn't guaranteed to
+  ever happen (16 of the 75 have no live Taiga membership record anymore, including one literal
+  `deleted-user-...@taiga.io` placeholder). Unmatched members are listed in the gap-analysis
+  report for manual resolution, never auto-created. `apply` is idempotent and safe to rerun as
+  staff sign up — it only fills in newly-matched assignments, never duplicates anything.
+- **32 cards carry a Trello back-reference** (`external_reference` pointing at a trello.com URL) —
+  these were originally migrated Trello → Taiga by the client before this project existed. Not
+  deduped against a future Trello import (client's call) — listed explicitly in the gap-analysis
+  report so they can be manually reconciled if/when Phase 2 runs against overlapping content.
+- After import, the human admin account had **no access at all** to the new board — project/board
+  creation via the service account only makes the service account a project manager, it doesn't
+  grant any human account access. Had to manually grant `admin@planka.local` project-manager
+  status via `POST /projects/:id/project-managers`. This will recur for every future
+  service-account-created board unless proactively handled — either via `/invite/assign` per
+  board, or by making the import tool always grant a configured admin project-manager status as
+  part of `apply` (not yet done, flagged here for later).
+
+### Bugs found and fixed while running this for real
+
+- PLANKA's card-create endpoint rejects an explicit `dueDate: null` (`allowNull` isn't set on that
+  input, unlike `description` which does allow it) — must omit the key entirely when there's no
+  due date. Fixed in `planka-client.js`; the idempotent manifest meant the retry resumed cleanly
+  from the already-created project/board/lists instead of redoing them.
+- Self-signup/invite-accept's "Your name" field was mistaken by a real user for a login username —
+  it only ever sets PLANKA's display `name`, never the separate `username` field, so nothing
+  typed there could ever be used to log in. Fixed the affected account directly (admins can set
+  any user's `username` via `PATCH /users/:id/username` without needing their password), and added
+  a clarifying line under that field on both `/invite/join` and `/invite/accept/:token`:
+  *"This is just your display name in PLANKA, not a login name — you'll always log in with your
+  email."* Deliberately didn't add a real separate username field to the form (client's call) —
+  anyone who wants a login username can still set one in their own PLANKA Account Settings later.
+- `card-memberships/create.js` requires the target user to already have **board membership**
+  before they can be added to a card (`isBoardMember` check, 404s otherwise) — `apply()` was
+  throwing and aborting the whole run partway through on the first matched-but-not-board-member
+  user. Fixed: `apply()` now grants editor board access up front for every matched assignee before
+  attempting card-level assignments, and per-assignment failures are caught and reported instead
+  of aborting the whole run.
+
 ## Trello import (Phase 2 — not started)
 
 Deferred so far at the client's explicit direction ("leave the trello import" — 2026-08-06). Plan
 below is carried over from the brief, not yet executed against a real export.
+
+**The generic import framework this needs already exists and is proven end-to-end** (see "Taiga
+import" above, `scripts/import/`) — Phase 2 now only needs a Trello-specific
+`adapters/trello.js` mirroring `adapters/taiga.js`'s contract, not the gap-analysis/dry-run/apply/
+verify machinery itself.
 
 - **Inventory first.** Parse the Trello export and report counts (boards, lists, cards, comments,
   attachments, checklists, labels, members, custom fields) before writing anything, and identify
@@ -346,7 +463,8 @@ below is carried over from the brief, not yet executed against a real export.
   (with `listBefore`/`listAfter` and timestamps) are exactly what Phase 3's cycle-time metric
   needs as seed data — extract this during import rather than letting Phase 3 start from an empty
   history. Confirm the export actually contains this (check the real JSON structure) before
-  promising it to the client.
+  promising it to the client. Same pattern already proven end-to-end for Taiga (see above,
+  `planka_ops.cycle_time_events`) — the Trello adapter just needs to populate the same table.
 - Not yet obtained from the client: the actual Trello export file, and a board count to migrate.
   Both are blocking — nothing here can start until they're in hand.
 
@@ -364,7 +482,9 @@ export vs. something else) — asked, not yet answered as of last check.
   mostly measures backlog sitting time, not team speed.
 - Must store derived metrics in a separate database/table from PLANKA's own (never mutate
   PLANKA's schema — it'll break on upgrade). `planka_ops` (already created for invite-service
-  state) is the natural home, or a fresh dedicated database if that pairing feels wrong later.
+  state) is the natural home — **already done**, in fact: the Taiga import (see above) seeded
+  1222 real move events into `planka_ops.cycle_time_events` for the Yapmaster Media board on
+  2026-08-07. Whatever Phase 3 builds should query that table rather than starting from scratch.
 - Edge cases the brief calls out explicitly, still to design for: cards that move backwards out
   of Finished; cards that re-enter Finished more than once (use the final entry); cards that never
   reach Finished (report as "in flight, N days open"); cards deleted/archived mid-flight; boards
@@ -372,10 +492,9 @@ export vs. something else) — asked, not yet answered as of last check.
   configurable per board, not a hardcoded string match).
 - Stuck-card alert (anything open past a configurable threshold) — the brief flags the client will
   likely want this more than the averages he explicitly asked for.
-- If self-signup (see invite-service section above) brings in real project/board activity before
-  this is built, that data becomes real seed history rather than a synthetic test — worth
-  reconsidering build order once Phase 2's Trello import (which also seeds real action history)
-  lands.
+- Real seed history already exists now (Taiga import, see above) rather than this being purely
+  hypothetical — worth reconsidering build order now that there's real data to build/test against,
+  and Phase 2's Trello import will add more once it lands.
 
 ## Licensing
 
