@@ -1,0 +1,1262 @@
+diff --git a/server/api/controllers/attachments/create.js b/server/api/controllers/attachments/create.js
+index 9cb2e28..ced580c 100644
+--- a/server/api/controllers/attachments/create.js
++++ b/server/api/controllers/attachments/create.js
+@@ -169,17 +169,15 @@ module.exports = {
+       .getPathToProjectById(inputs.cardId)
+       .intercept('pathNotFound', () => Errors.CARD_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.CARD_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CARD_NOT_FOUND;
+     }
+ 
+     let data;
+diff --git a/server/api/controllers/attachments/delete.js b/server/api/controllers/attachments/delete.js
+index 6539227..6fc8a23 100755
+--- a/server/api/controllers/attachments/delete.js
++++ b/server/api/controllers/attachments/delete.js
+@@ -80,17 +80,15 @@ module.exports = {
+     let { attachment } = pathToProject;
+     const { card, list, board, project } = pathToProject;
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.ATTACHMENT_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.ATTACHMENT_NOT_FOUND;
+     }
+ 
+     attachment = await sails.helpers.attachments.deleteOne.with({
+diff --git a/server/api/controllers/attachments/update.js b/server/api/controllers/attachments/update.js
+index dfcdd7d..ec2115a 100755
+--- a/server/api/controllers/attachments/update.js
++++ b/server/api/controllers/attachments/update.js
+@@ -97,17 +97,15 @@ module.exports = {
+     let { attachment } = pathToProject;
+     const { card, list, board, project } = pathToProject;
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.ATTACHMENT_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.ATTACHMENT_NOT_FOUND;
+     }
+ 
+     const values = _.pick(inputs, ['name']);
+diff --git a/server/api/controllers/card-labels/create.js b/server/api/controllers/card-labels/create.js
+index 63de7b3..8ace7a7 100755
+--- a/server/api/controllers/card-labels/create.js
++++ b/server/api/controllers/card-labels/create.js
+@@ -108,17 +108,15 @@ module.exports = {
+       .getPathToProjectById(inputs.cardId)
+       .intercept('pathNotFound', () => Errors.CARD_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.CARD_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CARD_NOT_FOUND;
+     }
+ 
+     const label = await Label.qm.getOneById(inputs.labelId, {
+diff --git a/server/api/controllers/card-labels/delete.js b/server/api/controllers/card-labels/delete.js
+index 53d1faf..c527c9a 100755
+--- a/server/api/controllers/card-labels/delete.js
++++ b/server/api/controllers/card-labels/delete.js
+@@ -94,17 +94,15 @@ module.exports = {
+       .getPathToProjectById(inputs.cardId)
+       .intercept('pathNotFound', () => Errors.CARD_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.CARD_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CARD_NOT_FOUND;
+     }
+ 
+     let cardLabel = await CardLabel.qm.getOneByCardIdAndLabelId(card.id, inputs.labelId);
+diff --git a/server/api/controllers/card-memberships/create.js b/server/api/controllers/card-memberships/create.js
+index 34d7930..d534952 100755
+--- a/server/api/controllers/card-memberships/create.js
++++ b/server/api/controllers/card-memberships/create.js
+@@ -108,17 +108,15 @@ module.exports = {
+       .getPathToProjectById(inputs.cardId)
+       .intercept('pathNotFound', () => Errors.CARD_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.CARD_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CARD_NOT_FOUND;
+     }
+ 
+     const user = await User.qm.getOneById(inputs.userId);
+diff --git a/server/api/controllers/card-memberships/delete.js b/server/api/controllers/card-memberships/delete.js
+index d32bc4e..00e4ad6 100755
+--- a/server/api/controllers/card-memberships/delete.js
++++ b/server/api/controllers/card-memberships/delete.js
+@@ -94,17 +94,15 @@ module.exports = {
+       .getPathToProjectById(inputs.cardId)
+       .intercept('pathNotFound', () => Errors.CARD_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.CARD_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CARD_NOT_FOUND;
+     }
+ 
+     let cardMembership = await CardMembership.qm.getOneByCardIdAndUserId(
+diff --git a/server/api/controllers/cards/create.js b/server/api/controllers/cards/create.js
+index 48625fb..9437344 100755
+--- a/server/api/controllers/cards/create.js
++++ b/server/api/controllers/cards/create.js
+@@ -178,17 +178,15 @@ module.exports = {
+       .getPathToProjectById(inputs.listId)
+       .intercept('pathNotFound', () => Errors.LIST_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.LIST_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.LIST_NOT_FOUND;
+     }
+ 
+     const values = _.pick(inputs, [
+diff --git a/server/api/controllers/cards/delete.js b/server/api/controllers/cards/delete.js
+index 43bbb73..59094e7 100755
+--- a/server/api/controllers/cards/delete.js
++++ b/server/api/controllers/cards/delete.js
+@@ -80,17 +80,15 @@ module.exports = {
+     let { card } = pathToProject;
+     const { list, board, project } = pathToProject;
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.CARD_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CARD_NOT_FOUND;
+     }
+ 
+     card = await sails.helpers.cards.deleteOne.with({
+diff --git a/server/api/controllers/cards/duplicate.js b/server/api/controllers/cards/duplicate.js
+index 07c2615..681c773 100644
+--- a/server/api/controllers/cards/duplicate.js
++++ b/server/api/controllers/cards/duplicate.js
+@@ -195,21 +195,15 @@ module.exports = {
+       .getPathToProjectById(inputs.id)
+       .intercept('pathNotFound', () => Errors.CARD_NOT_FOUND);
+ 
+-    const isProjectManager = await sails.helpers.users.isProjectManager(currentUser.id, project.id);
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    let boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
+-
+-    if (!isProjectManager) {
+-      if (!boardMembership) {
+-        throw Errors.CARD_NOT_FOUND; // Forbidden
+-      }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-      if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-        throw Errors.NOT_ENOUGH_RIGHTS;
+-      }
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CARD_NOT_FOUND;
+     }
+ 
+     let nextProject;
+@@ -220,22 +214,19 @@ module.exports = {
+         .getPathToProjectById(inputs.boardId)
+         .intercept('pathNotFound', () => Errors.BOARD_NOT_FOUND));
+ 
+-      boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-        nextBoard.id,
++      const isNextBoardEditor = await sails.helpers.users.isBoardEditor(
+         currentUser.id,
++        nextBoard.id,
+       );
+ 
+-      if (!boardMembership) {
+-        throw Errors.BOARD_NOT_FOUND; // Forbidden
+-      }
+-    }
+-
+-    if (!boardMembership) {
+-      throw Errors.LIST_NOT_FOUND; // Forbidden
+-    }
++      if (!isNextBoardEditor) {
++        const nextBoardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++          nextBoard.id,
++          currentUser.id,
++        );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++        throw nextBoardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.BOARD_NOT_FOUND;
++      }
+     }
+ 
+     let nextList;
+diff --git a/server/api/controllers/cards/update.js b/server/api/controllers/cards/update.js
+index 6f8b543..a72017b 100755
+--- a/server/api/controllers/cards/update.js
++++ b/server/api/controllers/cards/update.js
+@@ -234,17 +234,21 @@ module.exports = {
+     let { card } = pathToProject;
+     const { list, board, project } = pathToProject;
+ 
+-    let boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+       board.id,
+       currentUser.id,
+     );
+ 
+-    if (!boardMembership) {
++    // BSY Media: project managers and admins are always treated as editors,
++    // even without a real BoardMembership row.
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
++
++    if (!boardMembership && !isBoardEditor) {
+       throw Errors.CARD_NOT_FOUND; // Forbidden
+     }
+ 
+     const availableInputKeys = ['id', 'isSubscribed'];
+-    if (boardMembership.role === BoardMembership.Roles.EDITOR) {
++    if (isBoardEditor) {
+       availableInputKeys.push(
+         'boardId',
+         'listId',
+@@ -271,17 +275,18 @@ module.exports = {
+         .getPathToProjectById(inputs.boardId)
+         .intercept('pathNotFound', () => Errors.BOARD_NOT_FOUND));
+ 
+-      boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-        nextBoard.id,
++      const isNextBoardEditor = await sails.helpers.users.isBoardEditor(
+         currentUser.id,
++        nextBoard.id,
+       );
+ 
+-      if (!boardMembership) {
+-        throw Errors.BOARD_NOT_FOUND; // Forbidden
+-      }
++      if (!isNextBoardEditor) {
++        const nextBoardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++          nextBoard.id,
++          currentUser.id,
++        );
+ 
+-      if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-        throw Errors.NOT_ENOUGH_RIGHTS;
++        throw nextBoardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.BOARD_NOT_FOUND;
+       }
+     }
+ 
+diff --git a/server/api/controllers/comments/create.js b/server/api/controllers/comments/create.js
+index b2b9462..104fc3b 100755
+--- a/server/api/controllers/comments/create.js
++++ b/server/api/controllers/comments/create.js
+@@ -96,16 +96,21 @@ module.exports = {
+       .getPathToProjectById(inputs.cardId)
+       .intercept('pathNotFound', () => Errors.CARD_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    // BSY Media: project managers and admins can always comment, even
++    // without a real BoardMembership row; other users keep the existing
++    // editor-or-canComment rule.
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.CARD_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
++
++      if (!boardMembership) {
++        throw Errors.CARD_NOT_FOUND; // Forbidden
++      }
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+       if (!boardMembership.canComment) {
+         throw Errors.NOT_ENOUGH_RIGHTS;
+       }
+diff --git a/server/api/controllers/comments/delete.js b/server/api/controllers/comments/delete.js
+index 56bbbe4..9b416f2 100755
+--- a/server/api/controllers/comments/delete.js
++++ b/server/api/controllers/comments/delete.js
+@@ -81,8 +81,11 @@ module.exports = {
+     const { card, list, board, project } = pathToProject;
+ 
+     const isProjectManager = await sails.helpers.users.isProjectManager(currentUser.id, project.id);
++    // BSY Media: instance admins get the same "delete any comment" rights as
++    // project managers, except on personally-owned projects.
++    const isAdminBypass = currentUser.role === User.Roles.ADMIN && !project.ownerProjectManagerId;
+ 
+-    if (!isProjectManager) {
++    if (!isProjectManager && !isAdminBypass) {
+       if (comment.userId !== currentUser.id) {
+         throw Errors.NOT_ENOUGH_RIGHTS;
+       }
+diff --git a/server/api/controllers/comments/update.js b/server/api/controllers/comments/update.js
+index e7aa792..9a834bf 100755
+--- a/server/api/controllers/comments/update.js
++++ b/server/api/controllers/comments/update.js
+@@ -101,16 +101,21 @@ module.exports = {
+       throw Errors.COMMENT_NOT_FOUND; // Forbidden
+     }
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
+-
+-    if (!boardMembership) {
+-      throw Errors.COMMENT_NOT_FOUND; // Forbidden
+-    }
++    // BSY Media: project managers and admins can always edit their own
++    // comment, even without a real BoardMembership row; other users keep the
++    // existing editor-or-canComment rule.
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
++
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
++
++      if (!boardMembership) {
++        throw Errors.COMMENT_NOT_FOUND; // Forbidden
++      }
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+       if (!boardMembership.canComment) {
+         throw Errors.NOT_ENOUGH_RIGHTS;
+       }
+diff --git a/server/api/controllers/custom-field-groups/create-in-board.js b/server/api/controllers/custom-field-groups/create-in-board.js
+index b3a0cc9..446a771 100644
+--- a/server/api/controllers/custom-field-groups/create-in-board.js
++++ b/server/api/controllers/custom-field-groups/create-in-board.js
+@@ -127,17 +127,15 @@ module.exports = {
+       .getPathToProjectById(inputs.boardId)
+       .intercept('pathNotFound', () => Errors.BOARD_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.BOARD_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.BOARD_NOT_FOUND;
+     }
+ 
+     let baseCustomFieldGroup;
+diff --git a/server/api/controllers/custom-field-groups/create-in-card.js b/server/api/controllers/custom-field-groups/create-in-card.js
+index 51536eb..173d9cd 100644
+--- a/server/api/controllers/custom-field-groups/create-in-card.js
++++ b/server/api/controllers/custom-field-groups/create-in-card.js
+@@ -127,17 +127,15 @@ module.exports = {
+       .getPathToProjectById(inputs.cardId)
+       .intercept('pathNotFound', () => Errors.CARD_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.CARD_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CARD_NOT_FOUND;
+     }
+ 
+     let baseCustomFieldGroup;
+diff --git a/server/api/controllers/custom-field-groups/delete.js b/server/api/controllers/custom-field-groups/delete.js
+index 0410346..b3ec118 100755
+--- a/server/api/controllers/custom-field-groups/delete.js
++++ b/server/api/controllers/custom-field-groups/delete.js
+@@ -80,17 +80,15 @@ module.exports = {
+     let { customFieldGroup } = pathToProject;
+     const { card, list, board, project } = pathToProject;
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.CUSTOM_FIELD_GROUP_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CUSTOM_FIELD_GROUP_NOT_FOUND;
+     }
+ 
+     if (customFieldGroup.boardId) {
+diff --git a/server/api/controllers/custom-field-groups/update.js b/server/api/controllers/custom-field-groups/update.js
+index 3d396d1..23be97a 100755
+--- a/server/api/controllers/custom-field-groups/update.js
++++ b/server/api/controllers/custom-field-groups/update.js
+@@ -116,17 +116,15 @@ module.exports = {
+     let { customFieldGroup } = pathToProject;
+     const { card, list, board, project } = pathToProject;
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.CUSTOM_FIELD_GROUP_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CUSTOM_FIELD_GROUP_NOT_FOUND;
+     }
+ 
+     const values = _.pick(inputs, ['position', 'name']);
+diff --git a/server/api/controllers/custom-field-values/create-or-update.js b/server/api/controllers/custom-field-values/create-or-update.js
+index cc087ce..e3da8df 100644
+--- a/server/api/controllers/custom-field-values/create-or-update.js
++++ b/server/api/controllers/custom-field-values/create-or-update.js
+@@ -130,17 +130,15 @@ module.exports = {
+       .getPathToProjectById(inputs.cardId)
+       .intercept('pathNotFound', () => Errors.CARD_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.CARD_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CARD_NOT_FOUND;
+     }
+ 
+     const customFieldGroup = await CustomFieldGroup.qm.getOneById(inputs.customFieldGroupId);
+diff --git a/server/api/controllers/custom-field-values/delete.js b/server/api/controllers/custom-field-values/delete.js
+index ea87548..4f49391 100644
+--- a/server/api/controllers/custom-field-values/delete.js
++++ b/server/api/controllers/custom-field-values/delete.js
+@@ -111,17 +111,15 @@ module.exports = {
+       .getPathToProjectById(inputs.cardId)
+       .intercept('pathNotFound', () => Errors.CARD_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.CARD_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CARD_NOT_FOUND;
+     }
+ 
+     const customFieldGroup = await CustomFieldGroup.qm.getOneById(inputs.customFieldGroupId);
+diff --git a/server/api/controllers/custom-fields/create-in-custom-field-group.js b/server/api/controllers/custom-fields/create-in-custom-field-group.js
+index 7da4f73..a5298ac 100644
+--- a/server/api/controllers/custom-fields/create-in-custom-field-group.js
++++ b/server/api/controllers/custom-fields/create-in-custom-field-group.js
+@@ -114,17 +114,15 @@ module.exports = {
+       .getPathToProjectById(inputs.customFieldGroupId)
+       .intercept('pathNotFound', () => Errors.CUSTOM_FIELD_GROUP_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.CUSTOM_FIELD_GROUP_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CUSTOM_FIELD_GROUP_NOT_FOUND;
+     }
+ 
+     const values = _.pick(inputs, ['position', 'name', 'showOnFrontOfCard']);
+diff --git a/server/api/controllers/custom-fields/delete.js b/server/api/controllers/custom-fields/delete.js
+index f1804e0..4abf034 100755
+--- a/server/api/controllers/custom-fields/delete.js
++++ b/server/api/controllers/custom-fields/delete.js
+@@ -98,17 +98,15 @@ module.exports = {
+         request: this.req,
+       });
+     } else if (customField.customFieldGroupId) {
+-      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-        board.id,
+-        currentUser.id,
+-      );
++      const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-      if (!boardMembership) {
+-        throw Errors.CUSTOM_FIELD_NOT_FOUND; // Forbidden
+-      }
++      if (!isBoardEditor) {
++        const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++          board.id,
++          currentUser.id,
++        );
+ 
+-      if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-        throw Errors.NOT_ENOUGH_RIGHTS;
++        throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CUSTOM_FIELD_NOT_FOUND;
+       }
+ 
+       customField = await sails.helpers.customFields.deleteOneInCustomFieldGroup.with({
+diff --git a/server/api/controllers/custom-fields/update.js b/server/api/controllers/custom-fields/update.js
+index b2059fd..6c7e34b 100755
+--- a/server/api/controllers/custom-fields/update.js
++++ b/server/api/controllers/custom-fields/update.js
+@@ -134,17 +134,15 @@ module.exports = {
+         request: this.req,
+       });
+     } else if (customField.customFieldGroupId) {
+-      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-        board.id,
+-        currentUser.id,
+-      );
++      const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-      if (!boardMembership) {
+-        throw Errors.CUSTOM_FIELD_NOT_FOUND; // Forbidden
+-      }
++      if (!isBoardEditor) {
++        const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++          board.id,
++          currentUser.id,
++        );
+ 
+-      if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-        throw Errors.NOT_ENOUGH_RIGHTS;
++        throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CUSTOM_FIELD_NOT_FOUND;
+       }
+ 
+       customField = await sails.helpers.customFields.updateOneInCustomFieldGroup.with({
+diff --git a/server/api/controllers/labels/create.js b/server/api/controllers/labels/create.js
+index 9aa1427..b9025a7 100755
+--- a/server/api/controllers/labels/create.js
++++ b/server/api/controllers/labels/create.js
+@@ -119,17 +119,15 @@ module.exports = {
+       .getPathToProjectById(inputs.boardId)
+       .intercept('pathNotFound', () => Errors.BOARD_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.BOARD_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.BOARD_NOT_FOUND;
+     }
+ 
+     const values = _.pick(inputs, ['position', 'name', 'color']);
+diff --git a/server/api/controllers/labels/delete.js b/server/api/controllers/labels/delete.js
+index 89fb048..9230460 100755
+--- a/server/api/controllers/labels/delete.js
++++ b/server/api/controllers/labels/delete.js
+@@ -80,17 +80,15 @@ module.exports = {
+     let { label } = pathToProject;
+     const { board, project } = pathToProject;
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.LABEL_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.LABEL_NOT_FOUND;
+     }
+ 
+     label = await sails.helpers.labels.deleteOne.with({
+diff --git a/server/api/controllers/labels/update.js b/server/api/controllers/labels/update.js
+index 7565ee2..3ce026a 100755
+--- a/server/api/controllers/labels/update.js
++++ b/server/api/controllers/labels/update.js
+@@ -117,17 +117,15 @@ module.exports = {
+     let { label } = pathToProject;
+     const { board, project } = pathToProject;
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.LABEL_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.LABEL_NOT_FOUND;
+     }
+ 
+     const values = _.pick(inputs, ['position', 'name', 'color']);
+diff --git a/server/api/controllers/lists/clear.js b/server/api/controllers/lists/clear.js
+index 6413cc2..52525ac 100644
+--- a/server/api/controllers/lists/clear.js
++++ b/server/api/controllers/lists/clear.js
+@@ -77,21 +77,15 @@ module.exports = {
+       .getPathToProjectById(inputs.id)
+       .intercept('pathNotFound', () => Errors.LIST_NOT_FOUND);
+ 
+-    const isProjectManager = await sails.helpers.users.isProjectManager(currentUser.id, project.id);
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!isProjectManager) {
++    if (!isBoardEditor) {
+       const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+         board.id,
+         currentUser.id,
+       );
+ 
+-      if (!boardMembership) {
+-        throw Errors.LIST_NOT_FOUND; // Forbidden
+-      }
+-
+-      if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-        throw Errors.NOT_ENOUGH_RIGHTS;
+-      }
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.LIST_NOT_FOUND;
+     }
+ 
+     // TODO: allow for other types?
+diff --git a/server/api/controllers/lists/create.js b/server/api/controllers/lists/create.js
+index 0c76f46..2f97b4b 100755
+--- a/server/api/controllers/lists/create.js
++++ b/server/api/controllers/lists/create.js
+@@ -118,17 +118,15 @@ module.exports = {
+       .getPathToProjectById(inputs.boardId)
+       .intercept('pathNotFound', () => Errors.BOARD_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.BOARD_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.BOARD_NOT_FOUND;
+     }
+ 
+     const values = _.pick(inputs, ['type', 'position', 'name']);
+diff --git a/server/api/controllers/lists/delete.js b/server/api/controllers/lists/delete.js
+index 2568228..c1737fa 100755
+--- a/server/api/controllers/lists/delete.js
++++ b/server/api/controllers/lists/delete.js
+@@ -91,20 +91,18 @@ module.exports = {
+     let { list } = pathToProject;
+     const { board, project } = pathToProject;
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.LIST_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (!sails.helpers.lists.isKanban(list)) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.LIST_NOT_FOUND;
+     }
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
++    if (!sails.helpers.lists.isKanban(list)) {
+       throw Errors.NOT_ENOUGH_RIGHTS;
+     }
+ 
+diff --git a/server/api/controllers/lists/move-cards.js b/server/api/controllers/lists/move-cards.js
+index 762cf20..0f12855 100644
+--- a/server/api/controllers/lists/move-cards.js
++++ b/server/api/controllers/lists/move-cards.js
+@@ -111,13 +111,15 @@ module.exports = {
+       .getPathToProjectById(inputs.id)
+       .intercept('pathNotFound', () => Errors.LIST_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.LIST_NOT_FOUND; // Forbidden
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
++
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.LIST_NOT_FOUND;
+     }
+ 
+     // TODO: allow for other types?
+@@ -125,10 +127,6 @@ module.exports = {
+       throw Errors.NOT_ENOUGH_RIGHTS;
+     }
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
+-    }
+-
+     const nextList = await List.qm.getOneById(inputs.listId, {
+       boardId: board.id,
+     });
+diff --git a/server/api/controllers/lists/sort.js b/server/api/controllers/lists/sort.js
+index 93fed34..6057c69 100644
+--- a/server/api/controllers/lists/sort.js
++++ b/server/api/controllers/lists/sort.js
+@@ -121,17 +121,15 @@ module.exports = {
+       .getPathToProjectById(inputs.id)
+       .intercept('pathNotFound', () => Errors.LIST_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.LIST_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.LIST_NOT_FOUND;
+     }
+ 
+     const options = _.pick(inputs, ['fieldName', 'order']);
+diff --git a/server/api/controllers/lists/update.js b/server/api/controllers/lists/update.js
+index 756a803..8dca673 100755
+--- a/server/api/controllers/lists/update.js
++++ b/server/api/controllers/lists/update.js
+@@ -137,20 +137,18 @@ module.exports = {
+     let { list } = pathToProject;
+     const { board, project } = pathToProject;
+ 
+-    let boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.LIST_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (!sails.helpers.lists.isKanban(list)) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.LIST_NOT_FOUND;
+     }
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
++    if (!sails.helpers.lists.isKanban(list)) {
+       throw Errors.NOT_ENOUGH_RIGHTS;
+     }
+ 
+@@ -162,17 +160,18 @@ module.exports = {
+         .getPathToProjectById(inputs.boardId)
+         .intercept('pathNotFound', () => Errors.BOARD_NOT_FOUND));
+ 
+-      boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-        nextBoard.id,
++      const isNextBoardEditor = await sails.helpers.users.isBoardEditor(
+         currentUser.id,
++        nextBoard.id,
+       );
+ 
+-      if (!boardMembership) {
+-        throw Errors.BOARD_NOT_FOUND; // Forbidden
+-      }
++      if (!isNextBoardEditor) {
++        const nextBoardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++          nextBoard.id,
++          currentUser.id,
++        );
+ 
+-      if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-        throw Errors.NOT_ENOUGH_RIGHTS;
++        throw nextBoardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.BOARD_NOT_FOUND;
+       }
+     }
+ 
+diff --git a/server/api/controllers/task-lists/create.js b/server/api/controllers/task-lists/create.js
+index 4cb1c14..e6853cc 100755
+--- a/server/api/controllers/task-lists/create.js
++++ b/server/api/controllers/task-lists/create.js
+@@ -121,17 +121,15 @@ module.exports = {
+       .getPathToProjectById(inputs.cardId)
+       .intercept('pathNotFound', () => Errors.CARD_NOT_FOUND);
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.CARD_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CARD_NOT_FOUND;
+     }
+ 
+     const values = _.pick(inputs, ['position', 'name', 'showOnFrontOfCard', 'hideCompletedTasks']);
+diff --git a/server/api/controllers/task-lists/delete.js b/server/api/controllers/task-lists/delete.js
+index c251b7e..53a405d 100755
+--- a/server/api/controllers/task-lists/delete.js
++++ b/server/api/controllers/task-lists/delete.js
+@@ -80,17 +80,15 @@ module.exports = {
+     let { taskList } = pathToProject;
+     const { card, list, board, project } = pathToProject;
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.TASK_LIST_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.TASK_LIST_NOT_FOUND;
+     }
+ 
+     taskList = await sails.helpers.taskLists.deleteOne.with({
+diff --git a/server/api/controllers/task-lists/update.js b/server/api/controllers/task-lists/update.js
+index 7b82b77..c116c5d 100755
+--- a/server/api/controllers/task-lists/update.js
++++ b/server/api/controllers/task-lists/update.js
+@@ -120,17 +120,15 @@ module.exports = {
+     let { taskList } = pathToProject;
+     const { card, list, board, project } = pathToProject;
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.TASK_LIST_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.TASK_LIST_NOT_FOUND;
+     }
+ 
+     const values = _.pick(inputs, ['position', 'name', 'showOnFrontOfCard', 'hideCompletedTasks']);
+diff --git a/server/api/controllers/tasks/create.js b/server/api/controllers/tasks/create.js
+index 00acba6..a661bf6 100755
+--- a/server/api/controllers/tasks/create.js
++++ b/server/api/controllers/tasks/create.js
+@@ -134,17 +134,15 @@ module.exports = {
+       .getPathToProjectById(inputs.taskListId)
+       .intercept('pathNotFound', () => Errors.TASK_LIST_NOT_FOUND);
+ 
+-    let boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.TASK_LIST_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.TASK_LIST_NOT_FOUND;
+     }
+ 
+     let linkedCard;
+@@ -162,7 +160,7 @@ module.exports = {
+         );
+ 
+         if (!isProjectManager) {
+-          boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++          const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+             linkedCard.boardId,
+             currentUser.id,
+           );
+diff --git a/server/api/controllers/tasks/delete.js b/server/api/controllers/tasks/delete.js
+index cec5b14..68f28bf 100755
+--- a/server/api/controllers/tasks/delete.js
++++ b/server/api/controllers/tasks/delete.js
+@@ -80,17 +80,15 @@ module.exports = {
+     let { task } = pathToProject;
+     const { taskList, card, list, board, project } = pathToProject;
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.TASK_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.TASK_NOT_FOUND;
+     }
+ 
+     task = await sails.helpers.tasks.deleteOne.with({
+diff --git a/server/api/controllers/tasks/update.js b/server/api/controllers/tasks/update.js
+index c9f4736..1aec85e 100755
+--- a/server/api/controllers/tasks/update.js
++++ b/server/api/controllers/tasks/update.js
+@@ -139,17 +139,15 @@ module.exports = {
+     let { task } = pathToProject;
+     const { taskList, card, list, board, project } = pathToProject;
+ 
+-    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
+-      board.id,
+-      currentUser.id,
+-    );
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
+ 
+-    if (!boardMembership) {
+-      throw Errors.TASK_NOT_FOUND; // Forbidden
+-    }
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
+ 
+-    if (boardMembership.role !== BoardMembership.Roles.EDITOR) {
+-      throw Errors.NOT_ENOUGH_RIGHTS;
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.TASK_NOT_FOUND;
+     }
+ 
+     if (task.linkedCardId) {
+diff --git a/server/api/helpers/users/is-board-editor.js b/server/api/helpers/users/is-board-editor.js
+new file mode 100644
+index 0000000..820868a
+--- /dev/null
++++ b/server/api/helpers/users/is-board-editor.js
+@@ -0,0 +1,42 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++// BSY Media: project managers and instance admins get automatic editor
++// rights on every board in their scope, without needing an explicit
++// BoardMembership row. Mirrors the existing read-access bypass in
++// boards/show.js (admins are excluded from personally-owned projects,
++// matching that same nuance).
++module.exports = {
++  inputs: {
++    id: {
++      type: 'string',
++      required: true,
++    },
++    boardId: {
++      type: 'string',
++      required: true,
++    },
++  },
++
++  async fn(inputs) {
++    const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++      inputs.boardId,
++      inputs.id,
++    );
++
++    if (boardMembership && boardMembership.role === BoardMembership.Roles.EDITOR) {
++      return true;
++    }
++
++    const { project } = await sails.helpers.boards.getPathToProjectById(inputs.boardId);
++    const user = await User.qm.getOneById(inputs.id);
++
++    if (user.role === User.Roles.ADMIN && !project.ownerProjectManagerId) {
++      return true;
++    }
++
++    return sails.helpers.users.isProjectManager(inputs.id, project.id);
++  },
++};

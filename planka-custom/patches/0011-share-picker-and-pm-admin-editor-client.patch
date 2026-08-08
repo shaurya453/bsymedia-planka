@@ -1,0 +1,130 @@
+diff --git a/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.jsx b/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.jsx
+index 98a2301..d165f20 100644
+--- a/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.jsx
++++ b/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.jsx
+@@ -13,7 +13,6 @@ import selectors from '../../../../selectors';
+ import entryActions from '../../../../entry-actions';
+ import { useField, useNestedRef, useSteps } from '../../../../hooks';
+ import { isUserAdminOrProjectOwner } from '../../../../utils/record-helpers';
+-import { UserRoles } from '../../../../constants/Enums';
+ import User from './User';
+ import SelectPermissionsStep from '../SelectPermissionsStep';
+ 
+@@ -23,6 +22,11 @@ const StepTypes = {
+   SELECT_PERMISSIONS: 'SELECT_PERMISSIONS',
+ };
+ 
++// BSY Media: the two operational accounts created/used internally by this
++// deployment - not real people, so they're excluded from the add-member
++// picker regardless of their instance role.
++const HIDDEN_SYSTEM_ACCOUNT_EMAILS = ['admin@planka.local', 'invite-service@planka.local'];
++
+ const AddStep = React.memo(({ onClose }) => {
+   const users = useSelector((state) => {
+     const user = selectors.selectCurrentUser(state);
+@@ -31,12 +35,13 @@ const AddStep = React.memo(({ onClose }) => {
+       return [user];
+     }
+ 
+-    // BSY Media: hide admin-role accounts (the bootstrapped instance admin
+-    // and the invite-service bot) from the board-share picker - they're
+-    // operational accounts, not people to add to a board.
++    // BSY Media: hide only the known operational/bot accounts from the
++    // board-share picker - NOT every admin-role user, since real client
++    // admins (e.g. project managers who are also instance admins) need to
++    // be addable like anyone else.
+     return selectors
+       .selectActiveUsers(state)
+-      .filter((activeUser) => activeUser.role !== UserRoles.ADMIN);
++      .filter((activeUser) => !HIDDEN_SYSTEM_ACCOUNT_EMAILS.includes(activeUser.email));
+   });
+ 
+   const currentUserIds = useSelector(selectors.selectMemberUserIdsForCurrentBoard);
+diff --git a/client/src/selectors/boards.js b/client/src/selectors/boards.js
+index 4d03849..4ee1828 100644
+--- a/client/src/selectors/boards.js
++++ b/client/src/selectors/boards.js
+@@ -10,7 +10,34 @@ import { selectPath } from './router';
+ import { selectCurrentUserId } from './users';
+ import { isLocalId } from '../utils/local-id';
+ import { isListArchiveOrTrash } from '../utils/record-helpers';
+-import { ListTypes } from '../constants/Enums';
++import { ListTypes, BoardMembershipRoles } from '../constants/Enums';
++
++// BSY Media: project managers and instance admins are always treated as
++// board editors, even without a real BoardMembership row - mirrors the
++// equivalent server-side helper (sails.helpers.users.isBoardEditor).
++// Board.project.isExternalAccessibleForUser already implements the exact
++// admin/manager rule we need, so we reuse it instead of duplicating it.
++const getEffectiveMembershipModel = (boardModel, currentUserId, User) => {
++  const boardMembershipModel = boardModel.getMembershipModelByUserId(currentUserId);
++
++  if (boardMembershipModel) {
++    return boardMembershipModel.ref;
++  }
++
++  const currentUserModel = User.withId(currentUserId);
++
++  if (currentUserModel && boardModel.project.isExternalAccessibleForUser(currentUserModel)) {
++    return {
++      boardId: boardModel.id,
++      projectId: boardModel.project.id,
++      userId: currentUserId,
++      role: BoardMembershipRoles.EDITOR,
++      canComment: null,
++    };
++  }
++
++  return undefined;
++};
+ 
+ export const makeSelectBoardById = () =>
+   createSelector(
+@@ -38,7 +65,7 @@ export const makeSelectCurrentUserMembershipByBoardId = () =>
+     orm,
+     (_, id) => id,
+     (state) => selectCurrentUserId(state),
+-    ({ Board }, id, currentUserId) => {
++    ({ Board, User }, id, currentUserId) => {
+       if (!id) {
+         return id;
+       }
+@@ -49,13 +76,7 @@ export const makeSelectCurrentUserMembershipByBoardId = () =>
+         return boardModel;
+       }
+ 
+-      const boardMembershipModel = boardModel.getMembershipModelByUserId(currentUserId);
+-
+-      if (!boardMembershipModel) {
+-        return boardMembershipModel;
+-      }
+-
+-      return boardMembershipModel.ref;
++      return getEffectiveMembershipModel(boardModel, currentUserId, User);
+     },
+   );
+ 
+@@ -184,7 +205,7 @@ export const selectCurrentUserMembershipForCurrentBoard = createSelector(
+   orm,
+   (state) => selectPath(state).boardId,
+   (state) => selectCurrentUserId(state),
+-  ({ Board }, id, currentUserId) => {
++  ({ Board, User }, id, currentUserId) => {
+     if (!id) {
+       return id;
+     }
+@@ -195,13 +216,7 @@ export const selectCurrentUserMembershipForCurrentBoard = createSelector(
+       return boardModel;
+     }
+ 
+-    const boardMembershipModel = boardModel.getMembershipModelByUserId(currentUserId);
+-
+-    if (!boardMembershipModel) {
+-      return boardMembershipModel;
+-    }
+-
+-    return boardMembershipModel.ref;
++    return getEffectiveMembershipModel(boardModel, currentUserId, User);
+   },
+ );
+ 
