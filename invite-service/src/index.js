@@ -8,15 +8,7 @@ const { OPS_DB_NAME, ensureOpsDatabaseExists, ensureSchema } = require('./db');
 const planka = require('./planka');
 const { sendInviteEmail } = require('./mailer');
 const { ensureCsrfToken, verifyCsrfToken } = require('./csrf');
-const {
-  loginPage,
-  invitePage,
-  joinPage,
-  assignPage,
-  acceptPage,
-  acceptSuccessPage,
-  messagePage,
-} = require('./templates');
+const { acceptPage, acceptSuccessPage, messagePage } = require('./templates');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_URL = process.env.PUBLIC_URL; // e.g. https://bsymedia.duckdns.org
@@ -53,6 +45,11 @@ async function main() {
   app.set('trust proxy', 1);
   app.use(express.urlencoded({ extended: false }));
   app.use(
+    // BSY Media: kept only for /accept/:token's CSRF token storage below -
+    // the admin-login-gated HTML pages that used to need this (send,
+    // join, assign) have all been superseded by PLANKA's own React UI
+    // (Share modal's invite-by-email, the login page's sign-up toggle) and
+    // removed. See CLAUDE.md for the full before/after.
     session({
       store: new pgSession({ pool, tableName: 'session', createTableIfMissing: true }),
       secret: process.env.SESSION_SECRET,
@@ -62,216 +59,120 @@ async function main() {
     }),
   );
 
-  function requireAdmin(req, res, next) {
-    if (!req.session.adminToken || req.session.adminRole !== 'admin') {
-      return res.redirect(`${BASE_PATH}/login`);
-    }
-    return next();
+  // Shared by the JSON /api/send route below - generates the token, stores
+  // the invite row, and emails the link. Board lookup/resolution and
+  // authorization are the caller's own job.
+  async function createAndSendInvite({ email, board, boardRole, inviterEmail }) {
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+
+    await pool.query(
+      `INSERT INTO invites (token_hash, email, board_id, board_name, board_role, invited_by_email, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [tokenHash, email, board.id, board.name, boardRole, inviterEmail, expiresAt],
+    );
+
+    const acceptUrl = `${PUBLIC_URL}${BASE_PATH}/accept/${rawToken}`;
+    await sendInviteEmail({
+      to: email,
+      boardName: board.name,
+      inviterEmail,
+      acceptUrl,
+      expiresAt,
+    });
   }
 
-  // --- Admin auth ---
+  // --- JSON invite API (Bearer-token auth via the caller's own PLANKA
+  // access token, read directly by the PLANKA React client's Share modal -
+  // no invite-service login of any kind needed) ---
 
-  app.get('/login', (req, res) => {
-    res.send(loginPage({ error: req.query.error, csrfToken: ensureCsrfToken(req) }));
-  });
+  app.post('/api/send', express.json(), async (req, res) => {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
 
-  app.post('/login', async (req, res) => {
-    if (!verifyCsrfToken(req, req.body._csrf)) {
-      return res.status(403).send(messagePage('Expired form', 'Please go back and try again.'));
+    if (!token) {
+      return res.status(401).json({ error: 'Missing bearer token.' });
     }
 
-    const { emailOrUsername, password } = req.body;
-    try {
-      const token = await planka.login(emailOrUsername, password);
-      const me = await planka.getMe(token);
+    const { email, boardId, boardRole } = req.body || {};
 
-      if (me.role !== 'admin') {
-        return res.redirect(
-          `${BASE_PATH}/login?error=${encodeURIComponent('Only PLANKA admins can send invites.')}`,
-        );
+    if (!email || !boardId || !['editor', 'viewer'].includes(boardRole)) {
+      return res.status(400).json({ error: 'All fields are required.' });
+    }
+
+    let me;
+    try {
+      me = await planka.getMe(token);
+    } catch (error) {
+      return res.status(401).json({ error: 'Invalid or expired session - log into PLANKA again.' });
+    }
+
+    try {
+      const authContext = await planka.getBoardAuthContext(boardId, token);
+
+      if (!authContext) {
+        return res.status(404).json({ error: 'That board no longer exists.' });
       }
 
-      req.session.adminToken = token;
-      req.session.adminRole = me.role;
-      req.session.adminEmail = me.email;
-      // Trailing slash matters: Caddy's `handle_path /invite/*` only
-      // matches with it; `/invite` alone falls through to PLANKA's own
-      // catch-all SPA route instead (see BASE_PATH comment above).
-      return res.redirect(`${BASE_PATH}/`);
-    } catch (error) {
-      return res.redirect(`${BASE_PATH}/login?error=${encodeURIComponent(error.message)}`);
-    }
-  });
+      const { board, project, projectManagers } = authContext;
 
-  app.get('/logout', (req, res) => {
-    req.session.destroy(() => res.redirect(`${BASE_PATH}/login`));
-  });
-
-  // --- Invite creation (admin only) ---
-
-  app.get('/', requireAdmin, async (req, res) => {
-    try {
-      const boards = await planka.listBoards(req.session.adminToken);
-      res.send(
-        invitePage({
-          boards,
-          csrfToken: ensureCsrfToken(req),
-          adminEmail: req.session.adminEmail,
-          error: req.query.error,
-          success: req.query.success,
-          joinUrl: `${PUBLIC_URL}${BASE_PATH}/join`,
-        }),
+      // Mirrors PLANKA's own board-memberships/create.js gate (project
+      // manager required) plus the admin-bypass-except-personal-projects
+      // rule already established elsewhere in this deployment - kept
+      // consistent rather than inventing a third authorization rule.
+      const isManager = projectManagers.some(
+        (pm) => pm.userId === me.id && pm.projectId === project.id,
       );
+      const isAdminBypass = me.role === 'admin' && !project.ownerProjectManagerId;
+
+      if (!isManager && !isAdminBypass) {
+        return res.status(403).json({ error: 'Not enough rights.' });
+      }
+
+      await createAndSendInvite({ email, board, boardRole, inviterEmail: me.email });
+
+      return res.json({ success: true });
     } catch (error) {
-      res.status(500).send(messagePage('Error', `Could not load boards: ${error.message}`));
+      return res.status(500).json({ error: `Could not send invite: ${error.message}` });
     }
   });
 
-  // --- Self-signup (public, no gate by design - see CLAUDE.md) ---
+  // --- JSON self-signup API (public, no auth by design - same trade-off
+  // as the old /invite/join page it replaces: no passphrase/domain gate,
+  // deliberate choice for an internal tool, see CLAUDE.md. Now reachable
+  // directly from PLANKA's own login page via the "New user? Sign up"
+  // toggle instead of a separate webpage) ---
 
-  app.get('/join', (req, res) => {
-    res.send(joinPage({ error: req.query.error, csrfToken: ensureCsrfToken(req) }));
-  });
+  app.post('/api/join', express.json(), async (req, res) => {
+    const { name, email, password } = req.body || {};
 
-  app.post('/join', async (req, res) => {
-    if (!verifyCsrfToken(req, req.body._csrf)) {
-      return res.status(403).send(messagePage('Expired form', 'Please go back and try again.'));
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'All fields are required.' });
     }
 
-    const { name, email, password, passwordConfirm } = req.body;
-    const redirectWithError = (msg) =>
-      res.redirect(`${BASE_PATH}/join?error=${encodeURIComponent(msg)}`);
-
-    if (!name || !email || !password) return redirectWithError('All fields are required.');
-    if (password.length < 8) return redirectWithError('Password must be at least 8 characters.');
-    if (password !== passwordConfirm) return redirectWithError('Passwords do not match.');
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+    }
 
     try {
-      // Same rationale as the invite-accept flow: the visitor has no PLANKA
-      // session, so account creation goes through the dedicated service
-      // account rather than requiring an admin to be present.
+      // Same rationale as the invite-accept flow below: the visitor has no
+      // PLANKA session, so account creation goes through the dedicated
+      // service account rather than requiring an admin to be present.
       const serviceToken = await planka.login(
         process.env.PLANKA_SERVICE_EMAIL,
         process.env.PLANKA_SERVICE_PASSWORD,
       );
       await planka.createUser({ email, password, name }, serviceToken);
-      res.send(acceptSuccessPage(PLANKA_PUBLIC_URL));
-    } catch (err) {
-      redirectWithError(`Could not create your account: ${err.message}`);
-    }
-  });
 
-  // --- Batch-assign users to boards (admin only) ---
-
-  app.get('/assign', requireAdmin, async (req, res) => {
-    try {
-      const [users, boards] = await Promise.all([
-        planka.listUsers(req.session.adminToken),
-        planka.listBoards(req.session.adminToken),
-      ]);
-      res.send(
-        assignPage({
-          users,
-          boards,
-          csrfToken: ensureCsrfToken(req),
-          adminEmail: req.session.adminEmail,
-          error: req.query.error,
-          success: req.query.success,
-        }),
-      );
+      return res.json({ success: true });
     } catch (error) {
-      res.status(500).send(messagePage('Error', `Could not load users/boards: ${error.message}`));
+      return res.status(500).json({ error: `Could not create your account: ${error.message}` });
     }
   });
 
-  app.post('/assign', requireAdmin, async (req, res) => {
-    if (!verifyCsrfToken(req, req.body._csrf)) {
-      return res.status(403).send(messagePage('Expired form', 'Please go back and try again.'));
-    }
-
-    const { boardRole } = req.body;
-    const userIds = [].concat(req.body.userIds || []);
-    const boardIds = [].concat(req.body.boardIds || []);
-
-    if (userIds.length === 0 || boardIds.length === 0 || !['editor', 'viewer'].includes(boardRole)) {
-      return res.redirect(
-        `${BASE_PATH}/assign?error=${encodeURIComponent('Select at least one user and one board.')}`,
-      );
-    }
-
-    let added = 0;
-    let skipped = 0;
-    for (const userId of userIds) {
-      for (const boardId of boardIds) {
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          await planka.createBoardMembership(boardId, userId, boardRole, req.session.adminToken);
-          added += 1;
-        } catch (err) {
-          // Most common cause: already a member of that board (409 conflict)
-          // - not worth aborting the whole batch over.
-          skipped += 1;
-        }
-      }
-    }
-
-    return res.redirect(
-      `${BASE_PATH}/assign?success=${encodeURIComponent(
-        `Added ${added} membership(s)${skipped ? `, skipped ${skipped} (already a member or error)` : ''}.`,
-      )}`,
-    );
-  });
-
-  app.post('/send', requireAdmin, async (req, res) => {
-    if (!verifyCsrfToken(req, req.body._csrf)) {
-      return res.status(403).send(messagePage('Expired form', 'Please go back and try again.'));
-    }
-
-    const { email, boardId, boardRole } = req.body;
-
-    if (!email || !boardId || !['editor', 'viewer'].includes(boardRole)) {
-      return res.redirect(`${BASE_PATH}/?error=${encodeURIComponent('All fields are required.')}`);
-    }
-
-    try {
-      const boards = await planka.listBoards(req.session.adminToken);
-      const board = boards.find((b) => b.id === boardId);
-      if (!board) {
-        return res.redirect(
-          `${BASE_PATH}/?error=${encodeURIComponent('That board no longer exists.')}`,
-        );
-      }
-
-      const rawToken = crypto.randomBytes(32).toString('hex');
-      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-      const expiresAt = new Date(Date.now() + INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
-
-      await pool.query(
-        `INSERT INTO invites (token_hash, email, board_id, board_name, board_role, invited_by_email, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [tokenHash, email, board.id, board.name, boardRole, req.session.adminEmail, expiresAt],
-      );
-
-      const acceptUrl = `${PUBLIC_URL}${BASE_PATH}/accept/${rawToken}`;
-      await sendInviteEmail({
-        to: email,
-        boardName: board.name,
-        inviterEmail: req.session.adminEmail,
-        acceptUrl,
-        expiresAt,
-      });
-
-      return res.redirect(
-        `${BASE_PATH}/?success=${encodeURIComponent(`Invite sent to ${email}.`)}`,
-      );
-    } catch (error) {
-      return res.redirect(
-        `${BASE_PATH}/?error=${encodeURIComponent(`Could not send invite: ${error.message}`)}`,
-      );
-    }
-  });
-
-  // --- Accept flow (public, token-gated) ---
+  // --- Accept flow (public, token-gated - still the landing page for
+  // every emailed invite link, old and new) ---
 
   async function getValidInvite(token) {
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');

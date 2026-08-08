@@ -54,25 +54,6 @@ async function getMe(token) {
   return data.item;
 }
 
-// Returns [{ id, name, projectName, projectId }] for every board the admin
-// can see, for the invite form's board dropdown.
-async function listBoards(token) {
-  const data = await request('/api/projects', { token });
-  const boardsByProject = data.included && data.included.boards ? data.included.boards : [];
-
-  const projectNameById = {};
-  (data.items || []).forEach((project) => {
-    projectNameById[project.id] = project.name;
-  });
-
-  return boardsByProject.map((board) => ({
-    id: board.id,
-    name: board.name,
-    projectId: board.projectId,
-    projectName: projectNameById[board.projectId] || 'Unknown project',
-  }));
-}
-
 async function createUser({ email, password, name }, adminToken) {
   return request('/api/users', {
     method: 'POST',
@@ -94,17 +75,31 @@ async function createBoardMembership(boardId, userId, role, adminToken) {
   });
 }
 
-async function listUsers(token) {
-  const data = await request('/api/users', { token });
-  return data.items || [];
+// Returns { board, project, projectManagers } for one board id, fetched
+// with the CALLER's own token (not the service account) - used to
+// authorize board-scoped actions (e.g. the JSON invite-send route) without
+// a second API round-trip or the service account being involved at all.
+// `projectManagers` is every manager of `project`, for a caller-is-manager
+// check; `project.ownerProjectManagerId` mirrors the admin-bypass-except-
+// personal-projects rule already used elsewhere in this PLANKA deployment.
+async function getBoardAuthContext(boardId, token) {
+  const data = await request('/api/projects', { token });
+  const boardsByProject = data.included && data.included.boards ? data.included.boards : [];
+  const board = boardsByProject.find((b) => b.id === boardId);
+
+  if (!board) return null;
+
+  const project = (data.items || []).find((p) => p.id === board.projectId);
+  const projectManagers = (data.included && data.included.projectManagers) || [];
+
+  return { board, project, projectManagers };
 }
 
 module.exports = {
   PlankaApiError,
   login,
   getMe,
-  listBoards,
   createUser,
   createBoardMembership,
-  listUsers,
+  getBoardAuthContext,
 };

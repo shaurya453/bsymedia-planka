@@ -79,16 +79,10 @@ RUN python3 -m venv .venv \
   && mv public/index.ejs views \
   && npm config set update-notifier false
 
-# BSY Media: floating "Invite users" link to invite-service - patches only
-# the server-rendered HTML shell, not the compiled bundle.
-USER root
-COPY invite-button.html /tmp/invite-button.html
-RUN sed -i -e '/<div id="root"><\/div>/r /tmp/invite-button.html' /app/views/index.ejs \
-    && rm /tmp/invite-button.html
-
 # BSY Media: real Terms of Service content (TERMS_TYPE defaults to
 # "custom" upstream; without this file it silently falls back to the
 # "THIS IS ONLY A TEMPLATE" placeholder).
+USER root
 COPY --chown=node:node terms/custom /app/terms/custom
 USER node
 

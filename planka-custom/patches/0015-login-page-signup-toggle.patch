@@ -1,0 +1,423 @@
+diff --git a/client/src/components/common/Login/Content.jsx b/client/src/components/common/Login/Content.jsx
+index f06b84a..802043d 100644
+--- a/client/src/components/common/Login/Content.jsx
++++ b/client/src/components/common/Login/Content.jsx
+@@ -4,7 +4,7 @@
+  */
+ 
+ import isEmail from 'validator/lib/isEmail';
+-import React, { useCallback, useEffect, useMemo } from 'react';
++import React, { useCallback, useEffect, useMemo, useState } from 'react';
+ import classNames from 'classnames';
+ import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation, Trans } from 'react-i18next';
+@@ -19,6 +19,7 @@ import { useForm, useNestedRef } from '../../../hooks';
+ import { isUsername } from '../../../utils/validator';
+ import AccessTokenSteps from '../../../constants/AccessTokenSteps';
+ import TermsModal from './TermsModal';
++import SignUpForm from './SignUpForm';
+ 
+ import logo from '../../../assets/images/logo.png';
+ import bsyLogo from '../../../assets/images/bsy-logo.png';
+@@ -137,6 +138,28 @@ const Content = React.memo(() => {
+   const [emailOrUsernameFieldRef, handleEmailOrUsernameFieldRef] = useNestedRef('inputRef');
+   const [passwordFieldRef, handlePasswordFieldRef] = useNestedRef('inputRef');
+ 
++  // BSY Media: toggles between the login form and the self-signup form,
++  // replacing the separate invite-service /invite/join webpage.
++  const [isSignUp, setIsSignUp] = useState(false);
++  const [signUpSuccessEmail, setSignUpSuccessEmail] = useState(null);
++
++  const handleToggleModeClick = useCallback(() => {
++    setIsSignUp((prevIsSignUp) => !prevIsSignUp);
++    setSignUpSuccessEmail(null);
++  }, []);
++
++  const handleSignUpSuccess = useCallback(
++    (email) => {
++      setIsSignUp(false);
++      setSignUpSuccessEmail(email);
++      setData((prevData) => ({
++        ...prevData,
++        emailOrUsername: email,
++      }));
++    },
++    [setData],
++  );
++
+   const handleSubmit = useCallback(() => {
+     const cleanData = {
+       ...data,
+@@ -215,11 +238,19 @@ const Content = React.memo(() => {
+               <Header
+                 as="h2"
+                 textAlign="center"
+-                content={t('common.logIn', {
++                content={t(isSignUp ? 'common.signUp' : 'common.logIn', {
+                   context: 'title',
+                 })}
+                 className={styles.formSubtitle}
+               />
++              {signUpSuccessEmail && !isSignUp && (
++                <Message
++                  positive
++                  visible
++                  content={t('common.accountCreatedLogInBelow')}
++                  onDismiss={() => setSignUpSuccessEmail(null)}
++                />
++              )}
+               {message && (
+                 <Message
+                   {...{
+@@ -232,49 +263,60 @@ const Content = React.memo(() => {
+               )}
+               {!isOidcEnforced && (
+                 <>
+-                  <Form size="large" onSubmit={handleSubmit}>
+-                    <div className={styles.inputWrapper}>
+-                      <div className={styles.inputLabel}>{t('common.emailOrUsername')}</div>
+-                      <Input
++                  {isSignUp ? (
++                    <SignUpForm onSuccess={handleSignUpSuccess} />
++                  ) : (
++                    <Form size="large" onSubmit={handleSubmit}>
++                      <div className={styles.inputWrapper}>
++                        <div className={styles.inputLabel}>{t('common.emailOrUsername')}</div>
++                        <Input
++                          fluid
++                          ref={handleEmailOrUsernameFieldRef}
++                          name="emailOrUsername"
++                          value={data.emailOrUsername}
++                          maxLength={256}
++                          readOnly={isSubmitting}
++                          className={styles.input}
++                          onChange={handleFieldChange}
++                        />
++                      </div>
++                      <div className={styles.inputWrapper}>
++                        <div className={styles.inputLabel}>{t('common.password')}</div>
++                        <Input.Password
++                          fluid
++                          ref={handlePasswordFieldRef}
++                          name="password"
++                          value={data.password}
++                          maxLength={256}
++                          readOnly={isSubmitting}
++                          className={styles.input}
++                          onChange={handleFieldChange}
++                        />
++                      </div>
++                      <Form.Button
+                         fluid
+-                        ref={handleEmailOrUsernameFieldRef}
+-                        name="emailOrUsername"
+-                        value={data.emailOrUsername}
+-                        maxLength={256}
+-                        readOnly={isSubmitting}
+-                        className={styles.input}
+-                        onChange={handleFieldChange}
++                        primary
++                        icon="right arrow"
++                        labelPosition="right"
++                        content={t('action.logIn')}
++                        loading={isSubmitting}
++                        disabled={isSubmitting || isSubmittingWithOidc}
+                       />
+-                    </div>
+-                    <div className={styles.inputWrapper}>
+-                      <div className={styles.inputLabel}>{t('common.password')}</div>
+-                      <Input.Password
+-                        fluid
+-                        ref={handlePasswordFieldRef}
+-                        name="password"
+-                        value={data.password}
+-                        maxLength={256}
+-                        readOnly={isSubmitting}
+-                        className={styles.input}
+-                        onChange={handleFieldChange}
+-                      />
+-                    </div>
+-                    <Form.Button
+-                      fluid
+-                      primary
+-                      icon="right arrow"
+-                      labelPosition="right"
+-                      content={t('action.logIn')}
+-                      loading={isSubmitting}
+-                      disabled={isSubmitting || isSubmittingWithOidc}
+-                    />
+-                  </Form>
+-                  {withOidc && (
++                    </Form>
++                  )}
++                  <Button
++                    fluid
++                    basic
++                    content={t(isSignUp ? 'action.logIn' : 'action.newUserSignUp')}
++                    className={styles.toggleModeButton}
++                    onClick={handleToggleModeClick}
++                  />
++                  {withOidc && !isSignUp && (
+                     <Divider horizontal content={t('common.or')} className={styles.divider} />
+                   )}
+                 </>
+               )}
+-              {withOidc && (
++              {withOidc && !isSignUp && (
+                 <>
+                   <Button
+                     fluid
+diff --git a/client/src/components/common/Login/Content.module.scss b/client/src/components/common/Login/Content.module.scss
+index 22f4421..21be938 100644
+--- a/client/src/components/common/Login/Content.module.scss
++++ b/client/src/components/common/Login/Content.module.scss
+@@ -71,6 +71,21 @@
+     margin-bottom: 16px;
+   }
+ 
++  .passwordHint {
++    color: #6b808c;
++    font-size: 12px;
++    margin-top: 4px;
++  }
++
++  .toggleModeButton {
++    background: none;
++    color: #172b4d;
++    font-weight: bold;
++    padding: 0;
++    text-align: center;
++    text-decoration: underline;
++  }
++
+   .login {
+     display: flex;
+     flex-direction: column;
+diff --git a/client/src/components/common/Login/SignUpForm.jsx b/client/src/components/common/Login/SignUpForm.jsx
+new file mode 100644
+index 0000000..8c7891c
+--- /dev/null
++++ b/client/src/components/common/Login/SignUpForm.jsx
+@@ -0,0 +1,179 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import isEmail from 'validator/lib/isEmail';
++import React, { useCallback, useEffect, useState } from 'react';
++import PropTypes from 'prop-types';
++import { useTranslation } from 'react-i18next';
++import { Form, Message } from 'semantic-ui-react';
++import { Input } from '../../../lib/custom-ui';
++
++import { useForm, useNestedRef } from '../../../hooks';
++
++import styles from './Content.module.scss';
++
++// BSY Media: replaces the separate invite-service /invite/join webpage -
++// self-signup lives directly on PLANKA's own login page now, toggled via
++// the "New user? Sign up" button. Deliberately ungated (no passphrase/
++// domain restriction), same as the page it replaces - an internal-tool
++// trade-off, not an oversight (see CLAUDE.md).
++const SignUpForm = React.memo(({ onSuccess }) => {
++  const [t] = useTranslation();
++
++  const [data, handleFieldChange] = useForm({
++    name: '',
++    email: '',
++    password: '',
++    passwordConfirmation: '',
++  });
++
++  const [isSubmitting, setIsSubmitting] = useState(false);
++  const [error, setError] = useState(null);
++
++  const [nameFieldRef, handleNameFieldRef] = useNestedRef('inputRef');
++
++  useEffect(() => {
++    nameFieldRef.current.focus({
++      preventScroll: true,
++    });
++  }, [nameFieldRef]);
++
++  const handleSubmit = useCallback(() => {
++    const cleanData = {
++      name: data.name.trim(),
++      email: data.email.trim(),
++      password: data.password,
++    };
++
++    if (!cleanData.name || !cleanData.email || !cleanData.password) {
++      setError({
++        message: t('common.allFieldsAreRequired'),
++      });
++      return;
++    }
++
++    if (!isEmail(cleanData.email)) {
++      setError({
++        message: t('common.invalidEmail'),
++      });
++      return;
++    }
++
++    if (cleanData.password.length < 8) {
++      setError({
++        message: t('common.passwordMustBeAtLeast8Characters'),
++      });
++      return;
++    }
++
++    if (cleanData.password !== data.passwordConfirmation) {
++      setError({
++        message: t('common.passwordsDoNotMatch'),
++      });
++      return;
++    }
++
++    setError(null);
++    setIsSubmitting(true);
++
++    fetch('/invite/api/join', {
++      method: 'POST',
++      headers: {
++        'Content-Type': 'application/json',
++      },
++      body: JSON.stringify(cleanData),
++    })
++      .then((response) => response.json().then((body) => ({ ok: response.ok, body })))
++      .then(({ ok, body }) => {
++        setIsSubmitting(false);
++
++        if (!ok) {
++          setError({
++            message: body.error || t('common.unknownError'),
++          });
++          return;
++        }
++
++        onSuccess(cleanData.email);
++      })
++      .catch(() => {
++        setIsSubmitting(false);
++        setError({
++          message: t('common.serverConnectionFailed'),
++        });
++      });
++  }, [data, onSuccess, t]);
++
++  return (
++    <Form size="large" onSubmit={handleSubmit}>
++      {error && <Message error visible content={error.message} />}
++      <div className={styles.inputWrapper}>
++        <div className={styles.inputLabel}>{t('common.name')}</div>
++        <Input
++          fluid
++          ref={handleNameFieldRef}
++          name="name"
++          value={data.name}
++          maxLength={128}
++          readOnly={isSubmitting}
++          className={styles.input}
++          onChange={handleFieldChange}
++        />
++      </div>
++      <div className={styles.inputWrapper}>
++        <div className={styles.inputLabel}>{t('common.email')}</div>
++        <Input
++          fluid
++          name="email"
++          value={data.email}
++          maxLength={256}
++          readOnly={isSubmitting}
++          className={styles.input}
++          onChange={handleFieldChange}
++        />
++      </div>
++      <div className={styles.inputWrapper}>
++        <div className={styles.inputLabel}>{t('common.password')}</div>
++        <Input.Password
++          fluid
++          name="password"
++          value={data.password}
++          maxLength={256}
++          readOnly={isSubmitting}
++          className={styles.input}
++          onChange={handleFieldChange}
++        />
++        <div className={styles.passwordHint}>{t('common.passwordStrengthHint')}</div>
++      </div>
++      <div className={styles.inputWrapper}>
++        <div className={styles.inputLabel}>{t('common.confirmPassword')}</div>
++        <Input.Password
++          fluid
++          name="passwordConfirmation"
++          value={data.passwordConfirmation}
++          maxLength={256}
++          readOnly={isSubmitting}
++          className={styles.input}
++          onChange={handleFieldChange}
++        />
++      </div>
++      <Form.Button
++        fluid
++        primary
++        icon="right arrow"
++        labelPosition="right"
++        content={t('action.signUp')}
++        loading={isSubmitting}
++        disabled={isSubmitting}
++      />
++    </Form>
++  );
++});
++
++SignUpForm.propTypes = {
++  onSuccess: PropTypes.func.isRequired,
++};
++
++export default SignUpForm;
+diff --git a/client/src/locales/en-US/login.js b/client/src/locales/en-US/login.js
+index 7735457..c2b54c0 100644
+--- a/client/src/locales/en-US/login.js
++++ b/client/src/locales/en-US/login.js
+@@ -1,11 +1,15 @@
+ export default {
+   translation: {
+     common: {
++      accountCreatedLogInBelow: 'Account created — log in below.',
+       activeUsersLimitReached: 'Active users limit reached',
+       adminLoginRequiredToInitializeInstance: 'Admin login required to initialize instance',
++      allFieldsAreRequired: 'All fields are required.',
++      confirmPassword: 'Confirm password',
+       emailAlreadyInUse: 'E-mail already in use',
+       emailOrUsername: 'E-mail or username',
+       invalidCredentials: 'Invalid credentials',
++      invalidEmail: 'Invalid e-mail',
+       invalidEmailOrUsername: 'Invalid e-mail or username',
+       invalidPassword: 'Invalid password',
+       logIn_title: 'Log In',
+@@ -13,8 +17,13 @@ export default {
+       or: 'Or',
+       pageNotFound_title: 'Page Not Found',
+       password: 'Password',
++      passwordMustBeAtLeast8Characters: 'Password must be at least 8 characters',
++      passwordStrengthHint:
++        'Must be reasonably strong — a common word plus a few digits will be rejected.',
++      passwordsDoNotMatch: 'Passwords do not match',
+       poweredByPlanka: 'Powered by <1>PLANKA</1>',
+       serverConnectionFailed: 'Server connection failed',
++      signUp_title: 'Sign Up',
+       unknownError: 'Unknown error, try again later',
+       useSingleSignOn: 'Use single sign-on',
+       usernameAlreadyInUse: 'Username already in use',
+@@ -29,6 +38,8 @@ export default {
+       goHome: 'Go home',
+       logIn: 'Log in',
+       logInWithSso: 'Log in with SSO',
++      newUserSignUp: 'New user? Sign up',
++      signUp: 'Sign up',
+     },
+   },
+ };
