@@ -164,9 +164,30 @@ async function apply(model, memberMatches, { plankaClient, token, pool }) {
   for (const email of assigneeEmailsUsed) {
     const userId = matchedByEmail.get(email);
     if (!userId) continue;
-    const bm = await getOrCreate('board_membership', email, () =>
-      plankaClient.createBoardMembership(board.id, userId, 'editor', token));
-    bump(bm.reused ? 'reused' : 'created', 'board_membership');
+    try {
+      const bm = await getOrCreate('board_membership', email, () =>
+        plankaClient.createBoardMembership(board.id, userId, 'editor', token));
+      bump(bm.reused ? 'reused' : 'created', 'board_membership');
+    } catch (err) {
+      // Already a board member through some other path (e.g. manually
+      // added via the Share modal, or a re-run picking up someone who
+      // signed up between runs and was added by a project manager in the
+      // meantime, not by this tool) - not a failure, this step's goal
+      // (the user has board access) is already satisfied. Record it so
+      // future re-runs don't retry the same doomed create call.
+      if (err.status === 409) {
+        await db.recordEntity(pool, {
+          source,
+          sourceFileSha256: sha,
+          entityType: 'board_membership',
+          sourceRef: email,
+          plankaId: userId,
+        });
+        bump('reused', 'board_membership');
+      } else {
+        throw err;
+      }
+    }
   }
 
   for (const [i, card] of model.cards.entries()) {
