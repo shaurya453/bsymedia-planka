@@ -1,0 +1,323 @@
+diff --git a/client/src/components/attachments/Attachments/ItemContent.module.scss b/client/src/components/attachments/Attachments/ItemContent.module.scss
+index 83ba13f..d9553ba 100644
+--- a/client/src/components/attachments/Attachments/ItemContent.module.scss
++++ b/client/src/components/attachments/Attachments/ItemContent.module.scss
+@@ -17,7 +17,8 @@
+     line-height: 28px;
+     margin: 0;
+     min-height: auto;
+-    opacity: 0;
++    // BSY Media: always visible, not hover-only.
++    opacity: 1;
+     padding: 0;
+     position: absolute;
+     right: 4px;
+@@ -117,10 +118,6 @@
+       .details {
+         background: rgba(9, 30, 66, 0.04);
+       }
+-
+-      .editButton {
+-        opacity: 1;
+-      }
+     }
+   }
+ 
+diff --git a/client/src/components/boards/Boards/Item.module.scss b/client/src/components/boards/Boards/Item.module.scss
+index 3339f7c..da5a9b2 100644
+--- a/client/src/components/boards/Boards/Item.module.scss
++++ b/client/src/components/boards/Boards/Item.module.scss
+@@ -10,7 +10,9 @@
+     color: #fff;
+     line-height: 32px;
+     margin-right: 0;
+-    opacity: 0;
++    // BSY Media: always visible, not hover-only - see Header.module.scss
++    // for the same fix on the project settings pencil.
++    opacity: 1;
+     padding: 0;
+     position: absolute;
+     right: 2px;
+@@ -63,10 +65,6 @@
+       .name {
+         color: #fff;
+       }
+-
+-      .editButton {
+-        opacity: 1;
+-      }
+     }
+   }
+ 
+diff --git a/client/src/components/cards/CardModal/CustomFieldGroups/Item.module.scss b/client/src/components/cards/CardModal/CustomFieldGroups/Item.module.scss
+index bb0ae8d..bb035f4 100644
+--- a/client/src/components/cards/CardModal/CustomFieldGroups/Item.module.scss
++++ b/client/src/components/cards/CardModal/CustomFieldGroups/Item.module.scss
+@@ -10,7 +10,8 @@
+     line-height: 28px;
+     margin: 0;
+     min-height: auto;
+-    opacity: 0;
++    // BSY Media: always visible, not hover-only.
++    opacity: 1;
+     padding: 0;
+     position: absolute;
+     right: 0;
+@@ -34,12 +35,6 @@
+ 
+   .moduleHeaderEditable {
+     padding-right: 32px;
+-
+-    &:hover {
+-      .editButton {
+-        opacity: 1;
+-      }
+-    }
+   }
+ 
+   .moduleHeaderTitle {
+diff --git a/client/src/components/cards/CardModal/ProjectContent.module.scss b/client/src/components/cards/CardModal/ProjectContent.module.scss
+index 8bdc389..1f4e943 100644
+--- a/client/src/components/cards/CardModal/ProjectContent.module.scss
++++ b/client/src/components/cards/CardModal/ProjectContent.module.scss
+@@ -81,12 +81,6 @@
+     margin-bottom: 24px;
+   }
+ 
+-  .contentModuleDescription:hover {
+-    .editButton {
+-      opacity: 1;
+-    }
+-  }
+-
+   .contentPadding {
+     padding: 8px 24px 0 16px;
+ 
+@@ -162,7 +156,8 @@
+     line-height: 28px;
+     margin: 0;
+     min-height: auto;
+-    opacity: 0;
++    // BSY Media: always visible, not hover-only.
++    opacity: 1;
+     padding: 0;
+     position: absolute;
+     right: 0;
+diff --git a/client/src/components/cards/CardModal/StoryContent.module.scss b/client/src/components/cards/CardModal/StoryContent.module.scss
+index a45a9f2..a243dc5 100644
+--- a/client/src/components/cards/CardModal/StoryContent.module.scss
++++ b/client/src/components/cards/CardModal/StoryContent.module.scss
+@@ -75,12 +75,6 @@
+     margin-bottom: 24px;
+   }
+ 
+-  .contentModuleDescription:hover {
+-    .editButton {
+-      opacity: 1;
+-    }
+-  }
+-
+   .contentPadding {
+     padding: 8px 24px 0 16px;
+ 
+@@ -173,7 +167,8 @@
+     line-height: 28px;
+     margin: 0;
+     min-height: auto;
+-    opacity: 0;
++    // BSY Media: always visible, not hover-only.
++    opacity: 1;
+     padding: 0;
+     position: absolute;
+     right: 0;
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.jsx b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+index a93be77..fca51f6 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.jsx
++++ b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+@@ -80,7 +80,7 @@ const Item = React.memo(({ id, index }) => {
+                       )}
+                       {canEdit && (
+                         <EditPopup taskListId={taskList.id}>
+-                          <Button className={styles.button}>
++                          <Button className={styles.editButton}>
+                             <Icon fitted name="pencil" size="small" />
+                           </Button>
+                         </EditPopup>
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.module.scss b/client/src/components/cards/CardModal/TaskLists/Item.module.scss
+index 74038f8..b461fca 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.module.scss
++++ b/client/src/components/cards/CardModal/TaskLists/Item.module.scss
+@@ -27,6 +27,23 @@
+     }
+   }
+ 
++  // BSY Media: same as .button, but always visible - the edit pencil
++  // shouldn't be hover-only, unlike the show/hide-completed toggle above.
++  .editButton {
++    background: transparent;
++    box-shadow: none;
++    line-height: 28px;
++    margin: 0;
++    min-height: auto;
++    opacity: 1;
++    padding: 0;
++    width: 28px;
++
++    &:hover {
++      background: rgba(9, 30, 66, 0.08);
++    }
++  }
++
+   .moduleHeader {
+     color: #17394d;
+     display: flex;
+diff --git a/client/src/components/lists/List/List.jsx b/client/src/components/lists/List/List.jsx
+index e6658d3..56c7882 100755
+--- a/client/src/components/lists/List/List.jsx
++++ b/client/src/components/lists/List/List.jsx
+@@ -233,14 +233,24 @@ const List = React.memo(({ id, index }) => {
+                   name={ListTypeIcons[list.type]}
+                   className={classNames(
+                     styles.headerIcon,
+-                    list.isPersisted && (canEdit || canArchiveCards) && styles.headerIconHidable,
++                    // BSY Media: the edit pencil is now always visible (not
++                    // hover-only), so this icon needs to always get out of
++                    // its way too, not just on hover like the archive button
++                    // still does.
++                    list.isPersisted &&
++                      canEdit &&
++                      styles.headerIconHidableAlways,
++                    list.isPersisted &&
++                      !canEdit &&
++                      canArchiveCards &&
++                      styles.headerIconHidable,
+                   )}
+                 />
+               )}
+               {list.isPersisted &&
+                 (canEdit ? (
+                   <ActionsPopup listId={id} onNameEdit={handleNameEdit} onCardAdd={handleCardAdd}>
+-                    <Button className={styles.headerButton}>
++                    <Button className={styles.headerEditButton}>
+                       <Icon fitted name="pencil" size="small" />
+                     </Button>
+                   </ActionsPopup>
+diff --git a/client/src/components/lists/List/List.module.scss b/client/src/components/lists/List/List.module.scss
+index d4a4b76..43d1070 100644
+--- a/client/src/components/lists/List/List.module.scss
++++ b/client/src/components/lists/List/List.module.scss
+@@ -131,6 +131,27 @@
+     }
+   }
+ 
++  // BSY Media: same as .headerButton, but always visible - the edit
++  // pencil shouldn't be hover-only, unlike the archive-cards button above.
++  .headerEditButton {
++    background: none;
++    box-shadow: none;
++    color: #798d99;
++    line-height: 32px;
++    margin: 0;
++    opacity: 1;
++    padding: 0;
++    position: absolute;
++    right: 4px;
++    top: 4px;
++    width: 32px;
++
++    &:hover {
++      background: rgba(9, 30, 66, 0.13);
++      color: #516b7a;
++    }
++  }
++
+   .headerIcon {
+     color: #798d99;
+     position: absolute;
+@@ -138,6 +159,12 @@
+     top: 10px;
+   }
+ 
++  // BSY Media: paired with .headerEditButton above - always hidden so the
++  // always-visible pencil doesn't overlap the list-type icon.
++  .headerIconHidableAlways {
++    opacity: 0;
++  }
++
+   .headerName {
+     color: #17394d;
+     font-weight: bold;
+@@ -177,3 +204,32 @@
+     max-height: calc(100vh - 288px);
+   }
+ }
++
++// BSY Media: dark theme for lists/columns - applies whenever the project's
++// "Dark mode for cards & columns" toggle is on. Directly controlled by the
++// toggle, not gated on background brightness.
++// NOTE: #app is the <body> element itself (id="app" is set on <body>, not a
++// child div) - "body.class #app" is topologically impossible (an element
++// can't be a descendant of itself) and silently never matches. Must be a
++// compound selector (no space) instead.
++:global(#app.dark-mode-cards-enabled) {
++  .addCardButton {
++    background: #2c333a;
++    color: #9fadbc;
++    fill: #9fadbc;
++
++    &:hover {
++      background: #3c444d;
++      color: #b6c2cf;
++      fill: #b6c2cf;
++    }
++  }
++
++  .headerName {
++    color: #b6c2cf;
++  }
++
++  .outerWrapper {
++    background: #22272b;
++  }
++}
+diff --git a/client/src/components/task-lists/TaskList/Task/Task.jsx b/client/src/components/task-lists/TaskList/Task/Task.jsx
+index 104c414..42a5763 100755
+--- a/client/src/components/task-lists/TaskList/Task/Task.jsx
++++ b/client/src/components/task-lists/TaskList/Task/Task.jsx
+@@ -210,7 +210,7 @@ const Task = React.memo(({ id, index }) => {
+                           </SelectAssigneePopup>
+                         )}
+                         <ActionsPopup taskId={id} onNameEdit={handleNameEdit}>
+-                          <Button className={styles.button}>
++                          <Button className={styles.editButton}>
+                             <Icon fitted name="pencil" size="small" />
+                           </Button>
+                         </ActionsPopup>
+diff --git a/client/src/components/task-lists/TaskList/Task/Task.module.scss b/client/src/components/task-lists/TaskList/Task/Task.module.scss
+index dc5a2be..ba7540f 100644
+--- a/client/src/components/task-lists/TaskList/Task/Task.module.scss
++++ b/client/src/components/task-lists/TaskList/Task/Task.module.scss
+@@ -35,6 +35,23 @@
+     }
+   }
+ 
++  // BSY Media: same as .button, but always visible - the edit pencil
++  // shouldn't be hover-only, unlike the add-assignee button above.
++  .editButton {
++    background: transparent;
++    box-shadow: none;
++    line-height: 28px;
++    margin: 0;
++    min-height: auto;
++    opacity: 1;
++    padding: 0;
++    width: 28px;
++
++    &:hover {
++      background: rgba(9, 30, 66, 0.08);
++    }
++  }
++
+   .checkboxWrapper {
+     display: inline-block;
+     padding: 10px 15px 0px 8px;
