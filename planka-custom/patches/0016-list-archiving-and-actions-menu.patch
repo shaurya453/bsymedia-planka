@@ -1,0 +1,1497 @@
+diff --git a/client/src/actions/lists.js b/client/src/actions/lists.js
+index 1c705d2..5423bf4 100644
+--- a/client/src/actions/lists.js
++++ b/client/src/actions/lists.js
+@@ -168,6 +168,55 @@ const handleListClear = (list) => ({
+   },
+ });
+ 
++// BSY Media: archiving/restoring is a plain field change (archivedAt) -
++// other connected clients pick it up via the existing generic listUpdate
++// socket event / LIST_UPDATE_HANDLE reducer case, so no _HANDLE action is
++// needed here, unlike clear/delete which have real side effects.
++const archiveList = (id) => ({
++  type: ActionTypes.LIST_ARCHIVE,
++  payload: {
++    id,
++  },
++});
++
++archiveList.success = (list) => ({
++  type: ActionTypes.LIST_ARCHIVE__SUCCESS,
++  payload: {
++    list,
++  },
++});
++
++archiveList.failure = (id, error) => ({
++  type: ActionTypes.LIST_ARCHIVE__FAILURE,
++  payload: {
++    id,
++    error,
++  },
++});
++
++const restoreList = (id, data) => ({
++  type: ActionTypes.LIST_RESTORE,
++  payload: {
++    id,
++    data,
++  },
++});
++
++restoreList.success = (list) => ({
++  type: ActionTypes.LIST_RESTORE__SUCCESS,
++  payload: {
++    list,
++  },
++});
++
++restoreList.failure = (id, error) => ({
++  type: ActionTypes.LIST_RESTORE__FAILURE,
++  payload: {
++    id,
++    error,
++  },
++});
++
+ const deleteList = (id, trashId, cardIds) => ({
+   type: ActionTypes.LIST_DELETE,
+   payload: {
+@@ -210,6 +259,8 @@ export default {
+   moveListCards,
+   clearList,
+   handleListClear,
++  archiveList,
++  restoreList,
+   deleteList,
+   handleListDelete,
+ };
+diff --git a/client/src/api/lists.js b/client/src/api/lists.js
+index 228fabb..6f92c46 100755
+--- a/client/src/api/lists.js
++++ b/client/src/api/lists.js
+@@ -48,6 +48,10 @@ const moveListCards = (id, data, headers) =>
+ 
+ const clearList = (id, headers) => socket.post(`/lists/${id}/clear`, undefined, headers);
+ 
++const archiveList = (id, headers) => socket.post(`/lists/${id}/archive`, undefined, headers);
++
++const restoreList = (id, data, headers) => socket.post(`/lists/${id}/restore`, data, headers);
++
+ const deleteList = (id, headers) =>
+   socket.delete(`/lists/${id}`, undefined, headers).then((body) => ({
+     ...body,
+@@ -76,6 +80,8 @@ export default {
+   sortList,
+   moveListCards,
+   clearList,
++  archiveList,
++  restoreList,
+   deleteList,
+   makeHandleListDelete,
+ };
+diff --git a/client/src/components/boards/Board/Board.jsx b/client/src/components/boards/Board/Board.jsx
+index f466220..40a8a30 100644
+--- a/client/src/components/boards/Board/Board.jsx
++++ b/client/src/components/boards/Board/Board.jsx
+@@ -16,6 +16,7 @@ import ShortcutsProvider from './ShortcutsProvider';
+ import CardModal from '../../cards/CardModal';
+ import BoardActivitiesModal from '../../activities/BoardActivitiesModal';
+ import ShareModal from '../../board-memberships/ShareModal';
++import ArchivedListsModal from '../../lists/ArchivedListsModal';
+ 
+ const Board = React.memo(() => {
+   const board = useSelector(selectors.selectCurrentBoard);
+@@ -52,6 +53,10 @@ const Board = React.memo(() => {
+       case ModalTypes.BOARD_SHARE:
+         modalNode = <ShareModal />;
+ 
++        break;
++      case ModalTypes.ARCHIVED_LISTS:
++        modalNode = <ArchivedListsModal />;
++
+         break;
+       default:
+     }
+diff --git a/client/src/components/boards/BoardActions/RightSide/ActionsStep.jsx b/client/src/components/boards/BoardActions/RightSide/ActionsStep.jsx
+index ceeb73c..a44ea31 100755
+--- a/client/src/components/boards/BoardActions/RightSide/ActionsStep.jsx
++++ b/client/src/components/boards/BoardActions/RightSide/ActionsStep.jsx
+@@ -74,6 +74,11 @@ const ActionsStep = React.memo(({ onClose }) => {
+     onClose();
+   }, [onClose, dispatch]);
+ 
++  const handleArchivedListsClick = useCallback(() => {
++    dispatch(entryActions.openArchivedListsModal());
++    onClose();
++  }, [onClose, dispatch]);
++
+   const handleEmptyTrashConfirm = useCallback(() => {
+     dispatch(entryActions.clearTrashListInCurrentBoard());
+     onClose();
+@@ -133,6 +138,14 @@ const ActionsStep = React.memo(({ onClose }) => {
+               })}
+             </Menu.Item>
+           )}
++          {withCustomFieldGroups && (
++            <Menu.Item className={styles.menuItem} onClick={handleArchivedListsClick}>
++              <Icon name="columns" className={styles.menuItemIcon} />
++              {t('common.archivedLists', {
++                context: 'title',
++              })}
++            </Menu.Item>
++          )}
+           <Menu.Item className={styles.menuItem} onClick={handleActivitiesClick}>
+             <Icon name="list ul" className={styles.menuItemIcon} />
+             {t('common.actions', {
+diff --git a/client/src/components/lists/ArchivedListsModal/ArchivedListsModal.jsx b/client/src/components/lists/ArchivedListsModal/ArchivedListsModal.jsx
+new file mode 100644
+index 0000000..d58fc91
+--- /dev/null
++++ b/client/src/components/lists/ArchivedListsModal/ArchivedListsModal.jsx
+@@ -0,0 +1,54 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useCallback } from 'react';
++import { useDispatch, useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
++
++import selectors from '../../../selectors';
++import entryActions from '../../../entry-actions';
++import { useClosableModal } from '../../../hooks';
++import Item from './Item';
++
++import styles from './ArchivedListsModal.module.scss';
++
++// BSY Media: a small, non-paginated management list (archived-list counts
++// per board are expected to be small, unlike the paginated Archive card
++// view this deliberately does NOT reuse - see plan for why).
++const ArchivedListsModal = React.memo(() => {
++  const archivedListIds = useSelector(selectors.selectArchivedListIdsForCurrentBoard);
++
++  const dispatch = useDispatch();
++  const [t] = useTranslation();
++
++  const handleClose = useCallback(() => {
++    dispatch(entryActions.closeModal());
++  }, [dispatch]);
++
++  const [ClosableModal] = useClosableModal();
++
++  return (
++    <ClosableModal closeIcon size="small" centered={false} onClose={handleClose}>
++      <ClosableModal.Header>
++        {t('common.archivedLists', {
++          context: 'title',
++        })}
++      </ClosableModal.Header>
++      <ClosableModal.Content>
++        {archivedListIds.length > 0 ? (
++          <div className={styles.items}>
++            {archivedListIds.map((id) => (
++              <Item key={id} id={id} />
++            ))}
++          </div>
++        ) : (
++          <div className={styles.empty}>{t('common.noArchivedLists')}</div>
++        )}
++      </ClosableModal.Content>
++    </ClosableModal>
++  );
++});
++
++export default ArchivedListsModal;
+diff --git a/client/src/components/lists/ArchivedListsModal/ArchivedListsModal.module.scss b/client/src/components/lists/ArchivedListsModal/ArchivedListsModal.module.scss
+new file mode 100644
+index 0000000..4a24e4d
+--- /dev/null
++++ b/client/src/components/lists/ArchivedListsModal/ArchivedListsModal.module.scss
+@@ -0,0 +1,17 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .items {
++    max-height: 60vh;
++    overflow-y: auto;
++  }
++
++  .empty {
++    color: #6b808c;
++    padding: 12px 0;
++    text-align: center;
++  }
++}
+diff --git a/client/src/components/lists/ArchivedListsModal/Item.jsx b/client/src/components/lists/ArchivedListsModal/Item.jsx
+new file mode 100644
+index 0000000..ba32ce7
+--- /dev/null
++++ b/client/src/components/lists/ArchivedListsModal/Item.jsx
+@@ -0,0 +1,46 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useCallback, useMemo } from 'react';
++import PropTypes from 'prop-types';
++import { useDispatch, useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
++import { Button } from 'semantic-ui-react';
++
++import selectors from '../../../selectors';
++import entryActions from '../../../entry-actions';
++
++import styles from './Item.module.scss';
++
++const Item = React.memo(({ id }) => {
++  const selectListById = useMemo(() => selectors.makeSelectListById(), []);
++  const list = useSelector((state) => selectListById(state, id));
++
++  const dispatch = useDispatch();
++  const [t] = useTranslation();
++
++  const handleRestoreClick = useCallback(() => {
++    dispatch(entryActions.restoreList(id));
++  }, [id, dispatch]);
++
++  return (
++    <div className={styles.wrapper}>
++      <span className={styles.name}>{list.name}</span>
++      <Button
++        type="button"
++        basic
++        content={t('action.restore')}
++        className={styles.restoreButton}
++        onClick={handleRestoreClick}
++      />
++    </div>
++  );
++});
++
++Item.propTypes = {
++  id: PropTypes.string.isRequired,
++};
++
++export default Item;
+diff --git a/client/src/components/lists/ArchivedListsModal/Item.module.scss b/client/src/components/lists/ArchivedListsModal/Item.module.scss
+new file mode 100644
+index 0000000..8af60dd
+--- /dev/null
++++ b/client/src/components/lists/ArchivedListsModal/Item.module.scss
+@@ -0,0 +1,24 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .wrapper {
++    align-items: center;
++    display: flex;
++    gap: 8px;
++    padding: 6px 0;
++  }
++
++  .name {
++    flex: 1 1 auto;
++    overflow: hidden;
++    text-overflow: ellipsis;
++    white-space: nowrap;
++  }
++
++  .restoreButton {
++    flex: 0 0 auto;
++  }
++}
+diff --git a/client/src/components/lists/ArchivedListsModal/index.js b/client/src/components/lists/ArchivedListsModal/index.js
+new file mode 100644
+index 0000000..57d93d0
+--- /dev/null
++++ b/client/src/components/lists/ArchivedListsModal/index.js
+@@ -0,0 +1,8 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import ArchivedListsModal from './ArchivedListsModal';
++
++export default ArchivedListsModal;
+diff --git a/client/src/components/lists/List/ActionsStep.jsx b/client/src/components/lists/List/ActionsStep.jsx
+index 3e196da..35a98cf 100755
+--- a/client/src/components/lists/List/ActionsStep.jsx
++++ b/client/src/components/lists/List/ActionsStep.jsx
+@@ -29,6 +29,7 @@ const StepTypes = {
+   SORT: 'SORT',
+   MOVE: 'MOVE',
+   ARCHIVE_CARDS: 'ARCHIVE_CARDS',
++  ARCHIVE_LIST: 'ARCHIVE_LIST',
+   DELETE: 'DELETE',
+ };
+ 
+@@ -52,6 +53,10 @@ const ActionsStep = React.memo(({ listId, onNameEdit, onCardAdd, onClose }) => {
+     [listId, dispatch],
+   );
+ 
++  const handleArchiveListConfirm = useCallback(() => {
++    dispatch(entryActions.archiveList(listId));
++  }, [listId, dispatch]);
++
+   const handleDeleteConfirm = useCallback(() => {
+     dispatch(entryActions.deleteList(listId));
+   }, [listId, dispatch]);
+@@ -86,6 +91,10 @@ const ActionsStep = React.memo(({ listId, onNameEdit, onCardAdd, onClose }) => {
+     openStep(StepTypes.ARCHIVE_CARDS);
+   }, [openStep]);
+ 
++  const handleArchiveListClick = useCallback(() => {
++    openStep(StepTypes.ARCHIVE_LIST);
++  }, [openStep]);
++
+   const handleDeleteClick = useCallback(() => {
+     openStep(StepTypes.DELETE);
+   }, [openStep]);
+@@ -112,6 +121,16 @@ const ActionsStep = React.memo(({ listId, onNameEdit, onCardAdd, onClose }) => {
+         return <MoveStep id={listId} onBack={handleBack} onClose={onClose} />;
+       case StepTypes.ARCHIVE_CARDS:
+         return <ArchiveCardsStep listId={listId} onBack={handleBack} onClose={onClose} />;
++      case StepTypes.ARCHIVE_LIST:
++        return (
++          <ConfirmationStep
++            title="common.archiveList"
++            content="common.areYouSureYouWantToArchiveThisList"
++            buttonContent="action.archiveList"
++            onConfirm={handleArchiveListConfirm}
++            onBack={handleBack}
++          />
++        );
+       case StepTypes.DELETE:
+         return (
+           <ConfirmationStep
+@@ -179,12 +198,31 @@ const ActionsStep = React.memo(({ listId, onNameEdit, onCardAdd, onClose }) => {
+               })}
+             </Menu.Item>
+           )}
+-          <Menu.Item className={styles.menuItem} onClick={handleDeleteClick}>
+-            <Icon name="trash alternate outline" className={styles.menuItemIcon} />
+-            {t('action.deleteList', {
+-              context: 'title',
+-            })}
+-          </Menu.Item>
++          <hr className={styles.divider} />
++          <div className={styles.actionBar}>
++            {/* eslint-disable jsx-a11y/anchor-is-valid,
++                                jsx-a11y/click-events-have-key-events,
++                                jsx-a11y/no-static-element-interactions */}
++            <a className={styles.actionBarItem} onClick={handleArchiveListClick}>
++              <Icon fitted name="archive" />
++              <span className={styles.actionBarItemText}>
++                {t('action.archiveList', {
++                  context: 'title',
++                })}
++              </span>
++            </a>
++            <a className={styles.actionBarItem} onClick={handleDeleteClick}>
++              <Icon fitted name="trash alternate outline" />
++              <span className={styles.actionBarItemText}>
++                {t('action.deleteList', {
++                  context: 'title',
++                })}
++              </span>
++            </a>
++            {/* eslint-enable jsx-a11y/anchor-is-valid,
++                               jsx-a11y/click-events-have-key-events,
++                               jsx-a11y/no-static-element-interactions */}
++          </div>
+         </Menu>
+       </Popup.Content>
+     </>
+diff --git a/client/src/components/lists/List/ActionsStep.module.scss b/client/src/components/lists/List/ActionsStep.module.scss
+index cd8b117..c481af5 100644
+--- a/client/src/components/lists/List/ActionsStep.module.scss
++++ b/client/src/components/lists/List/ActionsStep.module.scss
+@@ -18,4 +18,48 @@
+     float: left;
+     margin: 0 0.5em 0 0;
+   }
++
++  // BSY Media: matches CardActionsStep.module.scss's action-bar treatment
++  // for its own "leaves the board" actions, for visual parity between the
++  // two menus.
++  .actionBar {
++    display: flex;
++    margin: -7px 0;
++  }
++
++  .actionBarItem {
++    color: rgba(0, 0, 0, 0.87);
++    cursor: pointer;
++    display: flex;
++    flex: 1;
++    flex-direction: column;
++    font-size: 13px;
++    padding: 6px;
++    row-gap: 6px;
++    user-select: none;
++
++    &:not(:last-child) {
++      border-right: 1px solid #eee;
++    }
++
++    &:hover {
++      background: rgba(0, 0, 0, 0.05);
++      color: rgba(0, 0, 0, 0.95);
++    }
++  }
++
++  .actionBarItemText {
++    display: -webkit-box;
++    line-clamp: 2;
++    -webkit-line-clamp: 2;
++    overflow: hidden;
++    text-align: center;
++    -webkit-box-orient: vertical;
++  }
++
++  .divider {
++    background: #eee;
++    border: 0;
++    height: 1px;
++  }
+ }
+diff --git a/client/src/components/lists/List/List.jsx b/client/src/components/lists/List/List.jsx
+index 56c7882..2b8df10 100755
+--- a/client/src/components/lists/List/List.jsx
++++ b/client/src/components/lists/List/List.jsx
+@@ -108,6 +108,23 @@ const List = React.memo(({ id, index }) => {
+     }
+   }, [list.isPersisted, canEdit]);
+ 
++  const actionsPopupRef = useRef(null);
++
++  // BSY Media: the list-actions menu now opens via right-click instead of
++  // a pencil icon (removed) - mirrors Card.jsx's identical ref+open()
++  // pattern, scoped to editors only, matching the old pencil's visibility.
++  const handleContextMenu = useCallback(
++    (event) => {
++      if (!list.isPersisted || !canEdit || !actionsPopupRef.current) {
++        return;
++      }
++
++      event.preventDefault();
++      actionsPopupRef.current.open();
++    },
++    [list.isPersisted, canEdit],
++  );
++
+   const handleAddCardClick = useCallback(() => {
+     setAddCardPosition(AddCardPositions.BOTTOM);
+   }, []);
+@@ -211,6 +228,7 @@ const List = React.memo(({ id, index }) => {
+               {...dragHandleProps} // eslint-disable-line react/jsx-props-no-spreading
+               className={classNames(styles.header, canEdit && styles.headerEditable)}
+               onClick={handleHeaderClick}
++              onContextMenu={handleContextMenu}
+             >
+               {isEditNameOpened ? (
+                 <EditName listId={id} onClose={handleEditNameClose} />
+@@ -233,13 +251,10 @@ const List = React.memo(({ id, index }) => {
+                   name={ListTypeIcons[list.type]}
+                   className={classNames(
+                     styles.headerIcon,
+-                    // BSY Media: the edit pencil is now always visible (not
+-                    // hover-only), so this icon needs to always get out of
+-                    // its way too, not just on hover like the archive button
+-                    // still does.
+-                    list.isPersisted &&
+-                      canEdit &&
+-                      styles.headerIconHidableAlways,
++                    // BSY Media: the pencil is gone (right-click opens list
++                    // actions now), so editors no longer need this icon to
++                    // get out of the way - only the hover-only archive
++                    // button (non-editors) still needs that treatment.
+                     list.isPersisted &&
+                       !canEdit &&
+                       canArchiveCards &&
+@@ -247,22 +262,23 @@ const List = React.memo(({ id, index }) => {
+                   )}
+                 />
+               )}
+-              {list.isPersisted &&
+-                (canEdit ? (
+-                  <ActionsPopup listId={id} onNameEdit={handleNameEdit} onCardAdd={handleCardAdd}>
+-                    <Button className={styles.headerEditButton}>
+-                      <Icon fitted name="pencil" size="small" />
+-                    </Button>
+-                  </ActionsPopup>
+-                ) : (
+-                  canArchiveCards && (
+-                    <ArchiveCardsPopup listId={id}>
+-                      <Button className={styles.headerButton}>
+-                        <Icon fitted name="archive" size="small" />
+-                      </Button>
+-                    </ArchiveCardsPopup>
+-                  )
+-                ))}
++              {list.isPersisted && canEdit && (
++                <ActionsPopup
++                  ref={actionsPopupRef}
++                  listId={id}
++                  onNameEdit={handleNameEdit}
++                  onCardAdd={handleCardAdd}
++                >
++                  <span className={styles.hiddenActionsTrigger} />
++                </ActionsPopup>
++              )}
++              {list.isPersisted && !canEdit && canArchiveCards && (
++                <ArchiveCardsPopup listId={id}>
++                  <Button className={styles.headerButton}>
++                    <Icon fitted name="archive" size="small" />
++                  </Button>
++                </ArchiveCardsPopup>
++              )}
+             </div>
+             <div ref={cardsWrapperRef} className={styles.cardsInnerWrapper}>
+               <div className={styles.cardsOuterWrapper}>{cardsNode}</div>
+diff --git a/client/src/components/lists/List/List.module.scss b/client/src/components/lists/List/List.module.scss
+index fb71e9b..0d13cfd 100644
+--- a/client/src/components/lists/List/List.module.scss
++++ b/client/src/components/lists/List/List.module.scss
+@@ -131,25 +131,21 @@
+     }
+   }
+ 
+-  // BSY Media: same as .headerButton, but always visible - the edit
+-  // pencil shouldn't be hover-only, unlike the archive-cards button above.
+-  .headerEditButton {
+-    background: none;
+-    box-shadow: none;
+-    color: #798d99;
+-    line-height: 32px;
+-    margin: 0;
+-    opacity: 1;
+-    padding: 0;
++  // BSY Media: invisible trigger for the list-actions popup - it now opens
++  // via right-click (see List.jsx's onContextMenu) instead of a visible
++  // pencil button, but usePopup() still needs some element to clone an
++  // onClick handler onto, and Semantic UI's Popup positions itself off
++  // that element's real bounding rect - display:none would collapse it to
++  // a zero-size rect at the page origin, so use opacity instead to keep a
++  // real (if invisible, non-interactive) position where the pencil was.
++  .hiddenActionsTrigger {
++    height: 32px;
++    opacity: 0;
++    pointer-events: none;
+     position: absolute;
+     right: 4px;
+     top: 4px;
+     width: 32px;
+-
+-    &:hover {
+-      background: rgba(9, 30, 66, 0.13);
+-      color: #516b7a;
+-    }
+   }
+ 
+   .headerIcon {
+@@ -159,12 +155,6 @@
+     top: 10px;
+   }
+ 
+-  // BSY Media: paired with .headerEditButton above - always hidden so the
+-  // always-visible pencil doesn't overlap the list-type icon.
+-  .headerIconHidableAlways {
+-    opacity: 0;
+-  }
+-
+   .headerName {
+     color: #17394d;
+     font-weight: bold;
+@@ -230,6 +220,6 @@
+   }
+ 
+   .outerWrapper {
+-    background: #22272b;
++    background: #101204;
+   }
+ }
+diff --git a/client/src/constants/ActionTypes.js b/client/src/constants/ActionTypes.js
+index a947e27..7695188 100644
+--- a/client/src/constants/ActionTypes.js
++++ b/client/src/constants/ActionTypes.js
+@@ -268,6 +268,12 @@ export default {
+   LIST_CLEAR__SUCCESS: 'LIST_CLEAR__SUCCESS',
+   LIST_CLEAR__FAILURE: 'LIST_CLEAR__FAILURE',
+   LIST_CLEAR_HANDLE: 'LIST_CLEAR_HANDLE',
++  LIST_ARCHIVE: 'LIST_ARCHIVE',
++  LIST_ARCHIVE__SUCCESS: 'LIST_ARCHIVE__SUCCESS',
++  LIST_ARCHIVE__FAILURE: 'LIST_ARCHIVE__FAILURE',
++  LIST_RESTORE: 'LIST_RESTORE',
++  LIST_RESTORE__SUCCESS: 'LIST_RESTORE__SUCCESS',
++  LIST_RESTORE__FAILURE: 'LIST_RESTORE__FAILURE',
+   LIST_DELETE: 'LIST_DELETE',
+   LIST_DELETE__SUCCESS: 'LIST_DELETE__SUCCESS',
+   LIST_DELETE__FAILURE: 'LIST_DELETE__FAILURE',
+diff --git a/client/src/constants/EntryActionTypes.js b/client/src/constants/EntryActionTypes.js
+index 3a99a4f..1985757 100755
+--- a/client/src/constants/EntryActionTypes.js
++++ b/client/src/constants/EntryActionTypes.js
+@@ -184,6 +184,8 @@ export default {
+   LIST_CARDS_TO_ARCHIVE_LIST_MOVE: `${PREFIX}/LIST_CARDS_TO_ARCHIVE_LIST_MOVE`,
+   TRASH_LIST_IN_CURRENT_BOARD_CLEAR: `${PREFIX}/TRASH_LIST_IN_CURRENT_BOARD_CLEAR`,
+   LIST_CLEAR_HANDLE: `${PREFIX}/LIST_CLEAR_HANDLE`,
++  LIST_ARCHIVE: `${PREFIX}/LIST_ARCHIVE`,
++  LIST_RESTORE: `${PREFIX}/LIST_RESTORE`,
+   LIST_DELETE: `${PREFIX}/LIST_DELETE`,
+   LIST_DELETE_HANDLE: `${PREFIX}/LIST_DELETE_HANDLE`,
+ 
+diff --git a/client/src/constants/ModalTypes.js b/client/src/constants/ModalTypes.js
+index 7a46a40..b100240 100755
+--- a/client/src/constants/ModalTypes.js
++++ b/client/src/constants/ModalTypes.js
+@@ -11,6 +11,7 @@ const PROJECT_SETTINGS = 'PROJECT_SETTINGS';
+ const BOARD_SETTINGS = 'BOARD_SETTINGS';
+ const BOARD_ACTIVITIES = 'BOARD_ACTIVITIES';
+ const BOARD_SHARE = 'BOARD_SHARE';
++const ARCHIVED_LISTS = 'ARCHIVED_LISTS';
+ 
+ export default {
+   ADMINISTRATION,
+@@ -21,4 +22,5 @@ export default {
+   BOARD_SETTINGS,
+   BOARD_ACTIVITIES,
+   BOARD_SHARE,
++  ARCHIVED_LISTS,
+ };
+diff --git a/client/src/entry-actions/lists.js b/client/src/entry-actions/lists.js
+index 13d3e7c..b16fe77 100755
+--- a/client/src/entry-actions/lists.js
++++ b/client/src/entry-actions/lists.js
+@@ -80,6 +80,20 @@ const handleListClear = (list) => ({
+   },
+ });
+ 
++const archiveList = (id) => ({
++  type: EntryActionTypes.LIST_ARCHIVE,
++  payload: {
++    id,
++  },
++});
++
++const restoreList = (id) => ({
++  type: EntryActionTypes.LIST_RESTORE,
++  payload: {
++    id,
++  },
++});
++
+ const deleteList = (id) => ({
+   type: EntryActionTypes.LIST_DELETE,
+   payload: {
+@@ -106,6 +120,8 @@ export default {
+   moveListCardsToArchiveList,
+   clearTrashListInCurrentBoard,
+   handleListClear,
++  archiveList,
++  restoreList,
+   deleteList,
+   handleListDelete,
+ };
+diff --git a/client/src/entry-actions/modals.js b/client/src/entry-actions/modals.js
+index 2f0a6ba..88dc192 100755
+--- a/client/src/entry-actions/modals.js
++++ b/client/src/entry-actions/modals.js
+@@ -68,6 +68,13 @@ const openBoardShareModal = () => ({
+   },
+ });
+ 
++const openArchivedListsModal = () => ({
++  type: EntryActionTypes.MODAL_OPEN,
++  payload: {
++    type: ModalTypes.ARCHIVED_LISTS,
++  },
++});
++
+ const closeModal = () => ({
+   type: EntryActionTypes.MODAL_CLOSE,
+   payload: {},
+@@ -82,5 +89,6 @@ export default {
+   openBoardSettingsModal,
+   openBoardActivitiesModal,
+   openBoardShareModal,
++  openArchivedListsModal,
+   closeModal,
+ };
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 676c271..d32a190 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -44,9 +44,13 @@ export default {
+       archive: 'Archive',
+       archiveCard_title: 'Archive Card',
+       archiveCards_title: 'Archive Cards',
++      archiveList_title: 'Archive List',
++      archivedLists_title: 'Archived Lists',
+       areYouSureYouWantToActivateThisUser: 'Are you sure you want to activate this user?',
+       areYouSureYouWantToArchiveCards: 'Are you sure you want to archive cards?',
+       areYouSureYouWantToArchiveThisCard: 'Are you sure you want to archive this card?',
++      areYouSureYouWantToArchiveThisList:
++        'Are you sure you want to archive this list? Cards inside are not affected and remain accessible.',
+       areYouSureYouWantToAssignThisProjectManagerAsOwner:
+         'Are you sure you want to assign this project manager as owner?',
+       areYouSureYouWantToDeactivateThisUser: 'Are you sure you want to deactivate this user?',
+@@ -258,6 +262,7 @@ export default {
+       newVersionAvailable: 'New version available',
+       newestFirst: 'Newest first',
+       noApiKeyCreated: 'No API key created.',
++      noArchivedLists: 'No archived lists.',
+       noBoards: 'No boards',
+       noCardsFound: 'No cards found.',
+       noConnectionToServer: 'No connection to server',
+@@ -410,6 +415,8 @@ export default {
+       archiveCard_title: 'Archive Card',
+       archiveCards: 'Archive cards',
+       archiveCards_title: 'Archive Cards',
++      archiveList: 'Archive list',
++      archiveList_title: 'Archive List',
+       assignAsOwner: 'Assign as owner',
+       cancel: 'Cancel',
+       confirm: 'Confirm',
+@@ -497,6 +504,7 @@ export default {
+       removeFromProject: 'Remove from project',
+       removeManager: 'Remove manager',
+       removeMember: 'Remove member',
++      restore: 'Restore',
+       restoreToList: 'Restore to {{list}}',
+       returnToBoard: 'Return to board',
+       save: 'Save',
+diff --git a/client/src/models/Board.js b/client/src/models/Board.js
+index a4697fe..39854ea 100755
+--- a/client/src/models/Board.js
++++ b/client/src/models/Board.js
+@@ -10,7 +10,7 @@ import buildSearchParts from '../utils/build-search-parts';
+ import { isListKanban } from '../utils/record-helpers';
+ import ActionTypes from '../constants/ActionTypes';
+ import Config from '../constants/Config';
+-import { BoardContexts, BoardViews } from '../constants/Enums';
++import { BoardContexts, BoardViews, ListTypes } from '../constants/Enums';
+ 
+ const prepareFetchedBoard = (board) => ({
+   ...board,
+@@ -290,6 +290,14 @@ export default class extends BaseModel {
+     return this.getListsQuerySet().filter((list) => isListKanban(list));
+   }
+ 
++  // BSY Media: archived lists for this board, for the ArchivedListsModal -
++  // real active/closed type, just hidden from the Kanban view above.
++  getArchivedListsQuerySet() {
++    return this.getListsQuerySet().filter(
++      (list) => [ListTypes.ACTIVE, ListTypes.CLOSED].includes(list.type) && !!list.archivedAt,
++    );
++  }
++
+   getCustomFieldGroupsQuerySet() {
+     return this.customFieldGroups.orderBy(['position', 'id.length', 'id']);
+   }
+diff --git a/client/src/models/List.js b/client/src/models/List.js
+index 2c8d72a..7a1fef3 100755
+--- a/client/src/models/List.js
++++ b/client/src/models/List.js
+@@ -53,6 +53,9 @@ export default class extends BaseModel {
+     position: attr(),
+     name: attr(),
+     color: attr(),
++    archivedAt: attr({
++      getDefault: () => null,
++    }),
+     lastCard: attr({
+       getDefault: () => null,
+     }),
+@@ -120,8 +123,19 @@ export default class extends BaseModel {
+       case ActionTypes.LIST_SORT__SUCCESS:
+       case ActionTypes.LIST_CARDS_MOVE__SUCCESS:
+       case ActionTypes.LIST_CLEAR__SUCCESS:
++      case ActionTypes.LIST_ARCHIVE__SUCCESS:
++      case ActionTypes.LIST_RESTORE__SUCCESS:
+         List.upsert(prepareList(payload.list));
+ 
++        break;
++      case ActionTypes.LIST_ARCHIVE:
++        // BSY Media: optimistic - hide the column immediately rather than
++        // waiting for the round-trip. Restore has no optimistic case since
++        // its final position isn't known until the server responds.
++        List.withId(payload.id).update({
++          archivedAt: new Date().toISOString(),
++        });
++
+         break;
+       case ActionTypes.LIST_CREATE__SUCCESS:
+         List.withId(payload.localId).delete();
+diff --git a/client/src/sagas/core/services/lists.js b/client/src/sagas/core/services/lists.js
+index b38e6b6..bb23d16 100644
+--- a/client/src/sagas/core/services/lists.js
++++ b/client/src/sagas/core/services/lists.js
+@@ -235,6 +235,41 @@ export function* handleListClear(list) {
+   yield put(actions.handleListClear(list));
+ }
+ 
++// BSY Media: hides the column from the Kanban view (real active/closed
++// type unchanged) without touching its cards - see List/ActionsStep.jsx.
++export function* archiveList(id) {
++  yield put(actions.archiveList(id));
++
++  let list;
++  try {
++    ({ item: list } = yield call(request, api.archiveList, id));
++  } catch (error) {
++    yield put(actions.archiveList.failure(id, error));
++    return;
++  }
++
++  yield put(actions.archiveList.success(list));
++}
++
++// BSY Media: always appends to the end of the board's list ordering - no
++// stored "previous position" to avoid stale collisions, see plan.
++export function* restoreList(id) {
++  const { boardId } = yield select(selectors.selectListById, id);
++  const position = yield select(selectors.selectNextListPosition, boardId);
++
++  yield put(actions.restoreList(id, { position }));
++
++  let list;
++  try {
++    ({ item: list } = yield call(request, api.restoreList, id, { position }));
++  } catch (error) {
++    yield put(actions.restoreList.failure(id, error));
++    return;
++  }
++
++  yield put(actions.restoreList.success(list));
++}
++
+ export function* deleteList(id) {
+   const trashListId = yield select(selectors.selectTrashListIdForCurrentBoard);
+   const cardIds = yield select(selectors.selectCardIdsByListId, id);
+@@ -273,6 +308,8 @@ export default {
+   moveListCardsToArchiveList,
+   clearTrashListInCurrentBoard,
+   handleListClear,
++  archiveList,
++  restoreList,
+   deleteList,
+   handleListDelete,
+ };
+diff --git a/client/src/sagas/core/watchers/lists.js b/client/src/sagas/core/watchers/lists.js
+index 9481e2b..c742e27 100644
+--- a/client/src/sagas/core/watchers/lists.js
++++ b/client/src/sagas/core/watchers/lists.js
+@@ -40,6 +40,8 @@ export default function* listsWatchers() {
+     takeEvery(EntryActionTypes.LIST_CLEAR_HANDLE, ({ payload: { list } }) =>
+       services.handleListClear(list),
+     ),
++    takeEvery(EntryActionTypes.LIST_ARCHIVE, ({ payload: { id } }) => services.archiveList(id)),
++    takeEvery(EntryActionTypes.LIST_RESTORE, ({ payload: { id } }) => services.restoreList(id)),
+     takeEvery(EntryActionTypes.LIST_DELETE, ({ payload: { id } }) => services.deleteList(id)),
+     takeEvery(EntryActionTypes.LIST_DELETE_HANDLE, ({ payload: { list, cards } }) =>
+       services.handleListDelete(list, cards),
+diff --git a/client/src/selectors/boards.js b/client/src/selectors/boards.js
+index 4ee1828..18b30b3 100644
+--- a/client/src/selectors/boards.js
++++ b/client/src/selectors/boards.js
+@@ -307,6 +307,28 @@ export const selectKanbanListIdsForCurrentBoard = createSelector(
+   },
+ );
+ 
++// BSY Media: for the ArchivedListsModal.
++export const selectArchivedListIdsForCurrentBoard = createSelector(
++  orm,
++  (state) => selectPath(state).boardId,
++  ({ Board }, id) => {
++    if (!id) {
++      return id;
++    }
++
++    const boardModel = Board.withId(id);
++
++    if (!boardModel) {
++      return boardModel;
++    }
++
++    return boardModel
++      .getArchivedListsQuerySet()
++      .toRefArray()
++      .map((list) => list.id);
++  },
++);
++
+ // TODO: rename?
+ export const selectAvailableListsForCurrentBoard = createSelector(
+   orm,
+@@ -498,6 +520,7 @@ export default {
+   selectArchiveListIdForCurrentBoard,
+   selectTrashListIdForCurrentBoard,
+   selectKanbanListIdsForCurrentBoard,
++  selectArchivedListIdsForCurrentBoard,
+   selectAvailableListsForCurrentBoard,
+   selectCardsExceptCurrentForCurrentBoard,
+   selectFilteredCardIdsForCurrentBoard,
+diff --git a/client/src/utils/record-helpers.js b/client/src/utils/record-helpers.js
+index 51454ae..04dc9f3 100644
+--- a/client/src/utils/record-helpers.js
++++ b/client/src/utils/record-helpers.js
+@@ -16,4 +16,7 @@ export const isListArchiveOrTrash = (list) =>
+ 
+ export const isListFinite = (list) => [ListTypes.ACTIVE, ListTypes.CLOSED].includes(list.type);
+ 
+-export const isListKanban = (list) => [ListTypes.ACTIVE, ListTypes.CLOSED].includes(list.type);
++// BSY Media: an archived list keeps its real active/closed type - the
++// Kanban view must also exclude it, not just Archive/Trash system lists.
++export const isListKanban = (list) =>
++  [ListTypes.ACTIVE, ListTypes.CLOSED].includes(list.type) && !list.archivedAt;
+diff --git a/server/api/controllers/cards/update.js b/server/api/controllers/cards/update.js
+index a72017b..7c02b99 100755
+--- a/server/api/controllers/cards/update.js
++++ b/server/api/controllers/cards/update.js
+@@ -299,6 +299,13 @@ module.exports = {
+       if (!nextList) {
+         throw Errors.LIST_NOT_FOUND;
+       }
++
++      // BSY Media: the normal UI can't offer an archived list as a drop
++      // target, but nothing else blocked a direct API call from moving a
++      // card into one - reject it explicitly instead.
++      if (nextList.archivedAt) {
++        throw Errors.LIST_NOT_FOUND;
++      }
+     }
+ 
+     let nextCoverAttachment;
+diff --git a/server/api/controllers/lists/archive.js b/server/api/controllers/lists/archive.js
+new file mode 100644
+index 0000000..88024ce
+--- /dev/null
++++ b/server/api/controllers/lists/archive.js
+@@ -0,0 +1,120 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++/**
++ * @swagger
++ * /lists/{id}/archive:
++ *   post:
++ *     summary: Archive list
++ *     description: Hides a list from the board without deleting it or its cards. Can only archive finite (active/closed) lists. Requires board editor permissions.
++ *     tags:
++ *       - Lists
++ *     operationId: archiveList
++ *     parameters:
++ *       - name: id
++ *         in: path
++ *         required: true
++ *         description: ID of the list to archive
++ *         schema:
++ *           type: string
++ *           example: "1357158568008091264"
++ *     responses:
++ *       200:
++ *         description: List archived successfully
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *               required:
++ *                 - item
++ *               properties:
++ *                 item:
++ *                   $ref: '#/components/schemas/List'
++ *       400:
++ *         $ref: '#/components/responses/ValidationError'
++ *       401:
++ *         $ref: '#/components/responses/Unauthorized'
++ *       403:
++ *         $ref: '#/components/responses/Forbidden'
++ *       404:
++ *         $ref: '#/components/responses/NotFound'
++ */
++
++const { idInput } = require('../../../utils/inputs');
++
++const Errors = {
++  NOT_ENOUGH_RIGHTS: {
++    notEnoughRights: 'Not enough rights',
++  },
++  LIST_NOT_FOUND: {
++    listNotFound: 'List not found',
++  },
++};
++
++module.exports = {
++  inputs: {
++    id: {
++      ...idInput,
++      required: true,
++    },
++  },
++
++  exits: {
++    notEnoughRights: {
++      responseType: 'forbidden',
++    },
++    listNotFound: {
++      responseType: 'notFound',
++    },
++  },
++
++  async fn(inputs) {
++    const { currentUser } = this.req;
++
++    const pathToProject = await sails.helpers.lists
++      .getPathToProjectById(inputs.id)
++      .intercept('pathNotFound', () => Errors.LIST_NOT_FOUND);
++
++    const { list } = pathToProject;
++    const { board, project } = pathToProject;
++
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
++
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
++
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.LIST_NOT_FOUND;
++    }
++
++    if (!sails.helpers.lists.isKanban(list)) {
++      throw Errors.NOT_ENOUGH_RIGHTS;
++    }
++
++    // Idempotency guard - a double-click or race with another archive
++    // request should be a harmless not-found, not a crash.
++    if (list.archivedAt) {
++      throw Errors.LIST_NOT_FOUND;
++    }
++
++    const archivedList = await sails.helpers.lists.archiveOne.with({
++      project,
++      board,
++      record: list,
++      actorUser: currentUser,
++      request: this.req,
++    });
++
++    if (!archivedList) {
++      throw Errors.LIST_NOT_FOUND;
++    }
++
++    return {
++      item: archivedList,
++    };
++  },
++};
+diff --git a/server/api/controllers/lists/restore.js b/server/api/controllers/lists/restore.js
+new file mode 100644
+index 0000000..9cd8e0b
+--- /dev/null
++++ b/server/api/controllers/lists/restore.js
+@@ -0,0 +1,139 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++/**
++ * @swagger
++ * /lists/{id}/restore:
++ *   post:
++ *     summary: Restore list
++ *     description: Restores a previously archived list, appending it to the end of the board's list ordering. Requires board editor permissions.
++ *     tags:
++ *       - Lists
++ *     operationId: restoreList
++ *     parameters:
++ *       - name: id
++ *         in: path
++ *         required: true
++ *         description: ID of the list to restore
++ *         schema:
++ *           type: string
++ *           example: "1357158568008091264"
++ *     requestBody:
++ *       required: true
++ *       content:
++ *         application/json:
++ *           schema:
++ *             type: object
++ *             required:
++ *               - position
++ *             properties:
++ *               position:
++ *                 type: number
++ *                 minimum: 0
++ *                 description: Position of the list within the board once restored
++ *                 example: 65536
++ *     responses:
++ *       200:
++ *         description: List restored successfully
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *               required:
++ *                 - item
++ *               properties:
++ *                 item:
++ *                   $ref: '#/components/schemas/List'
++ *       400:
++ *         $ref: '#/components/responses/ValidationError'
++ *       401:
++ *         $ref: '#/components/responses/Unauthorized'
++ *       403:
++ *         $ref: '#/components/responses/Forbidden'
++ *       404:
++ *         $ref: '#/components/responses/NotFound'
++ */
++
++const { idInput } = require('../../../utils/inputs');
++
++const Errors = {
++  NOT_ENOUGH_RIGHTS: {
++    notEnoughRights: 'Not enough rights',
++  },
++  LIST_NOT_FOUND: {
++    listNotFound: 'List not found',
++  },
++};
++
++module.exports = {
++  inputs: {
++    id: {
++      ...idInput,
++      required: true,
++    },
++    position: {
++      type: 'number',
++      min: 0,
++      required: true,
++    },
++  },
++
++  exits: {
++    notEnoughRights: {
++      responseType: 'forbidden',
++    },
++    listNotFound: {
++      responseType: 'notFound',
++    },
++  },
++
++  async fn(inputs) {
++    const { currentUser } = this.req;
++
++    const pathToProject = await sails.helpers.lists
++      .getPathToProjectById(inputs.id)
++      .intercept('pathNotFound', () => Errors.LIST_NOT_FOUND);
++
++    const { list } = pathToProject;
++    const { board, project } = pathToProject;
++
++    const isBoardEditor = await sails.helpers.users.isBoardEditor(currentUser.id, board.id);
++
++    if (!isBoardEditor) {
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
++
++      throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.LIST_NOT_FOUND;
++    }
++
++    if (!sails.helpers.lists.isKanban(list)) {
++      throw Errors.NOT_ENOUGH_RIGHTS;
++    }
++
++    // Idempotency guard - mirrors archive.js.
++    if (!list.archivedAt) {
++      throw Errors.LIST_NOT_FOUND;
++    }
++
++    const restoredList = await sails.helpers.lists.restoreOne.with({
++      project,
++      board,
++      record: list,
++      position: inputs.position,
++      actorUser: currentUser,
++      request: this.req,
++    });
++
++    if (!restoredList) {
++      throw Errors.LIST_NOT_FOUND;
++    }
++
++    return {
++      item: restoredList,
++    };
++  },
++};
+diff --git a/server/api/helpers/lists/archive-one.js b/server/api/helpers/lists/archive-one.js
+new file mode 100644
+index 0000000..e8db3b8
+--- /dev/null
++++ b/server/api/helpers/lists/archive-one.js
+@@ -0,0 +1,62 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++module.exports = {
++  inputs: {
++    record: {
++      type: 'ref',
++      required: true,
++    },
++    project: {
++      type: 'ref',
++      required: true,
++    },
++    board: {
++      type: 'ref',
++      required: true,
++    },
++    actorUser: {
++      type: 'ref',
++      required: true,
++    },
++    request: {
++      type: 'ref',
++    },
++  },
++
++  async fn(inputs) {
++    const { list } = await List.qm.updateOne(inputs.record.id, {
++      archivedAt: new Date().toISOString(),
++    });
++
++    if (list) {
++      sails.sockets.broadcast(
++        `board:${list.boardId}`,
++        'listUpdate',
++        {
++          item: list,
++        },
++        inputs.request,
++      );
++
++      const webhooks = await Webhook.qm.getAll();
++
++      sails.helpers.utils.sendWebhooks.with({
++        webhooks,
++        event: Webhook.Events.LIST_ARCHIVE,
++        buildData: () => ({
++          item: list,
++          included: {
++            projects: [inputs.project],
++            boards: [inputs.board],
++          },
++        }),
++        user: inputs.actorUser,
++      });
++    }
++
++    return list;
++  },
++};
+diff --git a/server/api/helpers/lists/restore-one.js b/server/api/helpers/lists/restore-one.js
+new file mode 100644
+index 0000000..9e22278
+--- /dev/null
++++ b/server/api/helpers/lists/restore-one.js
+@@ -0,0 +1,99 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++module.exports = {
++  inputs: {
++    record: {
++      type: 'ref',
++      required: true,
++    },
++    position: {
++      type: 'number',
++      required: true,
++    },
++    project: {
++      type: 'ref',
++      required: true,
++    },
++    board: {
++      type: 'ref',
++      required: true,
++    },
++    actorUser: {
++      type: 'ref',
++      required: true,
++    },
++    request: {
++      type: 'ref',
++    },
++  },
++
++  async fn(inputs) {
++    const lists = await sails.helpers.boards.getKanbanListsById(inputs.board.id, {
++      exceptListIdOrIds: inputs.record.id,
++    });
++
++    const { position, repositions } = sails.helpers.utils.insertToPositionables(
++      inputs.position,
++      lists,
++    );
++
++    if (repositions.length > 0) {
++      // eslint-disable-next-line no-restricted-syntax
++      for (const reposition of repositions) {
++        // eslint-disable-next-line no-await-in-loop
++        await List.qm.updateOne(
++          {
++            id: reposition.record.id,
++            boardId: reposition.record.boardId,
++          },
++          {
++            position: reposition.position,
++          },
++        );
++
++        sails.sockets.broadcast(`board:${inputs.board.id}`, 'listUpdate', {
++          item: {
++            id: reposition.record.id,
++            position: reposition.position,
++          },
++        });
++      }
++    }
++
++    const { list } = await List.qm.updateOne(inputs.record.id, {
++      position,
++      archivedAt: null,
++    });
++
++    if (list) {
++      sails.sockets.broadcast(
++        `board:${list.boardId}`,
++        'listUpdate',
++        {
++          item: list,
++        },
++        inputs.request,
++      );
++
++      const webhooks = await Webhook.qm.getAll();
++
++      sails.helpers.utils.sendWebhooks.with({
++        webhooks,
++        event: Webhook.Events.LIST_RESTORE,
++        buildData: () => ({
++          item: list,
++          included: {
++            projects: [inputs.project],
++            boards: [inputs.board],
++          },
++        }),
++        user: inputs.actorUser,
++      });
++    }
++
++    return list;
++  },
++};
+diff --git a/server/api/models/List.js b/server/api/models/List.js
+index a81d550..fa4a60f 100755
+--- a/server/api/models/List.js
++++ b/server/api/models/List.js
+@@ -55,6 +55,12 @@
+  *           nullable: true
+  *           description: Color for the list
+  *           example: lagoon-blue
++ *         archivedAt:
++ *           type: string
++ *           format: date-time
++ *           nullable: true
++ *           description: When the list was archived (BSY Media - null if not archived)
++ *           example: 2024-01-01T00:00:00.000Z
+  *         createdAt:
+  *           type: string
+  *           format: date-time
+@@ -149,6 +155,13 @@ module.exports = {
+       isIn: COLORS,
+       allowNull: true,
+     },
++    // BSY Media: hides a real active/closed list from the Kanban view
++    // without changing its type - orthogonal to the fixed, one-per-board
++    // ARCHIVE/TRASH system list types above, which stay untouched.
++    archivedAt: {
++      type: 'ref',
++      columnName: 'archived_at',
++    },
+ 
+     //  ╔═╗╔╦╗╔╗ ╔═╗╔╦╗╔═╗
+     //  ║╣ ║║║╠╩╗║╣  ║║╚═╗
+diff --git a/server/api/models/Webhook.js b/server/api/models/Webhook.js
+index 4e73b9a..bb9ec2a 100644
+--- a/server/api/models/Webhook.js
++++ b/server/api/models/Webhook.js
+@@ -127,6 +127,8 @@ const Events = {
+   LIST_CREATE: 'listCreate',
+   LIST_UPDATE: 'listUpdate',
+   LIST_CLEAR: 'listClear',
++  LIST_ARCHIVE: 'listArchive',
++  LIST_RESTORE: 'listRestore',
+   LIST_DELETE: 'listDelete',
+ 
+   NOTIFICATION_CREATE: 'notificationCreate',
+diff --git a/server/config/routes.js b/server/config/routes.js
+index 4f5519c..88217cd 100644
+--- a/server/config/routes.js
++++ b/server/config/routes.js
+@@ -169,6 +169,8 @@ module.exports.routes = {
+   'POST /api/lists/:id/sort': 'lists/sort',
+   'POST /api/lists/:id/move-cards': 'lists/move-cards',
+   'POST /api/lists/:id/clear': 'lists/clear',
++  'POST /api/lists/:id/archive': 'lists/archive',
++  'POST /api/lists/:id/restore': 'lists/restore',
+   'DELETE /api/lists/:id': 'lists/delete',
+ 
+   'GET /api/lists/:listId/cards': 'cards/index',
+diff --git a/server/db/migrations/20260808150000_add_archived_at_to_list.js b/server/db/migrations/20260808150000_add_archived_at_to_list.js
+new file mode 100644
+index 0000000..7d77f22
+--- /dev/null
++++ b/server/db/migrations/20260808150000_add_archived_at_to_list.js
+@@ -0,0 +1,14 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++module.exports.up = (knex) =>
++  knex.schema.alterTable('list', (table) => {
++    table.timestamp('archived_at', true);
++  });
++
++module.exports.down = (knex) =>
++  knex.schema.alterTable('list', (table) => {
++    table.dropColumn('archived_at');
++  });

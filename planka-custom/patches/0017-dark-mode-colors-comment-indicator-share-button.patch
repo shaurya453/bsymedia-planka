@@ -1,0 +1,91 @@
+diff --git a/client/src/components/board-memberships/BoardMemberships/BoardMemberships.module.scss b/client/src/components/board-memberships/BoardMemberships/BoardMemberships.module.scss
+index e8e18f4..02e35e8 100644
+--- a/client/src/components/board-memberships/BoardMemberships/BoardMemberships.module.scss
++++ b/client/src/components/board-memberships/BoardMemberships/BoardMemberships.module.scss
+@@ -4,19 +4,37 @@
+  */
+ 
+ :global(#app) {
++  // BSY Media: flexbox centers icon+text regardless of Semantic UI's
++  // internal line-height mismatch between the two (the previous
++  // line-height+asymmetric-padding approach visibly drifted off-center).
++  // Also bumped to a slightly larger pill per client feedback.
+   .addButton {
++    align-items: center;
+     background: rgba(0, 0, 0, 0.24);
+-    border-radius: 18px;
++    border-radius: 20px;
+     box-shadow: none;
+     color: #fff;
+-    line-height: 36px;
++    display: inline-flex;
++    gap: 8px;
++    height: 40px;
++    justify-content: center;
+     margin: 0;
+-    padding: 0 14px 0 10px;
++    padding: 0 16px;
+     transition: all 0.1s ease 0s;
+-    vertical-align: top;
+ 
+     &:hover {
+       background: rgba(0, 0, 0, 0.32);
+     }
++
++    // BSY Media: Semantic UI's icon font carries its own baked-in
++    // margin/line-height tuned for a plain (non-flex) button layout - that
++    // survives flex centering on the parent, since align-items centers the
++    // icon's margin box, not the glyph within it. Reset both so the icon's
++    // own box has no residual offset for flex to center incorrectly.
++    :global(.icon) {
++      height: auto;
++      line-height: 1;
++      margin: 0;
++    }
+   }
+ }
+diff --git a/client/src/components/cards/Card/Card.module.scss b/client/src/components/cards/Card/Card.module.scss
+index 4038a84..1ffc3e7 100644
+--- a/client/src/components/cards/Card/Card.module.scss
++++ b/client/src/components/cards/Card/Card.module.scss
+@@ -96,7 +96,7 @@
+ // is a compound selector (#app is <body> itself).
+ :global(#app.dark-mode-cards-enabled) {
+   .wrapper {
+-    background: #2c333a;
++    background: #242528;
+     box-shadow: 0 1px 0 #1d2125;
+ 
+     &:hover {
+diff --git a/client/src/components/cards/Card/StoryContent.jsx b/client/src/components/cards/Card/StoryContent.jsx
+index 7d38b25..51e3a49 100644
+--- a/client/src/components/cards/Card/StoryContent.jsx
++++ b/client/src/components/cards/Card/StoryContent.jsx
+@@ -105,7 +105,11 @@ const StoryContent = React.memo(({ cardId }) => {
+           {card.name}
+         </div>
+         {card.description && <div className={styles.descriptionText}>{descriptionText}</div>}
+-        {(withAge || attachmentsTotal > 0 || notificationsTotal > 0 || listName) && (
++        {(withAge ||
++          attachmentsTotal > 0 ||
++          card.commentsTotal > 0 ||
++          notificationsTotal > 0 ||
++          listName) && (
+           <span className={styles.attachments}>
+             {notificationsTotal > 0 && (
+               <span
+@@ -134,6 +138,14 @@ const StoryContent = React.memo(({ cardId }) => {
+                 </span>
+               </span>
+             )}
++            {card.commentsTotal > 0 && (
++              <span className={classNames(styles.attachment, styles.attachmentLeft)}>
++                <span className={styles.attachmentContent}>
++                  <Icon name="comment outline" />
++                  {card.commentsTotal}
++                </span>
++              </span>
++            )}
+             {withAge && card.createdAt && (
+               <span className={classNames(styles.attachment, styles.attachmentLeft)}>
+                 <span className={styles.attachmentContent}>
