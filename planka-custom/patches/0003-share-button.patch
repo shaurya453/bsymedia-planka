@@ -1,0 +1,82 @@
+diff --git a/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.jsx b/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.jsx
+index 9759f1c..98a2301 100644
+--- a/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.jsx
++++ b/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.jsx
+@@ -13,6 +13,7 @@ import selectors from '../../../../selectors';
+ import entryActions from '../../../../entry-actions';
+ import { useField, useNestedRef, useSteps } from '../../../../hooks';
+ import { isUserAdminOrProjectOwner } from '../../../../utils/record-helpers';
++import { UserRoles } from '../../../../constants/Enums';
+ import User from './User';
+ import SelectPermissionsStep from '../SelectPermissionsStep';
+ 
+@@ -30,7 +31,12 @@ const AddStep = React.memo(({ onClose }) => {
+       return [user];
+     }
+ 
+-    return selectors.selectActiveUsers(state);
++    // BSY Media: hide admin-role accounts (the bootstrapped instance admin
++    // and the invite-service bot) from the board-share picker - they're
++    // operational accounts, not people to add to a board.
++    return selectors
++      .selectActiveUsers(state)
++      .filter((activeUser) => activeUser.role !== UserRoles.ADMIN);
+   });
+ 
+   const currentUserIds = useSelector(selectors.selectMemberUserIdsForCurrentBoard);
+diff --git a/client/src/components/board-memberships/BoardMemberships/BoardMemberships.jsx b/client/src/components/board-memberships/BoardMemberships/BoardMemberships.jsx
+index c7aabf2..80bd207 100644
+--- a/client/src/components/board-memberships/BoardMemberships/BoardMemberships.jsx
++++ b/client/src/components/board-memberships/BoardMemberships/BoardMemberships.jsx
+@@ -7,6 +7,7 @@ import groupBy from 'lodash/groupBy';
+ import React, { useMemo } from 'react';
+ import classNames from 'classnames';
+ import { useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
+ import { Button } from 'semantic-ui-react';
+ import { usePopup } from '../../../lib/popup';
+ 
+@@ -19,6 +20,8 @@ import AddStep from './AddStep';
+ import styles from './BoardMemberships.module.scss';
+ 
+ const BoardMemberships = React.memo(() => {
++  const [t] = useTranslation();
++
+   const boardMemberships = useSelector(selectors.selectMembershipsForCurrentBoard);
+ 
+   const canAdd = useSelector((state) => {
+@@ -57,7 +60,11 @@ const BoardMemberships = React.memo(() => {
+       )}
+       {canAdd && (
+         <AddPopup>
+-          <Button icon="add user" className={classNames(styles.segment, styles.addButton)} />
++          <Button
++            icon="add user"
++            content={t('action.shareBoard')}
++            className={classNames(styles.segment, styles.addButton)}
++          />
+         </AddPopup>
+       )}
+     </>
+diff --git a/client/src/components/board-memberships/BoardMemberships/BoardMemberships.module.scss b/client/src/components/board-memberships/BoardMemberships/BoardMemberships.module.scss
+index 084d94e..29c09fd 100644
+--- a/client/src/components/board-memberships/BoardMemberships/BoardMemberships.module.scss
++++ b/client/src/components/board-memberships/BoardMemberships/BoardMemberships.module.scss
+@@ -6,15 +6,14 @@
+ :global(#app) {
+   .addButton {
+     background: rgba(0, 0, 0, 0.24);
+-    border-radius: 50%;
++    border-radius: 18px;
+     box-shadow: none;
+     color: #fff;
+     line-height: 36px;
+     margin: 0;
+-    padding: 0;
++    padding: 0 14px 0 10px;
+     transition: all 0.1s ease 0s;
+     vertical-align: top;
+-    width: 36px;
+ 
+     &:hover {
+       background: rgba(0, 0, 0, 0.32);

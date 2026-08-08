@@ -1,0 +1,34 @@
+diff --git a/client/src/reducers/core.js b/client/src/reducers/core.js
+index 0a4e94a..409c36b 100755
+--- a/client/src/reducers/core.js
++++ b/client/src/reducers/core.js
+@@ -14,7 +14,10 @@ const initialState = {
+   isContentFetching: false,
+   isLogouting: false,
+   isFavoritesEnabled: false,
+-  isEditModeEnabled: false,
++  // BSY Media: default Edit Mode on so editors see "Add another list" and
++  // drag/drop affordances immediately, without an extra lock-icon toggle.
++  // Board/editor role permission checks elsewhere are unaffected.
++  isEditModeEnabled: true,
+   modal: null,
+   clipboard: null,
+   config: null,
+diff --git a/client/src/sagas/core/services/router.js b/client/src/sagas/core/services/router.js
+index a5efd85..ea0dbaf 100644
+--- a/client/src/sagas/core/services/router.js
++++ b/client/src/sagas/core/services/router.js
+@@ -100,7 +100,12 @@ export function* handleLocationChange() {
+ 
+   switch (pathsMatch.pattern.path) {
+     case Paths.ROOT:
+-      isEditModeEnabled = false;
++      // BSY Media: this fires on every landing at the home page (including
++      // right after login), and overrides whatever reducers/core.js's
++      // initialState set - it was clobbering our "Edit Mode on by default"
++      // change before editors ever reached a board. Keep it in sync with
++      // that default.
++      isEditModeEnabled = true;
+ 
+       break;
+     case Paths.PROJECTS: {

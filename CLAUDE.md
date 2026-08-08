@@ -25,7 +25,11 @@ sub-parts now all live under Phase 1 below):
 
 **Outside this 3-phase brief scope**: a second source, Taiga, was consolidated into the same
 instance on 2026-08-07 at the client's request — see "Taiga import" below. The generic import
-machinery built for it is what Phase 2 (Trello) will reuse.
+machinery built for it is what Phase 2 (Trello) will reuse. Also outside scope: 5 UI/UX requests
+(add-list button, share button, background theming/presets, terms banner) delivered 2026-08-07 —
+see "UI/UX customizations: fork-and-build pipeline" below. That work replaced the
+prebuilt-image-plus-view-patch approach with a real fork-and-build pipeline, which is now the
+mechanism available for any future frontend change.
 
 ## Host
 
@@ -304,14 +308,20 @@ Admins asked for a way to reach the invite tool without remembering/typing `/inv
 PLANKA has **no native customization hook** for this — confirmed against live source
 (`config/custom.js`, `api/`) that there's no custom-menu/custom-link/custom-HTML setting to hook
 into. Patching the compiled React bundle (`/app/public/assets/*.js`, hashed/minified filenames
-that change every version) to add a real nav-bar item would be fragile reverse-engineering, so
-instead: `planka-custom/` is a thin wrapper `Dockerfile` (`FROM
-ghcr.io/plankanban/planka:2.1.1`, the same pinned tag as before) that patches only
-`/app/views/index.ejs` — the small server-rendered HTML shell, not the JS bundle — inserting a
-floating "Invite users" link (`planka-custom/invite-button.html`) that opens `/invite/` in a new
-tab. `docker-compose.yml`'s `planka` service now builds this instead of pulling the image
-directly (`build: ./planka-custom` in place of `image: ghcr.io/...`) — version pin is preserved,
-just one layer removed; bumping PLANKA's version means bumping the `FROM` line here too.
+that change every version) to add a real nav-bar item would be fragile reverse-engineering, so at
+the time this was built: `planka-custom/` was a thin wrapper `Dockerfile` (`FROM
+ghcr.io/plankanban/planka:2.1.1`) that patches only `/app/views/index.ejs` — the small
+server-rendered HTML shell, not the JS bundle — inserting a floating "Invite users" link
+(`planka-custom/invite-button.html`) that opens `/invite/` in a new tab. `docker-compose.yml`'s
+`planka` service built this instead of pulling the image directly (`build: ./planka-custom` in
+place of `image: ghcr.io/...`) — version pin was preserved, just one layer removed.
+
+**Superseded 2026-08-07** — see "UI/UX customizations: fork-and-build pipeline" below.
+`planka-custom/` now builds PLANKA from its own source instead of patching the prebuilt image,
+so real bundle changes are no longer off the table. This invite-button step itself didn't need to
+change (still just an `index.ejs` sed patch, now applied as the last step of a from-source build
+instead of on top of a pulled image) — kept as-is rather than converted to a "real" React
+component, since it already works and touching it wasn't part of that request.
 
 - Upstream's image runs as the non-root `node` user; the patch step needs `USER root` (to write
   `/app/views/index.ejs` and clean up `/tmp`), then switches back to `USER node` before the image
@@ -328,6 +338,113 @@ just one layer removed; bumping PLANKA's version means bumping the `FROM` line h
   `<div id="root"></div>` line the `sed` insertion anchors on — if upstream changes that template,
   the patch silently no-ops (PLANKA still works fine, the button just won't appear) rather than
   breaking the build, so it's easy to miss without a manual check.
+
+## UI/UX customizations: fork-and-build pipeline (2026-08-07)
+
+Client asked for 5 UI/UX changes: an "Add another list" button, a "Share" button on the board
+navbar, customizable board/cover backgrounds with preset images and automatic dark/light card
+theming, and removal of the "THIS IS ONLY A TEMPLATE" banner from the End User Terms shown at
+login. Researched the actual v2.1.1 source (cloned `github.com/plankanban/planka` at tag `2.1.1`
+— confirmed byte-for-byte version match against `package.json` in the running container) before
+writing anything, rather than assuming from memory or from upstream's general Trello-like
+reputation.
+
+**Most of this was already native** — the real gap was that this deployment had no way to ship
+*any* real frontend source change yet (see "In-app Invite users button" above: deliberately
+avoided touching the compiled bundle). So this work has two parts: (1) a new build pipeline that
+can ship real source patches, and (2) the actual small patches once that existed.
+
+### What turned out to already exist (no new code)
+
+- **Add list**: `AddList.jsx` already existed, already correctly gated to board `editor`s. It's
+  also gated behind a client-side "Edit Mode" lock toggle in the header
+  (`client/src/reducers/core.js`, defaulted `false`) — that's why editors couldn't find it.
+- **Board backgrounds**: gradients (25 built-in presets) and uploaded custom images were both
+  already fully supported per-project (`Project.backgroundType`/`backgroundGradient`/
+  `backgroundImageId`).
+- **Card covers**: already supported (`Card.coverAttachmentId` — any attachment can be set as a
+  card's cover).
+- **Board membership management** ("Share"): full member list, role-change, and add-member flow
+  already existed (`BoardMemberships.jsx` → `AddStep.jsx`/`ActionsStep.jsx`), wired to real
+  endpoints. It was just an unlabeled icon button, and — this took a closer read than expected —
+  **the "hidden on a board with zero members" concern turned out not to be real**: a project
+  manager already sees the widget on an empty board via the `selectIsCurrentUserManagerForCurrentBoard`
+  fallback in `BoardActions.jsx`. No permission-gating code was touched.
+- **Terms/license customization**: PLANKA already ships a built-in override — `TERMS_TYPE` env
+  var (defaults to `custom`) makes the `terms` hook look for `/app/terms/custom/<lang>.md`; since
+  that path didn't exist, it silently fell back (with a log warning) to
+  `/app/terms/_template/<lang>.md`, the file with the "⚠️ THIS IS ONLY A TEMPLATE" banner. Fixed
+  with **zero React/source changes** — just shipping a `terms/custom/en-US.md` file.
+
+### The build pipeline (prerequisite for the rest)
+
+`planka-custom/Dockerfile` no longer pulls `ghcr.io/plankanban/planka:2.1.1`. It now clones
+`github.com/plankanban/planka` at tag `2.1.1` in a dedicated `source` stage, applies
+`planka-custom/patches/*.patch` via `git apply --binary`, then runs upstream's own unmodified
+3-stage build (server build → client build with `INDEX_FORMAT=ejs` → final image assembly),
+mirrored line-for-line from upstream's own `Dockerfile`. The existing `invite-button.html` sed
+step and the new `terms/custom` `COPY` both run as the last steps of the final stage, same as
+before. `docker-compose.yml` needed no changes (`build: ./planka-custom` already pointed here).
+
+**Tradeoff accepted deliberately**: this is real supply-chain surface we didn't have before —
+previously running the vendor's own published, signed image; now building from source ourselves.
+On every future PLANKA version bump: bump `PLANKA_VERSION` in the Dockerfile, run
+`git apply --check patches/*.patch` against the new tag *before* changing anything else, and
+re-diff/rebase any patch that no longer applies cleanly — don't assume a patch that applied
+against 2.1.1 still applies as-is.
+
+### The patch set (`planka-custom/patches/`, one concern per file)
+
+1. `0001-locale-additions.patch` — two new `en-US` translation keys (`action.shareBoard`,
+   `common.presets`).
+2. `0002-edit-mode-default-on.patch` — `client/src/reducers/core.js`: `isEditModeEnabled`
+   default flipped to `true`. Removes the extra lock-icon click standing between editors and
+   "Add another list" (and drag/drop) — existing role/permission checks are untouched, so viewers
+   still can't edit anything.
+3. `0003-share-button.patch` — `BoardMemberships.jsx` gets a real "Share" label instead of a bare
+   icon (`BoardMemberships.module.scss` widened from a 36px circle to a pill to fit the text);
+   `AddStep.jsx`'s member picker now filters out `role === 'admin'` accounts. Confirmed live this
+   excludes exactly `admin@planka.local` and `invite-service@planka.local` (both `role: admin`) —
+   **but also excludes any other admin-role human account** (there's a third one live,
+   `admin@bsymedia.com`) from being addable via this picker. Not fixed further since PLANKA has no
+   "system account" flag to distinguish bot accounts from human admins — flagging this as a known
+   sharp edge, not a bug, since admins already have broader access through other means. No
+   backend/permission change — add-member stays gated to project managers server-side, as decided.
+4. `0004-smart-background-theme.patch` — new light/dark background detection: gradients are
+   classified ahead of time in `constants/BackgroundGradientLightness.js` (perceived-luminance
+   formula run once by hand against each gradient's fixed CSS color stops — see the patch file for
+   the actual numbers); uploaded images are sampled at runtime via canvas averaging
+   (`utils/get-background-lightness.js`). **Scoped to the header and the "Add list" button, not
+   card text** — verified list `.wrapper` backgrounds are opaque (`#dfe3e6`), so cards never
+   actually sit on the raw project background; the header and "Add list" button do (both render
+   with a semi-transparent black scrim directly over it), so that's where contrast actually
+   breaks on light backgrounds. `ProjectBackground.jsx` toggles a `body.theme-light-bg` class;
+   `Header.module.scss`/`KanbanContent.module.scss` darken their scrim when it's present.
+5. `0005-preset-background-gallery.patch` — a "Presets" tab in `BackgroundPane.jsx` (now the
+   default tab for projects with no background set yet) showing 8 bundled images
+   (`client/src/assets/images/background-presets/`); clicking one uploads it into the project via
+   the same `createBackgroundImageInCurrentProject` action a manual upload uses — not a separate
+   storage mechanism. **The images are generic stock photos from picsum.photos/Unsplash (CC0),
+   not BSY Media brand assets** — client explicitly asked for "generic high quality" over
+   client-provided ones this round; swap the files in that directory and re-diff the patch if
+   branded presets are wanted later. Card covers were left alone — they're per-card attachments,
+   not a good fit for a generic preset gallery.
+
+### Verified 2026-08-07
+
+- All 5 patches apply cleanly (`git apply --check`) against a fresh `2.1.1` clone.
+- `docker compose build planka` succeeded with no errors from either build stage.
+- Compiled output confirmed to contain all 5 changes (`isEditModeEnabled:!0` in the JS bundle,
+  the `shareBoard`/`presets` strings, the 8 preset JPEGs under `/app/public/assets/`, the
+  `theme-light-bg` CSS rule).
+- `GET /api/terms` confirmed banner-free; the terms-acceptance flow (new signature → forces
+  re-acceptance, as expected since the content changed) tested end-to-end via the API.
+- Regression-checked post-rebuild: the existing Taiga-imported board data is intact (180 cards /
+  17 lists / 57 attachments, unchanged), and the invite-service floating button still renders.
+- **Not verified**: the actual click-through UI behavior (Add List appearing without an extra
+  toggle, Share button placement, preset gallery upload flow, visual contrast on a light vs. dark
+  background) — no browser automation tool was available in this session. Do a quick manual pass
+  before considering this fully done.
 
 ## Taiga import (2026-08-07)
 

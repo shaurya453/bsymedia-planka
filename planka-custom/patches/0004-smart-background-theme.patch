@@ -1,0 +1,235 @@
+diff --git a/client/src/components/boards/Board/KanbanContent/KanbanContent.module.scss b/client/src/components/boards/Board/KanbanContent/KanbanContent.module.scss
+index e0b16ec..ecd2ce5 100644
+--- a/client/src/components/boards/Board/KanbanContent/KanbanContent.module.scss
++++ b/client/src/components/boards/Board/KanbanContent/KanbanContent.module.scss
+@@ -57,3 +57,17 @@
+     padding: 0 12px 0 20px;
+   }
+ }
++
++// BSY Media: see Header.module.scss - same light-background scrim boost,
++// the "Add list" button sits directly on the project background too.
++// NOTE: #app is the <body> element itself - see List.module.scss for why
++// this must be a compound selector, not "body.class #app".
++:global(#app.theme-light-bg) {
++  .addListButton {
++    background: rgba(0, 0, 0, 0.4);
++
++    &:hover {
++      background: rgba(0, 0, 0, 0.5);
++    }
++  }
++}
+diff --git a/client/src/components/common/Header/Header.module.scss b/client/src/components/common/Header/Header.module.scss
+index b0334b6..8145d88 100644
+--- a/client/src/components/common/Header/Header.module.scss
++++ b/client/src/components/common/Header/Header.module.scss
+@@ -11,7 +11,9 @@
+     font-size: 15px;
+     line-height: 34px;
+     margin-left: 8px;
+-    opacity: 0;
++    // BSY Media: always visible instead of hover-only - it's a small
++    // discoverability fix, editors shouldn't have to hunt for it.
++    opacity: 1;
+     padding: 0;
+     width: 34px;
+ 
+@@ -32,10 +34,6 @@
+     &:hover {
+       background: transparent;
+       color: rgba(255, 255, 255, 0.9);
+-
+-      .editButton {
+-        opacity: 1;
+-      }
+     }
+   }
+ 
+@@ -108,3 +106,18 @@
+     flex: 0 0 auto;
+   }
+ }
++
++// BSY Media: darken the header scrim further over light backgrounds so
++// white header text/icons keep enough contrast (see ProjectBackground.jsx,
++// which toggles this class based on the selected background's brightness).
++// NOTE: #app is the <body> element itself - see List.module.scss for why
++// this must be a compound selector, not "body.class #app".
++:global(#app.theme-light-bg) {
++  .wrapper {
++    background: rgba(0, 0, 0, 0.45);
++  }
++
++  .itemHoverable:hover {
++    background: rgba(0, 0, 0, 0.55);
++  }
++}
+diff --git a/client/src/components/projects/ProjectBackground/ProjectBackground.jsx b/client/src/components/projects/ProjectBackground/ProjectBackground.jsx
+index f3ac801..74bef42 100644
+--- a/client/src/components/projects/ProjectBackground/ProjectBackground.jsx
++++ b/client/src/components/projects/ProjectBackground/ProjectBackground.jsx
+@@ -5,22 +5,29 @@
+ 
+ import upperFirst from 'lodash/upperFirst';
+ import camelCase from 'lodash/camelCase';
+-import React, { useMemo } from 'react';
++import React, { useEffect, useMemo } from 'react';
+ import classNames from 'classnames';
+ import { useSelector } from 'react-redux';
+ 
+ import selectors from '../../../selectors';
+ import { ProjectBackgroundTypes } from '../../../constants/Enums';
++import LIGHT_BACKGROUND_GRADIENTS from '../../../constants/BackgroundGradientLightness';
++import getImageAverageLuminance, { isLuminanceLight } from '../../../utils/get-background-lightness';
+ 
+ import styles from './ProjectBackground.module.scss';
+ import globalStyles from '../../../styles.module.scss';
+ 
++const THEME_LIGHT_BODY_CLASS = 'theme-light-bg';
++// BSY Media: dark theme for cards/columns (Project.cardsDarkModeEnabled) -
++// directly controlled by this toggle, independent of the background
++// brightness detection above (that only affects the header/add-list scrim).
++const DARK_MODE_CARDS_BODY_CLASS = 'dark-mode-cards-enabled';
++
+ const ProjectBackground = React.memo(() => {
+   const selectBackgroundImageById = useMemo(() => selectors.makeSelectBackgroundImageById(), []);
+ 
+-  const { backgroundImageId, backgroundType, backgroundGradient } = useSelector(
+-    selectors.selectCurrentProject,
+-  );
++  const { backgroundImageId, backgroundType, backgroundGradient, cardsDarkModeEnabled } =
++    useSelector(selectors.selectCurrentProject);
+ 
+   const backgroundImageUrl = useSelector((state) => {
+     if (!backgroundType || backgroundType !== ProjectBackgroundTypes.IMAGE) {
+@@ -36,6 +43,52 @@ const ProjectBackground = React.memo(() => {
+     return backgroundImage.url;
+   });
+ 
++  useEffect(() => {
++    if (backgroundType === ProjectBackgroundTypes.GRADIENT) {
++      document.body.classList.toggle(
++        THEME_LIGHT_BODY_CLASS,
++        LIGHT_BACKGROUND_GRADIENTS.has(backgroundGradient),
++      );
++
++      return undefined;
++    }
++
++    if (backgroundType === ProjectBackgroundTypes.IMAGE && backgroundImageUrl) {
++      let isCancelled = false;
++
++      getImageAverageLuminance(backgroundImageUrl)
++        .then((luminance) => {
++          if (!isCancelled) {
++            document.body.classList.toggle(THEME_LIGHT_BODY_CLASS, isLuminanceLight(luminance));
++          }
++        })
++        .catch(() => {
++          // Sampling failed (e.g. canvas security error) - keep the default
++          // (dark-background) styling rather than guessing.
++        });
++
++      return () => {
++        isCancelled = true;
++      };
++    }
++
++    document.body.classList.remove(THEME_LIGHT_BODY_CLASS);
++
++    return undefined;
++  }, [backgroundType, backgroundGradient, backgroundImageUrl]);
++
++  useEffect(() => {
++    document.body.classList.toggle(DARK_MODE_CARDS_BODY_CLASS, !!cardsDarkModeEnabled);
++  }, [cardsDarkModeEnabled]);
++
++  useEffect(
++    () => () => {
++      document.body.classList.remove(THEME_LIGHT_BODY_CLASS);
++      document.body.classList.remove(DARK_MODE_CARDS_BODY_CLASS);
++    },
++    [],
++  );
++
+   return (
+     <div
+       className={classNames(
+diff --git a/client/src/constants/BackgroundGradientLightness.js b/client/src/constants/BackgroundGradientLightness.js
+new file mode 100644
+index 0000000..8f63058
+--- /dev/null
++++ b/client/src/constants/BackgroundGradientLightness.js
+@@ -0,0 +1,11 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++// BSY Media: precomputed perceived-luminance classification for each preset
++// gradient in BackgroundGradients.js (relative luminance of each gradient's
++// color stops, averaged - see getBackgroundLightness.js for the same
++// formula applied at runtime to uploaded images). Only "light" gradients
++// need to be listed; anything absent is treated as a dark background.
++export default new Set(['old-lime', 'sun-scream', 'sour-peel', 'green-mist']);
+diff --git a/client/src/utils/get-background-lightness.js b/client/src/utils/get-background-lightness.js
+new file mode 100644
+index 0000000..a988024
+--- /dev/null
++++ b/client/src/utils/get-background-lightness.js
+@@ -0,0 +1,54 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++// BSY Media: "smart" light/dark background detection, used to darken the
++// header scrim automatically over light backgrounds so text stays legible.
++// Gradients are classified ahead of time (see BackgroundGradientLightness.js
++// - same formula, computed once from their fixed color stops); uploaded
++// images are sampled at runtime since their content is arbitrary.
++
++const LIGHTNESS_THRESHOLD = 140; // 0-255 relative luminance midpoint-ish
++
++const SAMPLE_SIZE = 16; // downscale to keep canvas sampling cheap
++
++// Relative luminance (ITU-R BT.709 coefficients), 0-255 scale.
++const getLuminance = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
++
++const getImageAverageLuminance = (imageUrl) =>
++  new Promise((resolve, reject) => {
++    const image = new Image();
++    image.crossOrigin = 'anonymous';
++
++    image.onload = () => {
++      try {
++        const canvas = document.createElement('canvas');
++        canvas.width = SAMPLE_SIZE;
++        canvas.height = SAMPLE_SIZE;
++
++        const context = canvas.getContext('2d');
++        context.drawImage(image, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
++
++        const { data } = context.getImageData(0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
++
++        let total = 0;
++        let count = 0;
++        for (let i = 0; i < data.length; i += 4) {
++          total += getLuminance(data[i], data[i + 1], data[i + 2]);
++          count += 1;
++        }
++
++        resolve(total / count);
++      } catch (error) {
++        reject(error);
++      }
++    };
++
++    image.onerror = reject;
++    image.src = imageUrl;
++  });
++
++export const isLuminanceLight = (luminance) => luminance > LIGHTNESS_THRESHOLD;
++
++export default getImageAverageLuminance;

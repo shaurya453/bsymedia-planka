@@ -1,0 +1,52 @@
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index bf90685..3a6891b 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -90,7 +90,6 @@ export default {
+       attachment: 'Attachment',
+       attachments: 'Attachments',
+       authentication: 'Authentication',
+-      background: 'Background',
+       baseCustomFields_title: 'Base Custom Fields',
+       baseGroup: 'Base group',
+       board: 'Board',
+@@ -112,6 +111,7 @@ export default {
+       canOnlyViewBoard: 'Can only view the board.',
+       cardActions_title: 'Card Actions',
+       cardNotFound_title: 'Card Not Found',
++      cardsAndColumnsTheme_title: 'Cards & Columns Theme',
+       cardsOnThisListAreAvailableToAllBoardMembers:
+         'Cards on this list are available to all board members.',
+       cardsOnThisListAreCompleteAndReadyToBeArchived:
+@@ -197,6 +197,7 @@ export default {
+       editors: 'Editors',
+       email: 'E-mail',
+       emptyTrash_title: 'Empty Trash',
++      enableDarkModeForCardsAndColumns: 'Dark mode for cards & columns',
+       enterCardTitle: 'Enter card title...',
+       enterDescription: 'Enter description...',
+       enterFilename: 'Enter filename',
+@@ -272,6 +273,7 @@ export default {
+         'PLANKA uses <1><0>Apprise</0></1> to send notifications to over 100 popular services.',
+       port: 'Port',
+       preferences: 'Preferences',
++      presets: 'Presets',
+       pressPasteShortcutToAddAttachmentFromClipboard:
+         'Tip: press Ctrl-V (Cmd-V on Mac) to add an attachment from the clipboard.',
+       private: 'Private',
+@@ -369,6 +371,7 @@ export default {
+       viewer: 'Viewer',
+       viewers: 'Viewers',
+       visualTaskManagementWithLists: 'Visual task management with lists.',
++      visuals: 'Visuals',
+       webhooks: 'Webhooks',
+       whatsNew_title: "What's New",
+       withoutBaseGroup: 'Without base group',
+@@ -488,6 +491,7 @@ export default {
+       returnToBoard: 'Return to board',
+       save: 'Save',
+       sendTestEmail: 'Send test email',
++      shareBoard: 'Share',
+       showActive: 'Show active',
+       showAllAttachments: 'Show all attachments ({{hidden}} hidden)',
+       showCardsWithThisUser: 'Show cards with this user',
