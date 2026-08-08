@@ -1,0 +1,529 @@
+diff --git a/client/src/components/board-memberships/BoardMemberships/AddStep/AddAllStep.jsx b/client/src/components/board-memberships/BoardMemberships/AddStep/AddAllStep.jsx
+new file mode 100644
+index 0000000..67f7ce3
+--- /dev/null
++++ b/client/src/components/board-memberships/BoardMemberships/AddStep/AddAllStep.jsx
+@@ -0,0 +1,77 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useCallback, useState } from 'react';
++import PropTypes from 'prop-types';
++import { useTranslation } from 'react-i18next';
++import { Button, Icon, Menu } from 'semantic-ui-react';
++import { Popup } from '../../../../lib/custom-ui';
++
++import { BoardMembershipRoles } from '../../../../constants/Enums';
++import { BoardMembershipRoleIcons } from '../../../../constants/Icons';
++
++import styles from '../SelectPermissionsStep.module.scss';
++
++const ROLES = [BoardMembershipRoles.EDITOR, BoardMembershipRoles.VIEWER];
++
++// BSY Media: bulk-add every user who isn't already on the board, after
++// confirming a single role to apply to all of them.
++const AddAllStep = React.memo(({ count, onConfirm, onBack, onClose }) => {
++  const [t] = useTranslation();
++  const [role, setRole] = useState(BoardMembershipRoles.VIEWER);
++
++  const handleRoleClick = useCallback((_, { value }) => {
++    setRole(value);
++  }, []);
++
++  const handleConfirmClick = useCallback(() => {
++    onConfirm(role);
++    onClose();
++  }, [role, onConfirm, onClose]);
++
++  return (
++    <>
++      <Popup.Header onBack={onBack}>
++        {t('common.addAllMembers', {
++          context: 'title',
++        })}
++      </Popup.Header>
++      <Popup.Content>
++        <div className={styles.settings}>{t('common.addAllMembersConfirmation', { count })}</div>
++        <Menu secondary vertical className={styles.menu}>
++          {ROLES.map((currentRole) => (
++            <Menu.Item
++              key={currentRole}
++              value={currentRole}
++              active={currentRole === role}
++              className={styles.menuItem}
++              onClick={handleRoleClick}
++            >
++              <Icon
++                name={BoardMembershipRoleIcons[currentRole]}
++                className={styles.menuItemIcon}
++              />
++              <div className={styles.menuItemTitle}>{t(`common.${currentRole}`)}</div>
++            </Menu.Item>
++          ))}
++        </Menu>
++        <Button positive fluid content={t('action.confirm')} onClick={handleConfirmClick} />
++      </Popup.Content>
++    </>
++  );
++});
++
++AddAllStep.propTypes = {
++  count: PropTypes.number.isRequired,
++  onConfirm: PropTypes.func.isRequired,
++  onBack: PropTypes.func,
++  onClose: PropTypes.func.isRequired,
++};
++
++AddAllStep.defaultProps = {
++  onBack: undefined,
++};
++
++export default AddAllStep;
+diff --git a/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.jsx b/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.jsx
+index d165f20..321dabc 100644
+--- a/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.jsx
++++ b/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.jsx
+@@ -7,19 +7,23 @@ import React, { useCallback, useEffect, useMemo } from 'react';
+ import PropTypes from 'prop-types';
+ import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
++import { Button } from 'semantic-ui-react';
+ import { Input, Popup } from '../../../../lib/custom-ui';
+ 
+ import selectors from '../../../../selectors';
+ import entryActions from '../../../../entry-actions';
+ import { useField, useNestedRef, useSteps } from '../../../../hooks';
+ import { isUserAdminOrProjectOwner } from '../../../../utils/record-helpers';
++import { BoardMembershipRoles } from '../../../../constants/Enums';
+ import User from './User';
++import AddAllStep from './AddAllStep';
+ import SelectPermissionsStep from '../SelectPermissionsStep';
+ 
+ import styles from './AddStep.module.scss';
+ 
+ const StepTypes = {
+   SELECT_PERMISSIONS: 'SELECT_PERMISSIONS',
++  ADD_ALL: 'ADD_ALL',
+ };
+ 
+ // BSY Media: the two operational accounts created/used internally by this
+@@ -62,6 +66,14 @@ const AddStep = React.memo(({ onClose }) => {
+     [users, cleanSearch],
+   );
+ 
++  // BSY Media: "Add all members" ignores the search filter - it always
++  // targets every user not yet on the board, not just the ones currently
++  // visible in a filtered search.
++  const nonMemberUserIds = useMemo(
++    () => users.filter((user) => !currentUserIds.includes(user.id)).map((user) => user.id),
++    [users, currentUserIds],
++  );
++
+   const [searchFieldRef, handleSearchFieldRef] = useNestedRef('inputRef');
+ 
+   const handleRoleSelect = useCallback(
+@@ -78,6 +90,23 @@ const AddStep = React.memo(({ onClose }) => {
+     [onClose, dispatch, step],
+   );
+ 
++  const handleAddAllConfirm = useCallback(
++    (role) => {
++      nonMemberUserIds.forEach((userId) => {
++        dispatch(
++          entryActions.createMembershipInCurrentBoard({
++            userId,
++            role,
++            ...(role === BoardMembershipRoles.VIEWER && {
++              canComment: false,
++            }),
++          }),
++        );
++      });
++    },
++    [nonMemberUserIds, dispatch],
++  );
++
+   const handleUserSelect = useCallback(
+     (userId) => {
+       openStep(StepTypes.SELECT_PERMISSIONS, {
+@@ -87,24 +116,44 @@ const AddStep = React.memo(({ onClose }) => {
+     [openStep],
+   );
+ 
++  const handleAddAllClick = useCallback(() => {
++    openStep(StepTypes.ADD_ALL);
++  }, [openStep]);
++
+   useEffect(() => {
+     searchFieldRef.current.focus({
+       preventScroll: true,
+     });
+   }, [searchFieldRef]);
+ 
+-  if (step && step.type === StepTypes.SELECT_PERMISSIONS) {
+-    const currentUser = users.find((user) => user.id === step.params.userId);
+-
+-    if (currentUser) {
+-      return (
+-        <SelectPermissionsStep
+-          buttonContent="action.addMember"
+-          onSelect={handleRoleSelect}
+-          onBack={handleBack}
+-          onClose={onClose}
+-        />
+-      );
++  if (step) {
++    switch (step.type) {
++      case StepTypes.SELECT_PERMISSIONS: {
++        const currentUser = users.find((user) => user.id === step.params.userId);
++
++        if (currentUser) {
++          return (
++            <SelectPermissionsStep
++              buttonContent="action.addMember"
++              onSelect={handleRoleSelect}
++              onBack={handleBack}
++              onClose={onClose}
++            />
++          );
++        }
++
++        break;
++      }
++      case StepTypes.ADD_ALL:
++        return (
++          <AddAllStep
++            count={nonMemberUserIds.length}
++            onConfirm={handleAddAllConfirm}
++            onBack={handleBack}
++            onClose={onClose}
++          />
++        );
++      default:
+     }
+ 
+     openStep(null);
+@@ -127,6 +176,15 @@ const AddStep = React.memo(({ onClose }) => {
+           icon="search"
+           onChange={handleSearchChange}
+         />
++        {nonMemberUserIds.length > 0 && (
++          <Button
++            fluid
++            basic
++            content={t('action.addAllMembers')}
++            className={styles.addAllButton}
++            onClick={handleAddAllClick}
++          />
++        )}
+         {filteredUsers.length > 0 && (
+           <div className={styles.users}>
+             {filteredUsers.map((user) => (
+diff --git a/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.module.scss b/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.module.scss
+index aacf014..6720a32 100644
+--- a/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.module.scss
++++ b/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.module.scss
+@@ -4,6 +4,10 @@
+  */
+ 
+ :global(#app) {
++  .addAllButton {
++    margin-top: 8px;
++  }
++
+   .users {
+     margin-top: 8px;
+     max-height: 60vh;
+diff --git a/client/src/components/board-memberships/ShareModal/MembersList/Item.jsx b/client/src/components/board-memberships/ShareModal/MembersList/Item.jsx
+index 49d7c0c..8acd70b 100644
+--- a/client/src/components/board-memberships/ShareModal/MembersList/Item.jsx
++++ b/client/src/components/board-memberships/ShareModal/MembersList/Item.jsx
+@@ -3,7 +3,7 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useCallback, useMemo } from 'react';
++import React, { useCallback, useMemo, useState } from 'react';
+ import PropTypes from 'prop-types';
+ import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+@@ -14,7 +14,6 @@ import entryActions from '../../../../entry-actions';
+ import { usePopupInClosableContext } from '../../../../hooks';
+ import { BoardMembershipRoles } from '../../../../constants/Enums';
+ import UserAvatar from '../../../users/UserAvatar';
+-import SelectPermissionsStep from '../../BoardMemberships/SelectPermissionsStep';
+ import ConfirmationStep from '../../../common/ConfirmationStep';
+ 
+ import styles from './Item.module.scss';
+@@ -26,6 +25,8 @@ const ROLE_OPTIONS = [BoardMembershipRoles.EDITOR, BoardMembershipRoles.VIEWER].
+ 
+ // BSY Media: inline role dropdown + remove, replacing the old 3-level
+ // Group -> GroupItemsStep -> ActionsStep popup chain for the same action.
++// Switching to Viewer holds off dispatching until the comment-permission
++// question below is answered, instead of a separate settings popup.
+ const Item = React.memo(({ id }) => {
+   const selectBoardMembershipById = useMemo(() => selectors.makeSelectBoardMembershipById(), []);
+ 
+@@ -45,81 +46,113 @@ const Item = React.memo(({ id }) => {
+   const dispatch = useDispatch();
+   const [t] = useTranslation();
+ 
++  const [isAwaitingCommentConfirmation, setIsAwaitingCommentConfirmation] = useState(false);
++
+   const handleRoleChange = useCallback(
+     (_, { value: role }) => {
+       if (role === boardMembership.role) {
+         return;
+       }
+ 
+-      dispatch(
+-        entryActions.updateBoardMembership(
+-          id,
+-          role === BoardMembershipRoles.EDITOR
+-            ? { role }
+-            : { role, canComment: !!boardMembership.canComment },
+-        ),
+-      );
++      if (role === BoardMembershipRoles.VIEWER) {
++        setIsAwaitingCommentConfirmation(true);
++        return;
++      }
++
++      dispatch(entryActions.updateBoardMembership(id, { role }));
+     },
+-    [id, dispatch, boardMembership.role, boardMembership.canComment],
++    [id, dispatch, boardMembership.role],
+   );
+ 
+-  const handlePermissionsSelect = useCallback(
+-    (data) => {
+-      dispatch(entryActions.updateBoardMembership(id, data));
++  const handleCommentAnswer = useCallback(
++    (canComment) => {
++      dispatch(
++        entryActions.updateBoardMembership(id, {
++          role: BoardMembershipRoles.VIEWER,
++          canComment,
++        }),
++      );
++      setIsAwaitingCommentConfirmation(false);
+     },
+     [id, dispatch],
+   );
+ 
++  const handleCommentAllowClick = useCallback(() => {
++    handleCommentAnswer(true);
++  }, [handleCommentAnswer]);
++
++  const handleCommentDontAllowClick = useCallback(() => {
++    handleCommentAnswer(false);
++  }, [handleCommentAnswer]);
++
++  const handleCommentCancelClick = useCallback(() => {
++    setIsAwaitingCommentConfirmation(false);
++  }, []);
++
+   const handleDeleteConfirm = useCallback(() => {
+     dispatch(entryActions.deleteBoardMembership(id));
+   }, [id, dispatch]);
+ 
+-  const PermissionsPopup = usePopupInClosableContext(SelectPermissionsStep);
+   const DeletePopup = usePopupInClosableContext(ConfirmationStep);
+ 
+   return (
+     <div className={styles.wrapper}>
+-      <span className={styles.user}>
+-        <UserAvatar id={boardMembership.userId} />
+-      </span>
+-      <span className={styles.name}>{user.name}</span>
+-      <Dropdown
+-        basic
+-        compact
+-        selection
+-        value={boardMembership.role}
+-        options={ROLE_OPTIONS}
+-        disabled={!canEdit}
+-        className={styles.roleDropdown}
+-        onChange={handleRoleChange}
+-      />
+-      {canEdit && (
+-        <PermissionsPopup
+-          boardMembership={boardMembership}
+-          title="common.editPermissions"
+-          buttonContent="action.save"
+-          onSelect={handlePermissionsSelect}
+-        >
+-          <Button type="button" className={styles.iconButton} title={t('action.editPermissions')}>
+-            <Icon fitted name="cog" />
+-          </Button>
+-        </PermissionsPopup>
+-      )}
+-      {(canEdit || isCurrentUser) && (
+-        <DeletePopup
+-          title={isCurrentUser ? 'common.leaveBoard' : 'common.removeMember'}
+-          content={
+-            isCurrentUser
+-              ? 'common.areYouSureYouWantToLeaveBoard'
+-              : 'common.areYouSureYouWantToRemoveThisMemberFromBoard'
+-          }
+-          buttonContent={isCurrentUser ? 'action.leaveBoard' : 'action.removeMember'}
+-          onConfirm={handleDeleteConfirm}
+-        >
+-          <Button type="button" className={styles.iconButton}>
+-            <Icon fitted name="trash alternate outline" />
+-          </Button>
+-        </DeletePopup>
++      <div className={styles.row}>
++        <span className={styles.user}>
++          <UserAvatar id={boardMembership.userId} />
++        </span>
++        <span className={styles.name}>{user.name}</span>
++        <Dropdown
++          basic
++          compact
++          selection
++          value={boardMembership.role}
++          options={ROLE_OPTIONS}
++          disabled={!canEdit || isAwaitingCommentConfirmation}
++          className={styles.roleDropdown}
++          onChange={handleRoleChange}
++        />
++        {(canEdit || isCurrentUser) && (
++          <DeletePopup
++            title={isCurrentUser ? 'common.leaveBoard' : 'common.removeMember'}
++            content={
++              isCurrentUser
++                ? 'common.areYouSureYouWantToLeaveBoard'
++                : 'common.areYouSureYouWantToRemoveThisMemberFromBoard'
++            }
++            buttonContent={isCurrentUser ? 'action.leaveBoard' : 'action.removeMember'}
++            onConfirm={handleDeleteConfirm}
++          >
++            <Button type="button" className={styles.iconButton}>
++              <Icon fitted name="trash alternate outline" />
++            </Button>
++          </DeletePopup>
++        )}
++      </div>
++      {isAwaitingCommentConfirmation && (
++        <div className={styles.confirmRow}>
++          <span className={styles.confirmText}>{t('common.allowThisMemberToComment')}</span>
++          <Button
++            type="button"
++            positive
++            size="mini"
++            content={t('action.allow')}
++            onClick={handleCommentAllowClick}
++          />
++          <Button
++            type="button"
++            size="mini"
++            content={t('action.dontAllow')}
++            onClick={handleCommentDontAllowClick}
++          />
++          <Button
++            type="button"
++            basic
++            size="mini"
++            content={t('action.cancel')}
++            onClick={handleCommentCancelClick}
++          />
++        </div>
+       )}
+     </div>
+   );
+diff --git a/client/src/components/board-memberships/ShareModal/MembersList/Item.module.scss b/client/src/components/board-memberships/ShareModal/MembersList/Item.module.scss
+index 1fa0144..963e8a4 100644
+--- a/client/src/components/board-memberships/ShareModal/MembersList/Item.module.scss
++++ b/client/src/components/board-memberships/ShareModal/MembersList/Item.module.scss
+@@ -5,10 +5,13 @@
+ 
+ :global(#app) {
+   .wrapper {
++    padding: 6px 0;
++  }
++
++  .row {
+     align-items: center;
+     display: flex;
+     gap: 8px;
+-    padding: 6px 0;
+   }
+ 
+   .user {
+@@ -32,4 +35,20 @@
+     flex: 0 0 auto;
+     padding: 6px;
+   }
++
++  .confirmRow {
++    align-items: center;
++    background: #f6f7f8;
++    border-radius: 4px;
++    display: flex;
++    flex-wrap: wrap;
++    gap: 6px;
++    margin-top: 6px;
++    padding: 6px 8px;
++  }
++
++  .confirmText {
++    flex: 1 1 auto;
++    font-size: 12px;
++  }
+ }
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 2edb3aa..676c271 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -22,6 +22,8 @@ export default {
+       actions: 'Actions',
+       activateUser_title: 'Activate User',
+       active: 'Active',
++      addAllMembersConfirmation: 'Add {{count}} member(s) to this board as:',
++      addAllMembers_title: 'Add All Members',
+       addAttachment_title: 'Add Attachment',
+       addCustomFieldGroup_title: 'Add Custom Field Group',
+       addCustomField_title: 'Add Custom Field',
+@@ -34,6 +36,7 @@ export default {
+       all: 'All',
+       allChangesWillBeAutomaticallySavedAfterConnectionRestored:
+         'All changes will be automatically saved<br />after connection restored.',
++      allowThisMemberToComment: 'Allow this member to comment?',
+       alphabetically: 'Alphabetically',
+       alwaysDisplayCardCreator: 'Always display card creator',
+       apiKeyCreated_title: 'API Key Created',
+@@ -384,6 +387,7 @@ export default {
+     action: {
+       activateUser: 'Activate user',
+       activateUser_title: 'Activate User',
++      addAllMembers: 'Add all members',
+       addAnotherCard: 'Add another card',
+       addAnotherList: 'Add another list',
+       addAnotherTask: 'Add another task',
+@@ -400,6 +404,7 @@ export default {
+       addToCard: 'Add to card',
+       addUser: 'Add user',
+       addWebhook: 'Add webhook',
++      allow: 'Allow',
+       archive: 'Archive',
+       archiveCard: 'Archive card',
+       archiveCard_title: 'Archive Card',
+@@ -407,6 +412,7 @@ export default {
+       archiveCards_title: 'Archive Cards',
+       assignAsOwner: 'Assign as owner',
+       cancel: 'Cancel',
++      confirm: 'Confirm',
+       copy: 'Copy',
+       copyCard_title: 'Copy Card',
+       createApiKey: 'Create API key',
+@@ -448,6 +454,7 @@ export default {
+       deleteUser_title: 'Delete User',
+       deleteWebhook: 'Delete webhook',
+       dismissAll: 'Dismiss all',
++      dontAllow: "Don't allow",
+       download: 'Download',
+       duplicateCard_title: 'Duplicate Card',
+       edit: 'Edit',
