@@ -1,0 +1,73 @@
+diff --git a/server/api/controllers/projects/update.js b/server/api/controllers/projects/update.js
+index f846351..bc3f687 100755
+--- a/server/api/controllers/projects/update.js
++++ b/server/api/controllers/projects/update.js
+@@ -164,6 +164,9 @@ module.exports = {
+     isFavorite: {
+       type: 'boolean',
+     },
++    cardsDarkModeEnabled: {
++      type: 'boolean',
++    },
+   },
+ 
+   exits: {
+@@ -229,6 +232,7 @@ module.exports = {
+         'description',
+         'backgroundType',
+         'backgroundGradient',
++        'cardsDarkModeEnabled',
+       );
+     }
+ 
+@@ -287,6 +291,7 @@ module.exports = {
+       'backgroundGradient',
+       'isHidden',
+       'isFavorite',
++      'cardsDarkModeEnabled',
+     ]);
+ 
+     project = await sails.helpers.projects.updateOne
+diff --git a/server/api/models/Project.js b/server/api/models/Project.js
+index 79342a4..9ef2ae9 100755
+--- a/server/api/models/Project.js
++++ b/server/api/models/Project.js
+@@ -156,6 +156,13 @@ module.exports = {
+       defaultsTo: false, // TODO: implement via normalizeValues?
+       columnName: 'is_hidden',
+     },
++    // BSY Media: directly switches cards/columns between light and dark,
++    // independent of the selected background.
++    cardsDarkModeEnabled: {
++      type: 'boolean',
++      defaultsTo: false,
++      columnName: 'cards_dark_mode_enabled',
++    },
+ 
+     //  ╔═╗╔╦╗╔╗ ╔═╗╔╦╗╔═╗
+     //  ║╣ ║║║╠╩╗║╣  ║║╚═╗
+diff --git a/server/db/migrations/20260807212240_add_cards_dark_mode_to_project.js b/server/db/migrations/20260807212240_add_cards_dark_mode_to_project.js
+new file mode 100644
+index 0000000..98f6965
+--- /dev/null
++++ b/server/db/migrations/20260807212240_add_cards_dark_mode_to_project.js
+@@ -0,0 +1,19 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++module.exports.up = async (knex) => {
++  await knex.schema.alterTable('project', (table) => {
++    table.boolean('cards_dark_mode_enabled').notNullable().defaultTo(false);
++  });
++
++  return knex.schema.alterTable('project', (table) => {
++    table.boolean('cards_dark_mode_enabled').notNullable().alter();
++  });
++};
++
++module.exports.down = (knex) =>
++  knex.schema.alterTable('project', (table) => {
++    table.dropColumn('cards_dark_mode_enabled');
++  });

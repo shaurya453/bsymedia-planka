@@ -1,0 +1,87 @@
+diff --git a/client/src/components/cards/Card/Card.module.scss b/client/src/components/cards/Card/Card.module.scss
+index 130ea9a..30682c8 100644
+--- a/client/src/components/cards/Card/Card.module.scss
++++ b/client/src/components/cards/Card/Card.module.scss
+@@ -90,3 +90,17 @@
+     }
+   }
+ }
++
++// BSY Media: dark theme for cards - directly controlled by the "Dark mode
++// for cards & columns" project toggle. See List.module.scss for why this
++// is a compound selector (#app is <body> itself).
++:global(#app.dark-mode-cards-enabled) {
++  .wrapper {
++    background: #2c333a;
++    box-shadow: 0 1px 0 #1d2125;
++
++    &:hover {
++      background: #343c44;
++    }
++  }
++}
+diff --git a/client/src/components/cards/Card/ProjectContent.module.scss b/client/src/components/cards/Card/ProjectContent.module.scss
+index 57ff384..37ca60a 100644
+--- a/client/src/components/cards/Card/ProjectContent.module.scss
++++ b/client/src/components/cards/Card/ProjectContent.module.scss
+@@ -120,3 +120,12 @@
+     }
+   }
+ }
++
++// BSY Media: dark theme for card text - directly controlled by the "Dark
++// mode for cards & columns" project toggle. See List.module.scss for why
++// this is a compound selector (#app is <body> itself).
++:global(#app.dark-mode-cards-enabled) {
++  .name {
++    color: #b6c2cf;
++  }
++}
+diff --git a/client/src/components/cards/Card/StoryContent.module.scss b/client/src/components/cards/Card/StoryContent.module.scss
+index a735b21..f561173 100644
+--- a/client/src/components/cards/Card/StoryContent.module.scss
++++ b/client/src/components/cards/Card/StoryContent.module.scss
+@@ -104,3 +104,16 @@
+     }
+   }
+ }
++
++// BSY Media: dark theme for card text - directly controlled by the "Dark
++// mode for cards & columns" project toggle. See List.module.scss for why
++// this is a compound selector (#app is <body> itself).
++:global(#app.dark-mode-cards-enabled) {
++  .descriptionText {
++    color: #9fadbc;
++  }
++
++  .name {
++    color: #b6c2cf;
++  }
++}
+diff --git a/client/src/components/projects/ProjectSettingsModal/ProjectSettingsModal.jsx b/client/src/components/projects/ProjectSettingsModal/ProjectSettingsModal.jsx
+index 4c1c39a..876b904 100644
+--- a/client/src/components/projects/ProjectSettingsModal/ProjectSettingsModal.jsx
++++ b/client/src/components/projects/ProjectSettingsModal/ProjectSettingsModal.jsx
+@@ -53,7 +53,7 @@ const ProjectSettingsModal = React.memo(() => {
+   if (withManagablePanes) {
+     panes.push(
+       {
+-        menuItem: t('common.background', {
++        menuItem: t('common.visuals', {
+           context: 'title',
+         }),
+         render: () => <BackgroundPane />,
+diff --git a/client/src/models/Project.js b/client/src/models/Project.js
+index f2c602d..1181e64 100755
+--- a/client/src/models/Project.js
++++ b/client/src/models/Project.js
+@@ -18,6 +18,9 @@ export default class extends BaseModel {
+     description: attr(),
+     backgroundType: attr(),
+     backgroundGradient: attr(),
++    cardsDarkModeEnabled: attr({
++      getDefault: () => false,
++    }),
+     isHidden: attr(),
+     isFavorite: attr({
+       getDefault: () => false,
