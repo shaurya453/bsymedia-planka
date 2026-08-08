@@ -1,0 +1,1199 @@
+diff --git a/client/src/components/board-memberships/BoardMemberships/ActionsStep.jsx b/client/src/components/board-memberships/BoardMemberships/ActionsStep.jsx
+deleted file mode 100644
+index 3ac638f..0000000
+--- a/client/src/components/board-memberships/BoardMemberships/ActionsStep.jsx
++++ /dev/null
+@@ -1,192 +0,0 @@
+-/*!
+- * Copyright (c) 2024 PLANKA Software GmbH
+- * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+- */
+-
+-import React, { useCallback, useMemo } from 'react';
+-import PropTypes from 'prop-types';
+-import { useDispatch, useSelector } from 'react-redux';
+-import { useTranslation } from 'react-i18next';
+-import { Button, Icon } from 'semantic-ui-react';
+-import { Popup } from '../../../lib/custom-ui';
+-
+-import selectors from '../../../selectors';
+-import entryActions from '../../../entry-actions';
+-import { useSteps } from '../../../hooks';
+-import SelectPermissionsStep from './SelectPermissionsStep';
+-import ConfirmationStep from '../../common/ConfirmationStep';
+-import UserAvatar from '../../users/UserAvatar';
+-
+-import styles from './ActionsStep.module.scss';
+-
+-const StepTypes = {
+-  EDIT_PERMISSIONS: 'EDIT_PERMISSIONS',
+-  DELETE: 'DELETE',
+-};
+-
+-const ActionsStep = React.memo(({ boardMembershipId, title, onBack, onClose }) => {
+-  const selectBoardMembershipById = useMemo(() => selectors.makeSelectBoardMembershipById(), []);
+-  const selectUserById = useMemo(() => selectors.makeSelectUserById(), []);
+-
+-  const boardMembership = useSelector((state) =>
+-    selectBoardMembershipById(state, boardMembershipId),
+-  );
+-
+-  const user = useSelector((state) => selectUserById(state, boardMembership.userId));
+-
+-  const isCurrentUser = useSelector(
+-    (state) => boardMembership.userId === selectors.selectCurrentUserId(state),
+-  );
+-
+-  const canEdit = useSelector(selectors.selectIsCurrentUserManagerForCurrentProject);
+-
+-  const dispatch = useDispatch();
+-  const [t] = useTranslation();
+-  const [step, openStep, handleBack] = useSteps();
+-
+-  const handleRoleSelect = useCallback(
+-    (data) => {
+-      dispatch(entryActions.updateBoardMembership(boardMembershipId, data));
+-    },
+-    [boardMembershipId, dispatch],
+-  );
+-
+-  const handleDeleteConfirm = useCallback(() => {
+-    dispatch(entryActions.deleteBoardMembership(boardMembershipId));
+-    onClose();
+-  }, [boardMembershipId, onClose, dispatch]);
+-
+-  const handleFilterClick = useCallback(() => {
+-    dispatch(entryActions.addUserToFilterInCurrentBoard(boardMembership.userId, true));
+-    onClose();
+-  }, [onClose, boardMembership.userId, dispatch]);
+-
+-  const handleEditPermissionsClick = useCallback(() => {
+-    openStep(StepTypes.EDIT_PERMISSIONS);
+-  }, [openStep]);
+-
+-  const handleDeleteClick = useCallback(() => {
+-    openStep(StepTypes.DELETE);
+-  }, [openStep]);
+-
+-  if (step) {
+-    switch (step.type) {
+-      case StepTypes.EDIT_PERMISSIONS:
+-        return (
+-          <SelectPermissionsStep
+-            boardMembership={boardMembership}
+-            title="common.editPermissions"
+-            buttonContent="action.save"
+-            onSelect={handleRoleSelect}
+-            onBack={handleBack}
+-            onClose={onClose}
+-          />
+-        );
+-      case StepTypes.DELETE:
+-        return (
+-          <ConfirmationStep
+-            title={isCurrentUser ? `common.leaveBoard` : 'common.removeMember'}
+-            content={
+-              isCurrentUser
+-                ? `common.areYouSureYouWantToLeaveBoard`
+-                : `common.areYouSureYouWantToRemoveThisMemberFromBoard`
+-            }
+-            buttonContent={isCurrentUser ? `action.leaveBoard` : 'action.removeMember'}
+-            onConfirm={handleDeleteConfirm}
+-            onBack={handleBack}
+-          />
+-        );
+-      default:
+-    }
+-
+-    openStep(null);
+-  }
+-
+-  const contentNode = (
+-    <>
+-      <div className={styles.userWrapper}>
+-        <span className={styles.user}>
+-          <UserAvatar id={boardMembership.userId} size="large" />
+-        </span>
+-        <span className={styles.content}>
+-          <div className={styles.name}>{user.name}</div>
+-          {user.username && <div className={styles.username}>@{user.username}</div>}
+-        </span>
+-      </div>
+-      {user.phone && (
+-        <div className={styles.information}>
+-          <Icon name="phone" className={styles.informationIcon} />
+-          {user.phone}
+-        </div>
+-      )}
+-      {user.organization && (
+-        <div className={styles.information}>
+-          <Icon name="building" className={styles.informationIcon} />
+-          {user.organization}
+-        </div>
+-      )}
+-      <Button
+-        basic
+-        content={t('action.showCardsWithThisUser')}
+-        icon="filter"
+-        size="tiny"
+-        onClick={handleFilterClick}
+-      />
+-      {(isCurrentUser || canEdit) && (
+-        <>
+-          <hr className={styles.divider} />
+-          {canEdit && (
+-            <Button
+-              fluid
+-              content={t('action.editPermissions')}
+-              className={styles.button}
+-              onClick={handleEditPermissionsClick}
+-            />
+-          )}
+-          {isCurrentUser ? (
+-            <Button
+-              fluid
+-              content={t(`action.leaveBoard`)}
+-              className={styles.button}
+-              onClick={handleDeleteClick}
+-            />
+-          ) : (
+-            <Button
+-              fluid
+-              content={t(`action.removeFromBoard`)}
+-              className={styles.button}
+-              onClick={handleDeleteClick}
+-            />
+-          )}
+-        </>
+-      )}
+-    </>
+-  );
+-
+-  return onBack ? (
+-    <>
+-      <Popup.Header onBack={onBack}>
+-        {t(title, {
+-          context: 'title',
+-        })}
+-      </Popup.Header>
+-      <Popup.Content>{contentNode}</Popup.Content>
+-    </>
+-  ) : (
+-    contentNode
+-  );
+-});
+-
+-ActionsStep.propTypes = {
+-  boardMembershipId: PropTypes.string.isRequired,
+-  title: PropTypes.string,
+-  onBack: PropTypes.func,
+-  onClose: PropTypes.func.isRequired,
+-};
+-
+-ActionsStep.defaultProps = {
+-  title: 'common.memberActions',
+-  onBack: undefined,
+-};
+-
+-export default ActionsStep;
+diff --git a/client/src/components/board-memberships/BoardMemberships/ActionsStep.module.scss b/client/src/components/board-memberships/BoardMemberships/ActionsStep.module.scss
+deleted file mode 100644
+index f3dc213..0000000
+--- a/client/src/components/board-memberships/BoardMemberships/ActionsStep.module.scss
++++ /dev/null
+@@ -1,72 +0,0 @@
+-/*!
+- * Copyright (c) 2024 PLANKA Software GmbH
+- * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+- */
+-
+-:global(#app) {
+-  .button {
+-    background: transparent;
+-    box-shadow: none;
+-    color: #6b808c;
+-    font-weight: normal;
+-    margin-top: 8px;
+-    padding: 6px 11px;
+-    text-align: left;
+-    text-decoration: underline;
+-    transition: none;
+-
+-    &:hover {
+-      background: rgba(9, 30, 66, 0.08);
+-      color: #092d42;
+-    }
+-  }
+-
+-  .content {
+-    display: inline-block;
+-    width: calc(100% - 44px);
+-  }
+-
+-  .divider {
+-    background: #eee;
+-    border: 0;
+-    height: 1px;
+-  }
+-
+-  .information {
+-    color: #888888;
+-    margin-bottom: 8px;
+-  }
+-
+-  .informationIcon {
+-    margin-right: 6px;
+-    opacity: 0.45;
+-  }
+-
+-  .name {
+-    color: #212121;
+-    font-size: 16px;
+-    font-weight: bold;
+-    line-height: 1.2;
+-    padding: 9px 28px 0 2px;
+-  }
+-
+-  .userWrapper {
+-    margin-bottom: 8px;
+-    min-height: 49px;
+-  }
+-
+-  .user {
+-    display: inline-block;
+-    padding-right: 8px;
+-    padding-top: 10px;
+-    vertical-align: top;
+-  }
+-
+-  .username {
+-    color: #888888;
+-    font-size: 14px;
+-    line-height: 1.2;
+-    padding: 2px 0 2px 2px;
+-    word-wrap: break-word;
+-  }
+-}
+diff --git a/client/src/components/board-memberships/BoardMemberships/BoardMemberships.jsx b/client/src/components/board-memberships/BoardMemberships/BoardMemberships.jsx
+index 80bd207..806d51c 100644
+--- a/client/src/components/board-memberships/BoardMemberships/BoardMemberships.jsx
++++ b/client/src/components/board-memberships/BoardMemberships/BoardMemberships.jsx
+@@ -3,26 +3,25 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import groupBy from 'lodash/groupBy';
+-import React, { useMemo } from 'react';
+-import classNames from 'classnames';
+-import { useSelector } from 'react-redux';
++import React, { useCallback } from 'react';
++import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+ import { Button } from 'semantic-ui-react';
+-import { usePopup } from '../../../lib/popup';
+ 
+ import selectors from '../../../selectors';
++import entryActions from '../../../entry-actions';
+ import { isUserAdminOrProjectOwner } from '../../../utils/record-helpers';
+-import { BoardMembershipRoles } from '../../../constants/Enums';
+-import Group from './Group';
+-import AddStep from './AddStep';
+ 
+ import styles from './BoardMemberships.module.scss';
+ 
++// BSY Media: the Share button now opens a full darkened-backdrop modal
++// (ShareModal, mounted from Board.jsx) instead of an anchored popup - see
++// that component for the invite-by-email box, member list, and add-member
++// flow. This component is now just the trigger + its visibility gate.
+ const BoardMemberships = React.memo(() => {
+   const [t] = useTranslation();
+ 
+-  const boardMemberships = useSelector(selectors.selectMembershipsForCurrentBoard);
++  const dispatch = useDispatch();
+ 
+   const canAdd = useSelector((state) => {
+     const user = selectors.selectCurrentUser(state);
+@@ -34,40 +33,25 @@ const BoardMemberships = React.memo(() => {
+     return selectors.selectIsCurrentUserManagerForCurrentProject(state);
+   });
+ 
+-  const boardMembershipsByRole = useMemo(
+-    () => groupBy(boardMemberships, 'role'),
+-    [boardMemberships],
++  const boardMembershipsCount = useSelector(
++    (state) => selectors.selectMembershipsForCurrentBoard(state).length,
+   );
+ 
+-  const AddPopup = usePopup(AddStep);
++  const handleClick = useCallback(() => {
++    dispatch(entryActions.openBoardShareModal());
++  }, [dispatch]);
++
++  if (!canAdd && boardMembershipsCount === 0) {
++    return null;
++  }
+ 
+   return (
+-    <>
+-      {boardMemberships.length > 0 && (
+-        <div className={classNames(styles.segment, styles.groups)}>
+-          {[BoardMembershipRoles.EDITOR, BoardMembershipRoles.VIEWER].map(
+-            (role) =>
+-              boardMembershipsByRole[role] && (
+-                <Group
+-                  key={role}
+-                  items={boardMembershipsByRole[role]}
+-                  role={role}
+-                  groupsTotal={Object.keys(boardMembershipsByRole).length}
+-                />
+-              ),
+-          )}
+-        </div>
+-      )}
+-      {canAdd && (
+-        <AddPopup>
+-          <Button
+-            icon="add user"
+-            content={t('action.shareBoard')}
+-            className={classNames(styles.segment, styles.addButton)}
+-          />
+-        </AddPopup>
+-      )}
+-    </>
++    <Button
++      icon="add user"
++      content={t('action.shareBoard')}
++      className={styles.addButton}
++      onClick={handleClick}
++    />
+   );
+ });
+ 
+diff --git a/client/src/components/board-memberships/BoardMemberships/BoardMemberships.module.scss b/client/src/components/board-memberships/BoardMemberships/BoardMemberships.module.scss
+index 29c09fd..e8e18f4 100644
+--- a/client/src/components/board-memberships/BoardMemberships/BoardMemberships.module.scss
++++ b/client/src/components/board-memberships/BoardMemberships/BoardMemberships.module.scss
+@@ -19,12 +19,4 @@
+       background: rgba(0, 0, 0, 0.32);
+     }
+   }
+-
+-  .groups {
+-    display: flex;
+-  }
+-
+-  .segment:not(:last-child) {
+-    margin-right: 10px;
+-  }
+ }
+diff --git a/client/src/components/board-memberships/BoardMemberships/Group.jsx b/client/src/components/board-memberships/BoardMemberships/Group.jsx
+deleted file mode 100644
+index ed2dd98..0000000
+--- a/client/src/components/board-memberships/BoardMemberships/Group.jsx
++++ /dev/null
+@@ -1,57 +0,0 @@
+-/*!
+- * Copyright (c) 2024 PLANKA Software GmbH
+- * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+- */
+-
+-import React from 'react';
+-import PropTypes from 'prop-types';
+-import { Icon, Button } from 'semantic-ui-react';
+-import { usePopup } from '../../../lib/popup';
+-
+-import { BoardMembershipRoleIcons } from '../../../constants/Icons';
+-import GroupItemsStep from './GroupItemsStep';
+-import ActionsStep from './ActionsStep';
+-import UserAvatar from '../../users/UserAvatar';
+-
+-import styles from './Group.module.scss';
+-
+-const MAX_MEMBERS = 6;
+-
+-const Group = React.memo(({ items, role, groupsTotal }) => {
+-  const GroupItemsPopup = usePopup(GroupItemsStep);
+-  const ActionsPopup = usePopup(ActionsStep);
+-
+-  let visibleTotal = MAX_MEMBERS - groupsTotal;
+-  let hiddenTotal = items.length - visibleTotal;
+-
+-  if (hiddenTotal === 1) {
+-    visibleTotal += 1;
+-    hiddenTotal -= 1;
+-  }
+-
+-  return (
+-    <div className={styles.wrapper}>
+-      <Icon name={BoardMembershipRoleIcons[role]} className={styles.icon} />
+-      {items.slice(0, visibleTotal).map((item) => (
+-        <span key={item.id} className={styles.user}>
+-          <ActionsPopup boardMembershipId={item.id}>
+-            <UserAvatar id={item.user.id} size="large" isDisabled={!item.isPersisted} />
+-          </ActionsPopup>
+-        </span>
+-      ))}
+-      {hiddenTotal > 0 && (
+-        <GroupItemsPopup items={items} title={`common.${role}s`}>
+-          <Button className={styles.othersButton}>+{hiddenTotal < 99 ? hiddenTotal : 99}</Button>
+-        </GroupItemsPopup>
+-      )}
+-    </div>
+-  );
+-});
+-
+-Group.propTypes = {
+-  items: PropTypes.array.isRequired, // eslint-disable-line react/forbid-prop-types
+-  role: PropTypes.string.isRequired,
+-  groupsTotal: PropTypes.number.isRequired,
+-};
+-
+-export default Group;
+diff --git a/client/src/components/board-memberships/BoardMemberships/Group.module.scss b/client/src/components/board-memberships/BoardMemberships/Group.module.scss
+deleted file mode 100644
+index 5fb2ab3..0000000
+--- a/client/src/components/board-memberships/BoardMemberships/Group.module.scss
++++ /dev/null
+@@ -1,46 +0,0 @@
+-/*!
+- * Copyright (c) 2024 PLANKA Software GmbH
+- * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+- */
+-
+-:global(#app) {
+-  .icon {
+-    color: rgba(255, 255, 255, 0.64);
+-    line-height: 1;
+-  }
+-
+-  .othersButton {
+-    background: rgba(0, 0, 0, 0.24);
+-    border-radius: 50%;
+-    box-shadow: none;
+-    color: #fff;
+-    line-height: 36px;
+-    margin: 0;
+-    padding: 0;
+-    transition: all 0.1s ease 0s;
+-    vertical-align: top;
+-    width: 36px;
+-
+-    &:hover {
+-      background: rgba(0, 0, 0, 0.32);
+-    }
+-  }
+-
+-  .user {
+-    line-height: 1;
+-    margin: 0 -4px 0 0;
+-  }
+-
+-  .wrapper {
+-    align-items: center;
+-    background: rgba(0, 0, 0, 0.08);
+-    border-radius: 24px;
+-    display: flex;
+-    line-height: 34px;
+-    padding: 5px 13px 5px 10px;
+-
+-    &:not(:last-child) {
+-      margin-right: 10px;
+-    }
+-  }
+-}
+diff --git a/client/src/components/board-memberships/BoardMemberships/GroupItemsStep.jsx b/client/src/components/board-memberships/BoardMemberships/GroupItemsStep.jsx
+deleted file mode 100644
+index f52ac39..0000000
+--- a/client/src/components/board-memberships/BoardMemberships/GroupItemsStep.jsx
++++ /dev/null
+@@ -1,50 +0,0 @@
+-/*!
+- * Copyright (c) 2024 PLANKA Software GmbH
+- * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+- */
+-
+-import React, { useCallback } from 'react';
+-import PropTypes from 'prop-types';
+-
+-import { useSteps } from '../../../hooks';
+-import ActionsStep from './ActionsStep';
+-import PureBoardMembershipsStep from '../PureBoardMembershipsStep';
+-
+-const StepTypes = {
+-  SELECT: 'SELECT',
+-};
+-
+-const GroupItemsStep = React.memo(({ items, title, onClose }) => {
+-  const [step, openStep, handleBack] = useSteps();
+-
+-  const handleUserClick = useCallback(
+-    (userId) => {
+-      openStep(StepTypes.SELECT, {
+-        userId,
+-      });
+-    },
+-    [openStep],
+-  );
+-
+-  if (step && step.type === StepTypes.SELECT) {
+-    const currentItem = items.find((item) => item.userId === step.params.userId);
+-
+-    if (currentItem) {
+-      return (
+-        <ActionsStep boardMembershipId={currentItem.id} onBack={handleBack} onClose={onClose} />
+-      );
+-    }
+-
+-    openStep(null);
+-  }
+-
+-  return <PureBoardMembershipsStep items={items} title={title} onUserSelect={handleUserClick} />;
+-});
+-
+-GroupItemsStep.propTypes = {
+-  items: PropTypes.array.isRequired, // eslint-disable-line react/forbid-prop-types
+-  title: PropTypes.string.isRequired,
+-  onClose: PropTypes.func.isRequired,
+-};
+-
+-export default GroupItemsStep;
+diff --git a/client/src/components/board-memberships/ShareModal/InviteByEmail/InviteByEmail.jsx b/client/src/components/board-memberships/ShareModal/InviteByEmail/InviteByEmail.jsx
+new file mode 100644
+index 0000000..ab1ce29
+--- /dev/null
++++ b/client/src/components/board-memberships/ShareModal/InviteByEmail/InviteByEmail.jsx
+@@ -0,0 +1,133 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useCallback, useState } from 'react';
++import { useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
++import { Button, Dropdown, Form, Input, Message } from 'semantic-ui-react';
++
++import selectors from '../../../../selectors';
++import { isUserAdminOrProjectOwner } from '../../../../utils/record-helpers';
++import { getAccessToken } from '../../../../utils/access-token-storage';
++import { BoardMembershipRoles } from '../../../../constants/Enums';
++
++import styles from './InviteByEmail.module.scss';
++
++const ROLE_OPTIONS = [BoardMembershipRoles.EDITOR, BoardMembershipRoles.VIEWER].map((role) => ({
++  value: role,
++  text: role,
++}));
++
++// BSY Media: lets a project manager/admin invite someone who doesn't have a
++// PLANKA account yet, without leaving the app - calls invite-service's own
++// JSON API (same-origin, Bearer-authenticated with this user's own PLANKA
++// access token) instead of the separate /invite/ webpage.
++const InviteByEmail = React.memo(() => {
++  const boardId = useSelector((state) => selectors.selectCurrentBoard(state).id);
++
++  const canInvite = useSelector((state) => {
++    const user = selectors.selectCurrentUser(state);
++
++    if (!isUserAdminOrProjectOwner(user)) {
++      return !selectors.selectCurrentUserMembershipForCurrentBoard(state);
++    }
++
++    return selectors.selectIsCurrentUserManagerForCurrentProject(state);
++  });
++
++  const [t] = useTranslation();
++
++  const [email, setEmail] = useState('');
++  const [boardRole, setBoardRole] = useState(BoardMembershipRoles.VIEWER);
++  const [status, setStatus] = useState(null); // null | 'submitting' | 'success' | { error }
++
++  const handleEmailChange = useCallback((event) => {
++    setEmail(event.target.value);
++    setStatus(null);
++  }, []);
++
++  const handleRoleChange = useCallback((_, { value }) => {
++    setBoardRole(value);
++  }, []);
++
++  const handleSubmit = useCallback(() => {
++    const cleanEmail = email.trim();
++
++    if (!cleanEmail) {
++      return;
++    }
++
++    setStatus('submitting');
++
++    fetch('/invite/api/send', {
++      method: 'POST',
++      headers: {
++        'Content-Type': 'application/json',
++        Authorization: `Bearer ${getAccessToken()}`,
++      },
++      body: JSON.stringify({
++        email: cleanEmail,
++        boardId,
++        boardRole,
++      }),
++    })
++      .then((response) => response.json().then((body) => ({ ok: response.ok, body })))
++      .then(({ ok, body }) => {
++        if (!ok) {
++          throw new Error(body.error || 'Could not send invite');
++        }
++
++        setEmail('');
++        setStatus('success');
++      })
++      .catch((error) => {
++        setStatus({
++          error: error.message,
++        });
++      });
++  }, [email, boardId, boardRole]);
++
++  if (!canInvite) {
++    return null;
++  }
++
++  return (
++    <div className={styles.wrapper}>
++      <Form onSubmit={handleSubmit}>
++        <Input
++          fluid
++          type="email"
++          value={email}
++          placeholder={t('common.email')}
++          maxLength={256}
++          className={styles.input}
++          action={
++            <Dropdown
++              button
++              basic
++              value={boardRole}
++              options={ROLE_OPTIONS}
++              className={styles.roleDropdown}
++              onChange={handleRoleChange}
++            />
++          }
++          onChange={handleEmailChange}
++        />
++        <Button
++          fluid
++          primary
++          content={t('action.sendInvite')}
++          loading={status === 'submitting'}
++          disabled={status === 'submitting' || !email.trim()}
++          className={styles.submitButton}
++        />
++      </Form>
++      {status === 'success' && <Message positive size="tiny" content={t('common.inviteSent')} />}
++      {status && status.error && <Message negative size="tiny" content={status.error} />}
++    </div>
++  );
++});
++
++export default InviteByEmail;
+diff --git a/client/src/components/board-memberships/ShareModal/InviteByEmail/InviteByEmail.module.scss b/client/src/components/board-memberships/ShareModal/InviteByEmail/InviteByEmail.module.scss
+new file mode 100644
+index 0000000..863c32b
+--- /dev/null
++++ b/client/src/components/board-memberships/ShareModal/InviteByEmail/InviteByEmail.module.scss
+@@ -0,0 +1,22 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .wrapper {
++    margin-top: 4px;
++  }
++
++  .input {
++    margin-bottom: 8px;
++  }
++
++  .roleDropdown {
++    min-width: 90px;
++  }
++
++  .submitButton {
++    margin: 0;
++  }
++}
+diff --git a/client/src/components/board-memberships/ShareModal/InviteByEmail/index.js b/client/src/components/board-memberships/ShareModal/InviteByEmail/index.js
+new file mode 100644
+index 0000000..4f4b7b8
+--- /dev/null
++++ b/client/src/components/board-memberships/ShareModal/InviteByEmail/index.js
+@@ -0,0 +1,8 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import InviteByEmail from './InviteByEmail';
++
++export default InviteByEmail;
+diff --git a/client/src/components/board-memberships/ShareModal/MembersList/Item.jsx b/client/src/components/board-memberships/ShareModal/MembersList/Item.jsx
+new file mode 100644
+index 0000000..49d7c0c
+--- /dev/null
++++ b/client/src/components/board-memberships/ShareModal/MembersList/Item.jsx
+@@ -0,0 +1,132 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useCallback, useMemo } from 'react';
++import PropTypes from 'prop-types';
++import { useDispatch, useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
++import { Button, Dropdown, Icon } from 'semantic-ui-react';
++
++import selectors from '../../../../selectors';
++import entryActions from '../../../../entry-actions';
++import { usePopupInClosableContext } from '../../../../hooks';
++import { BoardMembershipRoles } from '../../../../constants/Enums';
++import UserAvatar from '../../../users/UserAvatar';
++import SelectPermissionsStep from '../../BoardMemberships/SelectPermissionsStep';
++import ConfirmationStep from '../../../common/ConfirmationStep';
++
++import styles from './Item.module.scss';
++
++const ROLE_OPTIONS = [BoardMembershipRoles.EDITOR, BoardMembershipRoles.VIEWER].map((role) => ({
++  value: role,
++  text: role,
++}));
++
++// BSY Media: inline role dropdown + remove, replacing the old 3-level
++// Group -> GroupItemsStep -> ActionsStep popup chain for the same action.
++const Item = React.memo(({ id }) => {
++  const selectBoardMembershipById = useMemo(() => selectors.makeSelectBoardMembershipById(), []);
++
++  const boardMembership = useSelector((state) => selectBoardMembershipById(state, id));
++
++  const user = useSelector((state) => {
++    const selectUserById = selectors.makeSelectUserById();
++    return selectUserById(state, boardMembership.userId);
++  });
++
++  const isCurrentUser = useSelector(
++    (state) => boardMembership.userId === selectors.selectCurrentUserId(state),
++  );
++
++  const canEdit = useSelector(selectors.selectIsCurrentUserManagerForCurrentProject);
++
++  const dispatch = useDispatch();
++  const [t] = useTranslation();
++
++  const handleRoleChange = useCallback(
++    (_, { value: role }) => {
++      if (role === boardMembership.role) {
++        return;
++      }
++
++      dispatch(
++        entryActions.updateBoardMembership(
++          id,
++          role === BoardMembershipRoles.EDITOR
++            ? { role }
++            : { role, canComment: !!boardMembership.canComment },
++        ),
++      );
++    },
++    [id, dispatch, boardMembership.role, boardMembership.canComment],
++  );
++
++  const handlePermissionsSelect = useCallback(
++    (data) => {
++      dispatch(entryActions.updateBoardMembership(id, data));
++    },
++    [id, dispatch],
++  );
++
++  const handleDeleteConfirm = useCallback(() => {
++    dispatch(entryActions.deleteBoardMembership(id));
++  }, [id, dispatch]);
++
++  const PermissionsPopup = usePopupInClosableContext(SelectPermissionsStep);
++  const DeletePopup = usePopupInClosableContext(ConfirmationStep);
++
++  return (
++    <div className={styles.wrapper}>
++      <span className={styles.user}>
++        <UserAvatar id={boardMembership.userId} />
++      </span>
++      <span className={styles.name}>{user.name}</span>
++      <Dropdown
++        basic
++        compact
++        selection
++        value={boardMembership.role}
++        options={ROLE_OPTIONS}
++        disabled={!canEdit}
++        className={styles.roleDropdown}
++        onChange={handleRoleChange}
++      />
++      {canEdit && (
++        <PermissionsPopup
++          boardMembership={boardMembership}
++          title="common.editPermissions"
++          buttonContent="action.save"
++          onSelect={handlePermissionsSelect}
++        >
++          <Button type="button" className={styles.iconButton} title={t('action.editPermissions')}>
++            <Icon fitted name="cog" />
++          </Button>
++        </PermissionsPopup>
++      )}
++      {(canEdit || isCurrentUser) && (
++        <DeletePopup
++          title={isCurrentUser ? 'common.leaveBoard' : 'common.removeMember'}
++          content={
++            isCurrentUser
++              ? 'common.areYouSureYouWantToLeaveBoard'
++              : 'common.areYouSureYouWantToRemoveThisMemberFromBoard'
++          }
++          buttonContent={isCurrentUser ? 'action.leaveBoard' : 'action.removeMember'}
++          onConfirm={handleDeleteConfirm}
++        >
++          <Button type="button" className={styles.iconButton}>
++            <Icon fitted name="trash alternate outline" />
++          </Button>
++        </DeletePopup>
++      )}
++    </div>
++  );
++});
++
++Item.propTypes = {
++  id: PropTypes.string.isRequired,
++};
++
++export default Item;
+diff --git a/client/src/components/board-memberships/ShareModal/MembersList/Item.module.scss b/client/src/components/board-memberships/ShareModal/MembersList/Item.module.scss
+new file mode 100644
+index 0000000..1fa0144
+--- /dev/null
++++ b/client/src/components/board-memberships/ShareModal/MembersList/Item.module.scss
+@@ -0,0 +1,35 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .wrapper {
++    align-items: center;
++    display: flex;
++    gap: 8px;
++    padding: 6px 0;
++  }
++
++  .user {
++    flex: 0 0 auto;
++  }
++
++  .name {
++    flex: 1 1 auto;
++    overflow: hidden;
++    text-overflow: ellipsis;
++    white-space: nowrap;
++  }
++
++  .roleDropdown {
++    flex: 0 0 auto;
++    min-width: 90px;
++  }
++
++  .iconButton {
++    background: transparent;
++    flex: 0 0 auto;
++    padding: 6px;
++  }
++}
+diff --git a/client/src/components/board-memberships/ShareModal/MembersList/MembersList.jsx b/client/src/components/board-memberships/ShareModal/MembersList/MembersList.jsx
+new file mode 100644
+index 0000000..108912a
+--- /dev/null
++++ b/client/src/components/board-memberships/ShareModal/MembersList/MembersList.jsx
+@@ -0,0 +1,61 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React from 'react';
++import { useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
++import { Button, Divider, Header, Icon } from 'semantic-ui-react';
++
++import selectors from '../../../../selectors';
++import { usePopupInClosableContext } from '../../../../hooks';
++import { isUserAdminOrProjectOwner } from '../../../../utils/record-helpers';
++import AddStep from '../../BoardMemberships/AddStep';
++import Item from './Item';
++
++import styles from './MembersList.module.scss';
++
++// BSY Media: existing "pick an existing user" flow (AddStep) is reused
++// completely unmodified, hosted inside this open modal via
++// usePopupInClosableContext - see plan for why the wrapper isn't swapped.
++const MembersList = React.memo(() => {
++  const boardMembershipIds = useSelector((state) =>
++    selectors.selectMembershipsForCurrentBoard(state).map((boardMembership) => boardMembership.id),
++  );
++
++  const canAdd = useSelector((state) => {
++    const user = selectors.selectCurrentUser(state);
++
++    if (!isUserAdminOrProjectOwner(user)) {
++      return !selectors.selectCurrentUserMembershipForCurrentBoard(state);
++    }
++
++    return selectors.selectIsCurrentUserManagerForCurrentProject(state);
++  });
++
++  const [t] = useTranslation();
++
++  const AddPopup = usePopupInClosableContext(AddStep);
++
++  return (
++    <div className={styles.wrapper}>
++      <Divider horizontal className={styles.divider}>
++        <Header as="h4">{t('common.members', { context: 'title' })}</Header>
++      </Divider>
++      {boardMembershipIds.map((id) => (
++        <Item key={id} id={id} />
++      ))}
++      {canAdd && (
++        <AddPopup>
++          <Button type="button" basic className={styles.addButton}>
++            <Icon fitted name="add user" />
++            {t('action.addMember')}
++          </Button>
++        </AddPopup>
++      )}
++    </div>
++  );
++});
++
++export default MembersList;
+diff --git a/client/src/components/board-memberships/ShareModal/MembersList/MembersList.module.scss b/client/src/components/board-memberships/ShareModal/MembersList/MembersList.module.scss
+new file mode 100644
+index 0000000..c98d8eb
+--- /dev/null
++++ b/client/src/components/board-memberships/ShareModal/MembersList/MembersList.module.scss
+@@ -0,0 +1,19 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .wrapper {
++    margin-top: 16px;
++  }
++
++  .divider {
++    margin-bottom: 12px;
++  }
++
++  .addButton {
++    margin-top: 8px;
++    width: 100%;
++  }
++}
+diff --git a/client/src/components/board-memberships/ShareModal/MembersList/index.js b/client/src/components/board-memberships/ShareModal/MembersList/index.js
+new file mode 100644
+index 0000000..2a913f5
+--- /dev/null
++++ b/client/src/components/board-memberships/ShareModal/MembersList/index.js
+@@ -0,0 +1,8 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import MembersList from './MembersList';
++
++export default MembersList;
+diff --git a/client/src/components/board-memberships/ShareModal/ShareModal.jsx b/client/src/components/board-memberships/ShareModal/ShareModal.jsx
+new file mode 100644
+index 0000000..19f0e05
+--- /dev/null
++++ b/client/src/components/board-memberships/ShareModal/ShareModal.jsx
+@@ -0,0 +1,42 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useCallback } from 'react';
++import { useDispatch } from 'react-redux';
++import { useTranslation } from 'react-i18next';
++
++import entryActions from '../../../entry-actions';
++import { useClosableModal } from '../../../hooks';
++import InviteByEmail from './InviteByEmail';
++import MembersList from './MembersList';
++
++import styles from './ShareModal.module.scss';
++
++const ShareModal = React.memo(() => {
++  const dispatch = useDispatch();
++  const [t] = useTranslation();
++
++  const handleClose = useCallback(() => {
++    dispatch(entryActions.closeModal());
++  }, [dispatch]);
++
++  const [ClosableModal] = useClosableModal();
++
++  return (
++    <ClosableModal closeIcon size="small" centered={false} onClose={handleClose}>
++      <ClosableModal.Header>
++        {t('common.shareBoard', {
++          context: 'title',
++        })}
++      </ClosableModal.Header>
++      <ClosableModal.Content className={styles.wrapper}>
++        <InviteByEmail />
++        <MembersList />
++      </ClosableModal.Content>
++    </ClosableModal>
++  );
++});
++
++export default ShareModal;
+diff --git a/client/src/components/board-memberships/ShareModal/ShareModal.module.scss b/client/src/components/board-memberships/ShareModal/ShareModal.module.scss
+new file mode 100644
+index 0000000..b8084f5
+--- /dev/null
++++ b/client/src/components/board-memberships/ShareModal/ShareModal.module.scss
+@@ -0,0 +1,11 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .wrapper {
++    max-height: 60vh;
++    overflow-y: auto;
++  }
++}
+diff --git a/client/src/components/board-memberships/ShareModal/index.js b/client/src/components/board-memberships/ShareModal/index.js
+new file mode 100644
+index 0000000..942ae84
+--- /dev/null
++++ b/client/src/components/board-memberships/ShareModal/index.js
+@@ -0,0 +1,8 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import ShareModal from './ShareModal';
++
++export default ShareModal;
+diff --git a/client/src/components/boards/Board/Board.jsx b/client/src/components/boards/Board/Board.jsx
+index e87a84b..f466220 100644
+--- a/client/src/components/boards/Board/Board.jsx
++++ b/client/src/components/boards/Board/Board.jsx
+@@ -15,6 +15,7 @@ import EndlessContent from './EndlessContent';
+ import ShortcutsProvider from './ShortcutsProvider';
+ import CardModal from '../../cards/CardModal';
+ import BoardActivitiesModal from '../../activities/BoardActivitiesModal';
++import ShareModal from '../../board-memberships/ShareModal';
+ 
+ const Board = React.memo(() => {
+   const board = useSelector(selectors.selectCurrentBoard);
+@@ -47,6 +48,10 @@ const Board = React.memo(() => {
+       case ModalTypes.BOARD_ACTIVITIES:
+         modalNode = <BoardActivitiesModal />;
+ 
++        break;
++      case ModalTypes.BOARD_SHARE:
++        modalNode = <ShareModal />;
++
+         break;
+       default:
+     }
+diff --git a/client/src/constants/ModalTypes.js b/client/src/constants/ModalTypes.js
+index 51d93c4..7a46a40 100755
+--- a/client/src/constants/ModalTypes.js
++++ b/client/src/constants/ModalTypes.js
+@@ -10,6 +10,7 @@ const ADD_PROJECT = 'ADD_PROJECT';
+ const PROJECT_SETTINGS = 'PROJECT_SETTINGS';
+ const BOARD_SETTINGS = 'BOARD_SETTINGS';
+ const BOARD_ACTIVITIES = 'BOARD_ACTIVITIES';
++const BOARD_SHARE = 'BOARD_SHARE';
+ 
+ export default {
+   ADMINISTRATION,
+@@ -19,4 +20,5 @@ export default {
+   PROJECT_SETTINGS,
+   BOARD_SETTINGS,
+   BOARD_ACTIVITIES,
++  BOARD_SHARE,
+ };
+diff --git a/client/src/entry-actions/modals.js b/client/src/entry-actions/modals.js
+index 5e852f6..2f0a6ba 100755
+--- a/client/src/entry-actions/modals.js
++++ b/client/src/entry-actions/modals.js
+@@ -61,6 +61,13 @@ const openBoardActivitiesModal = () => ({
+   },
+ });
+ 
++const openBoardShareModal = () => ({
++  type: EntryActionTypes.MODAL_OPEN,
++  payload: {
++    type: ModalTypes.BOARD_SHARE,
++  },
++});
++
+ const closeModal = () => ({
+   type: EntryActionTypes.MODAL_CLOSE,
+   payload: {},
+@@ -74,5 +81,6 @@ export default {
+   openProjectSettingsModal,
+   openBoardSettingsModal,
+   openBoardActivitiesModal,
++  openBoardShareModal,
+   closeModal,
+ };
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 3a6891b..2edb3aa 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -225,6 +225,8 @@ export default {
+       importBoard_title: 'Import Board',
+       information: 'Information',
+       invalidCurrentPassword: 'Invalid current password',
++      inviteByEmail: 'Invite by email',
++      inviteSent: 'Invite sent',
+       kanban: 'Kanban',
+       labels: 'Labels',
+       language: 'Language',
+@@ -307,6 +309,7 @@ export default {
+       selectType_title: 'Select Type',
+       sequentialDisplayOfCards: 'Sequential display of cards.',
+       settings: 'Settings',
++      shareBoard_title: 'Share Board',
+       shared: 'Shared',
+       sharedWithMe_title: 'Shared With Me',
+       showOnFrontOfCard: 'Show on front of card',
+@@ -490,6 +493,7 @@ export default {
+       restoreToList: 'Restore to {{list}}',
+       returnToBoard: 'Return to board',
+       save: 'Save',
++      sendInvite: 'Send invite',
+       sendTestEmail: 'Send test email',
+       shareBoard: 'Share',
+       showActive: 'Show active',

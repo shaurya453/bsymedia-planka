@@ -1,0 +1,52 @@
+diff --git a/client/src/components/cards/Card/Card.module.scss b/client/src/components/cards/Card/Card.module.scss
+index 30682c8..4038a84 100644
+--- a/client/src/components/cards/Card/Card.module.scss
++++ b/client/src/components/cards/Card/Card.module.scss
+@@ -50,7 +50,7 @@
+ 
+   .wrapper {
+     background: #fff;
+-    border-radius: 3px;
++    border-radius: 8px;
+     box-shadow: 0 1px 0 #ccc;
+     overflow: hidden;
+     position: relative;
+diff --git a/client/src/components/cards/Card/ProjectContent.module.scss b/client/src/components/cards/Card/ProjectContent.module.scss
+index 37ca60a..9c47e5c 100644
+--- a/client/src/components/cards/Card/ProjectContent.module.scss
++++ b/client/src/components/cards/Card/ProjectContent.module.scss
+@@ -54,7 +54,7 @@
+   }
+ 
+   .coverWrapper {
+-    border-radius: 3px;
++    border-radius: 8px;
+     margin-bottom: 8px;
+     overflow: hidden;
+   }
+diff --git a/client/src/components/cards/Card/StoryContent.module.scss b/client/src/components/cards/Card/StoryContent.module.scss
+index f561173..ad72b18 100644
+--- a/client/src/components/cards/Card/StoryContent.module.scss
++++ b/client/src/components/cards/Card/StoryContent.module.scss
+@@ -43,7 +43,7 @@
+   }
+ 
+   .coverWrapper {
+-    border-radius: 3px 3px 0 0;
++    border-radius: 8px 8px 0 0;
+     overflow: hidden;
+   }
+ 
+diff --git a/client/src/components/lists/List/List.module.scss b/client/src/components/lists/List/List.module.scss
+index 43d1070..fb71e9b 100644
+--- a/client/src/components/lists/List/List.module.scss
++++ b/client/src/components/lists/List/List.module.scss
+@@ -189,7 +189,7 @@
+ 
+   .outerWrapper {
+     background: #dfe3e6;
+-    border-radius: 3px;
++    border-radius: 8px;
+     display: flex;
+     flex-direction: column;
+     max-height: calc(100vh - 198px);
