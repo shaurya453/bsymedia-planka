@@ -1,0 +1,392 @@
+diff --git a/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.jsx b/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.jsx
+index 321dabc..06ca163 100644
+--- a/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.jsx
++++ b/client/src/components/board-memberships/BoardMemberships/AddStep/AddStep.jsx
+@@ -14,6 +14,7 @@ import selectors from '../../../../selectors';
+ import entryActions from '../../../../entry-actions';
+ import { useField, useNestedRef, useSteps } from '../../../../hooks';
+ import { isUserAdminOrProjectOwner } from '../../../../utils/record-helpers';
++import moveCurrentUserFirst from '../../../../utils/move-current-user-first';
+ import { BoardMembershipRoles } from '../../../../constants/Enums';
+ import User from './User';
+ import AddAllStep from './AddAllStep';
+@@ -49,6 +50,7 @@ const AddStep = React.memo(({ onClose }) => {
+   });
+ 
+   const currentUserIds = useSelector(selectors.selectMemberUserIdsForCurrentBoard);
++  const currentUserId = useSelector(selectors.selectCurrentUserId);
+ 
+   const dispatch = useDispatch();
+   const [t] = useTranslation();
+@@ -58,12 +60,15 @@ const AddStep = React.memo(({ onClose }) => {
+ 
+   const filteredUsers = useMemo(
+     () =>
+-      users.filter(
+-        (user) =>
+-          user.name.toLowerCase().includes(cleanSearch) ||
+-          (user.username && user.username.includes(cleanSearch)),
++      moveCurrentUserFirst(
++        users.filter(
++          (user) =>
++            user.name.toLowerCase().includes(cleanSearch) ||
++            (user.username && user.username.includes(cleanSearch)),
++        ),
++        currentUserId,
+       ),
+-    [users, cleanSearch],
++    [users, cleanSearch, currentUserId],
+   );
+ 
+   // BSY Media: "Add all members" ignores the search filter - it always
+diff --git a/client/src/components/board-memberships/BoardMembershipsStep.jsx b/client/src/components/board-memberships/BoardMembershipsStep.jsx
+index cf863c8..7b4bb34 100755
+--- a/client/src/components/board-memberships/BoardMembershipsStep.jsx
++++ b/client/src/components/board-memberships/BoardMembershipsStep.jsx
+@@ -21,10 +21,12 @@ const BoardMembershipsStep = React.memo(
+     onBack,
+   }) => {
+     const boardMemberships = useSelector(selectors.selectMembershipsForCurrentBoard);
++    const loggedInUserId = useSelector(selectors.selectCurrentUserId);
+ 
+     return (
+       <PureBoardMembershipsStep
+         items={boardMemberships}
++        loggedInUserId={loggedInUserId}
+         currentUserIds={currentUserIds}
+         title={title}
+         clearButtonContent={clearButtonContent}
+diff --git a/client/src/components/board-memberships/PureBoardMembershipsStep/PureBoardMembershipsStep.jsx b/client/src/components/board-memberships/PureBoardMembershipsStep/PureBoardMembershipsStep.jsx
+index 09f6c9d..ef81ca5 100755
+--- a/client/src/components/board-memberships/PureBoardMembershipsStep/PureBoardMembershipsStep.jsx
++++ b/client/src/components/board-memberships/PureBoardMembershipsStep/PureBoardMembershipsStep.jsx
+@@ -11,6 +11,7 @@ import { Button, Menu } from 'semantic-ui-react';
+ import { Input, Popup } from '../../../lib/custom-ui';
+ 
+ import { useField, useNestedRef } from '../../../hooks';
++import moveCurrentUserFirst from '../../../utils/move-current-user-first';
+ import Item from './Item';
+ 
+ import styles from './PureBoardMembershipsStep.module.scss';
+@@ -18,6 +19,7 @@ import styles from './PureBoardMembershipsStep.module.scss';
+ const PureBoardMembershipsStep = React.memo(
+   ({
+     items,
++    loggedInUserId,
+     currentUserIds,
+     title,
+     clearButtonContent,
+@@ -32,15 +34,19 @@ const PureBoardMembershipsStep = React.memo(
+ 
+     const filteredItems = useMemo(
+       () =>
+-        orderBy(
+-          items.filter(
+-            ({ user }) =>
+-              user.name.toLowerCase().includes(cleanSearch) ||
+-              (user.username && user.username.includes(cleanSearch)),
++        moveCurrentUserFirst(
++          orderBy(
++            items.filter(
++              ({ user }) =>
++                user.name.toLowerCase().includes(cleanSearch) ||
++                (user.username && user.username.includes(cleanSearch)),
++            ),
++            ({ user }) => user.name.toLowerCase(),
+           ),
+-          ({ user }) => user.name.toLowerCase(),
++          loggedInUserId,
++          ({ user }) => user.id,
+         ),
+-      [items, cleanSearch],
++      [items, cleanSearch, loggedInUserId],
+     );
+ 
+     const [searchFieldRef, handleSearchFieldRef] = useNestedRef('inputRef');
+@@ -100,6 +106,7 @@ PureBoardMembershipsStep.propTypes = {
+   items: PropTypes.array.isRequired,
+   currentUserIds: PropTypes.array,
+   /* eslint-enable react/forbid-prop-types */
++  loggedInUserId: PropTypes.string,
+   title: PropTypes.string,
+   clearButtonContent: PropTypes.string,
+   onUserSelect: PropTypes.func.isRequired,
+@@ -110,6 +117,7 @@ PureBoardMembershipsStep.propTypes = {
+ 
+ PureBoardMembershipsStep.defaultProps = {
+   currentUserIds: [],
++  loggedInUserId: null,
+   title: 'common.members',
+   clearButtonContent: 'action.clear',
+   onUserDeselect: undefined,
+diff --git a/client/src/components/board-memberships/ShareModal/MembersList/MembersList.jsx b/client/src/components/board-memberships/ShareModal/MembersList/MembersList.jsx
+index 108912a..0ad1262 100644
+--- a/client/src/components/board-memberships/ShareModal/MembersList/MembersList.jsx
++++ b/client/src/components/board-memberships/ShareModal/MembersList/MembersList.jsx
+@@ -3,7 +3,7 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React from 'react';
++import React, { useMemo } from 'react';
+ import { useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+ import { Button, Divider, Header, Icon } from 'semantic-ui-react';
+@@ -11,6 +11,7 @@ import { Button, Divider, Header, Icon } from 'semantic-ui-react';
+ import selectors from '../../../../selectors';
+ import { usePopupInClosableContext } from '../../../../hooks';
+ import { isUserAdminOrProjectOwner } from '../../../../utils/record-helpers';
++import moveCurrentUserFirst from '../../../../utils/move-current-user-first';
+ import AddStep from '../../BoardMemberships/AddStep';
+ import Item from './Item';
+ 
+@@ -20,8 +21,20 @@ import styles from './MembersList.module.scss';
+ // completely unmodified, hosted inside this open modal via
+ // usePopupInClosableContext - see plan for why the wrapper isn't swapped.
+ const MembersList = React.memo(() => {
+-  const boardMembershipIds = useSelector((state) =>
+-    selectors.selectMembershipsForCurrentBoard(state).map((boardMembership) => boardMembership.id),
++  const boardMemberships = useSelector(selectors.selectMembershipsForCurrentBoard);
++  const currentUserId = useSelector(selectors.selectCurrentUserId);
++
++  // BSY Media: sorted separately from the selector above (not inline in
++  // useSelector) so this only recomputes, and only produces a new array
++  // reference, when the membership list or logged-in user actually changes.
++  const boardMembershipIds = useMemo(
++    () =>
++      moveCurrentUserFirst(
++        boardMemberships,
++        currentUserId,
++        (boardMembership) => boardMembership.userId,
++      ).map((boardMembership) => boardMembership.id),
++    [boardMemberships, currentUserId],
+   );
+ 
+   const canAdd = useSelector((state) => {
+diff --git a/client/src/components/cards/Card/ProjectContent.jsx b/client/src/components/cards/Card/ProjectContent.jsx
+index 4249379..33d34dc 100644
+--- a/client/src/components/cards/Card/ProjectContent.jsx
++++ b/client/src/components/cards/Card/ProjectContent.jsx
+@@ -13,6 +13,7 @@ import selectors from '../../../selectors';
+ import entryActions from '../../../entry-actions';
+ import { startStopwatch, stopStopwatch } from '../../../utils/stopwatch';
+ import { isListArchiveOrTrash } from '../../../utils/record-helpers';
++import moveCurrentUserFirst from '../../../utils/move-current-user-first';
+ import { BoardMembershipRoles, BoardViews } from '../../../constants/Enums';
+ import TaskList from './TaskList';
+ import DueDateChip from '../DueDateChip';
+@@ -54,7 +55,18 @@ const ProjectContent = React.memo(({ cardId }) => {
+ 
+   const card = useSelector((state) => selectCardById(state, cardId));
+   const list = useSelector((state) => selectListById(state, card.listId));
+-  const userIds = useSelector((state) => selectUserIdsByCardId(state, cardId));
++  const currentUserId = useSelector(selectors.selectCurrentUserId);
++  const cardUserIds = useSelector((state) => selectUserIdsByCardId(state, cardId));
++  // BSY Media: puts the logged-in user's own avatar first, so it's never
++  // hidden behind a "+N more" truncation if this card has several
++  // assignees. Memoized separately from the selector above rather than
++  // sorted inline in useSelector, so this only recomputes (and only
++  // produces a new array reference) when the assignee list or logged-in
++  // user actually changes, not on every render.
++  const userIds = useMemo(
++    () => moveCurrentUserFirst(cardUserIds, currentUserId, (id) => id),
++    [cardUserIds, currentUserId],
++  );
+   const labelIds = useSelector((state) => selectLabelIdsByCardId(state, cardId));
+ 
+   const taskListIds = useSelector((state) =>
+diff --git a/client/src/components/cards/CardModal/ProjectContent.jsx b/client/src/components/cards/CardModal/ProjectContent.jsx
+index 99f1f03..bdca7d0 100644
+--- a/client/src/components/cards/CardModal/ProjectContent.jsx
++++ b/client/src/components/cards/CardModal/ProjectContent.jsx
+@@ -15,6 +15,7 @@ import entryActions from '../../../entry-actions';
+ import { usePopupInClosableContext } from '../../../hooks';
+ import { startStopwatch, stopStopwatch } from '../../../utils/stopwatch';
+ import { isUsableMarkdownElement } from '../../../utils/element-helpers';
++import moveCurrentUserFirst from '../../../utils/move-current-user-first';
+ import { BoardMembershipRoles, CardTypes, ListTypes } from '../../../constants/Enums';
+ import { CardTypeIcons } from '../../../constants/Icons';
+ import { ClosableContext } from '../../../contexts';
+@@ -49,7 +50,17 @@ const ProjectContent = React.memo(() => {
+ 
+   const card = useSelector(selectors.selectCurrentCard);
+   const board = useSelector(selectors.selectCurrentBoard);
+-  const userIds = useSelector(selectors.selectUserIdsForCurrentCard);
++  const cardUserIds = useSelector(selectors.selectUserIdsForCurrentCard);
++  const currentUserId = useSelector(selectors.selectCurrentUserId);
++  // BSY Media: puts the logged-in user's own avatar first among a card's
++  // assignees, matching the same treatment on the card face (Card/
++  // ProjectContent.jsx). Memoized separately from the selector above so
++  // this only produces a new array reference when the assignee list or
++  // logged-in user actually changes.
++  const userIds = useMemo(
++    () => moveCurrentUserFirst(cardUserIds, currentUserId, (id) => id),
++    [cardUserIds, currentUserId],
++  );
+   const labelIds = useSelector(selectors.selectLabelIdsForCurrentCard);
+   const attachmentIds = useSelector(selectors.selectAttachmentIdsForCurrentCard);
+ 
+diff --git a/client/src/components/cards/CardModal/StoryContent.jsx b/client/src/components/cards/CardModal/StoryContent.jsx
+index a7150e8..e9764ee 100644
+--- a/client/src/components/cards/CardModal/StoryContent.jsx
++++ b/client/src/components/cards/CardModal/StoryContent.jsx
+@@ -15,6 +15,7 @@ import selectors from '../../../selectors';
+ import entryActions from '../../../entry-actions';
+ import { usePopupInClosableContext } from '../../../hooks';
+ import { isUsableMarkdownElement } from '../../../utils/element-helpers';
++import moveCurrentUserFirst from '../../../utils/move-current-user-first';
+ import { BoardMembershipRoles, CardTypes, ListTypes } from '../../../constants/Enums';
+ import { CardTypeIcons } from '../../../constants/Icons';
+ import { ClosableContext } from '../../../contexts';
+@@ -45,7 +46,16 @@ const StoryContent = React.memo(() => {
+ 
+   const card = useSelector(selectors.selectCurrentCard);
+   const board = useSelector(selectors.selectCurrentBoard);
+-  const userIds = useSelector(selectors.selectUserIdsForCurrentCard);
++  const cardUserIds = useSelector(selectors.selectUserIdsForCurrentCard);
++  const currentUserId = useSelector(selectors.selectCurrentUserId);
++  // BSY Media: puts the logged-in user's own avatar first among a card's
++  // assignees, matching the same treatment on the card face (Card/
++  // ProjectContent.jsx) and the project-type card modal (CardModal/
++  // ProjectContent.jsx).
++  const userIds = useMemo(
++    () => moveCurrentUserFirst(cardUserIds, currentUserId, (id) => id),
++    [cardUserIds, currentUserId],
++  );
+   const labelIds = useSelector(selectors.selectLabelIdsForCurrentCard);
+   const attachmentIds = useSelector(selectors.selectAttachmentIdsForCurrentCard);
+ 
+diff --git a/client/src/components/common/AdministrationModal/UsersPane/UsersPane.jsx b/client/src/components/common/AdministrationModal/UsersPane/UsersPane.jsx
+index c66b326..79ec5d2 100755
+--- a/client/src/components/common/AdministrationModal/UsersPane/UsersPane.jsx
++++ b/client/src/components/common/AdministrationModal/UsersPane/UsersPane.jsx
+@@ -11,6 +11,7 @@ import { Input } from '../../../../lib/custom-ui';
+ 
+ import selectors from '../../../../selectors';
+ import { useField, useNestedRef, usePopupInClosableContext } from '../../../../hooks';
++import moveCurrentUserFirst from '../../../../utils/move-current-user-first';
+ import Item from './Item';
+ import AddStep from './AddStep';
+ 
+@@ -20,6 +21,7 @@ const UsersPane = React.memo(() => {
+   const activeUsersLimit = useSelector(selectors.selectActiveUsersLimit);
+   const activeUsersTotal = useSelector(selectors.selectActiveUsersTotal);
+   const users = useSelector(selectors.selectUsers);
++  const currentUserId = useSelector(selectors.selectCurrentUserId);
+ 
+   const canAdd = useSelector((state) => {
+     const oidcBootstrap = selectors.selectOidcBootstrap(state);
+@@ -36,24 +38,27 @@ const UsersPane = React.memo(() => {
+ 
+   const filteredUsers = useMemo(
+     () =>
+-      users.filter((user) => {
+-        if (isDeactivatedVisible) {
+-          if (!user.isDeactivated) {
++      moveCurrentUserFirst(
++        users.filter((user) => {
++          if (isDeactivatedVisible) {
++            if (!user.isDeactivated) {
++              return false;
++            }
++          } else if (user.isDeactivated) {
+             return false;
+           }
+-        } else if (user.isDeactivated) {
+-          return false;
+-        }
+ 
+-        return (
+-          user.email.includes(cleanSearch) ||
+-          user.name.toLowerCase().includes(cleanSearch) ||
+-          (user.username && user.username.includes(cleanSearch)) ||
+-          (user.organization && user.organization.toLowerCase().includes(cleanSearch)) ||
+-          (user.apiKeyPrefix && user.apiKeyPrefix.toLowerCase().includes(cleanSearch))
+-        );
+-      }),
+-    [users, isDeactivatedVisible, cleanSearch],
++          return (
++            user.email.includes(cleanSearch) ||
++            user.name.toLowerCase().includes(cleanSearch) ||
++            (user.username && user.username.includes(cleanSearch)) ||
++            (user.organization && user.organization.toLowerCase().includes(cleanSearch)) ||
++            (user.apiKeyPrefix && user.apiKeyPrefix.toLowerCase().includes(cleanSearch))
++          );
++        }),
++        currentUserId,
++      ),
++    [users, isDeactivatedVisible, cleanSearch, currentUserId],
+   );
+ 
+   const handleToggleDeactivatedClick = useCallback(() => {
+diff --git a/client/src/components/project-managers/ProjectManagers/AddStep/AddStep.jsx b/client/src/components/project-managers/ProjectManagers/AddStep/AddStep.jsx
+index 27187d1..83ffcbe 100644
+--- a/client/src/components/project-managers/ProjectManagers/AddStep/AddStep.jsx
++++ b/client/src/components/project-managers/ProjectManagers/AddStep/AddStep.jsx
+@@ -12,6 +12,7 @@ import { Input, Popup } from '../../../../lib/custom-ui';
+ import selectors from '../../../../selectors';
+ import entryActions from '../../../../entry-actions';
+ import { useField, useNestedRef } from '../../../../hooks';
++import moveCurrentUserFirst from '../../../../utils/move-current-user-first';
+ import User from './User';
+ 
+ import styles from './AddStep.module.scss';
+@@ -19,6 +20,7 @@ import styles from './AddStep.module.scss';
+ const AddStep = React.memo(({ onClose }) => {
+   const users = useSelector(selectors.selectActiveAdminOrProjectOwnerUsers);
+   const currentUserIds = useSelector(selectors.selectManagerUserIdsForCurrentProject);
++  const currentUserId = useSelector(selectors.selectCurrentUserId);
+ 
+   const dispatch = useDispatch();
+   const [t] = useTranslation();
+@@ -27,12 +29,15 @@ const AddStep = React.memo(({ onClose }) => {
+ 
+   const filteredUsers = useMemo(
+     () =>
+-      users.filter(
+-        (user) =>
+-          user.name.toLowerCase().includes(cleanSearch) ||
+-          (user.username && user.username.includes(cleanSearch)),
++      moveCurrentUserFirst(
++        users.filter(
++          (user) =>
++            user.name.toLowerCase().includes(cleanSearch) ||
++            (user.username && user.username.includes(cleanSearch)),
++        ),
++        currentUserId,
+       ),
+-    [users, cleanSearch],
++    [users, cleanSearch, currentUserId],
+   );
+ 
+   const [searchFieldRef, handleSearchFieldRef] = useNestedRef('inputRef');
+diff --git a/client/src/utils/move-current-user-first.js b/client/src/utils/move-current-user-first.js
+new file mode 100644
+index 0000000..ad96f7f
+--- /dev/null
++++ b/client/src/utils/move-current-user-first.js
+@@ -0,0 +1,24 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++// BSY Media: shared by every "list of users" in the app (Administration,
++// board Share modal, card member picker, card front avatars, board
++// filters, ...) so the logged-in user always sees themselves first, without
++// duplicating this logic per component. Works on any array - pass a
++// `getUserId` for arrays of objects (defaults to `.id`), or an identity
++// function for arrays of plain user ID strings.
++export default (items, currentUserId, getUserId = (item) => item.id) => {
++  const index = items.findIndex((item) => getUserId(item) === currentUserId);
++
++  if (index <= 0) {
++    return items;
++  }
++
++  const nextItems = items.slice();
++  const [currentUserItem] = nextItems.splice(index, 1);
++  nextItems.unshift(currentUserItem);
++
++  return nextItems;
++};
