@@ -3,12 +3,63 @@ const express = require('express');
 const session = require('express-session');
 const pgSession = require('connect-pg-simple')(session);
 const { Pool } = require('pg');
+const zxcvbn = require('zxcvbn');
+const validator = require('validator');
 
 const { OPS_DB_NAME, ensureOpsDatabaseExists, ensureSchema } = require('./db');
 const planka = require('./planka');
 const { sendInviteEmail } = require('./mailer');
 const { ensureCsrfToken, verifyCsrfToken } = require('./csrf');
 const { acceptPage, acceptSuccessPage, messagePage } = require('./templates');
+
+// A user reported "Could not create your account: ...due to 1 missing or
+// invalid parameter" on 2026-08-09 - PLANKA's raw Sails validation error,
+// passed straight through by this service, naming no field and suggesting
+// no fix. Root cause NOT fully confirmed (no logged copy of their actual
+// submitted values survived - lost when this service's container was later
+// recreated to deploy this very fix) - reproduced by matching the exact
+// error text against two independently plausible causes, both closed here
+// rather than picking one:
+//   1. Password strength: PLANKA rejects passwords with
+//      `zxcvbn(value).score >= 2` (utils/validators.js's `isPassword`
+//      custom validator), not just a length check - "password1234" clears
+//      an 8-char minimum but scores 1. Reproduced this exact error text
+//      directly against the live API with that password.
+//   2. Email format: the signup form's email field (PLANKA client,
+//      2026-08-06 patch) is a plain text input with no `type="email"` and
+//      no client-side format check, and this service only checked
+//      `!email` (truthy) before 2026-08-09 - any non-empty malformed string
+//      reached PLANKA's `isEmail: true` validator and would produce the
+//      identical generic message.
+// Both are now checked here, mirroring PLANKA's own server-side rules
+// exactly (same zxcvbn version pinned in package.json to avoid scoring
+// drift; same `validator` package PLANKA itself uses for isEmail) - either
+// one is caught with a specific, actionable reason before ever reaching
+// PLANKA's API, instead of an approximation that can still slip through.
+const PASSWORD_TOO_WEAK_MESSAGE =
+  "That password is too weak. Common patterns like a word plus a few digits (e.g. \"password1234\") get rejected even though they're 8+ characters - try adding an unrelated word or a few random characters instead.";
+
+const INVALID_EMAIL_MESSAGE = "That doesn't look like a valid email address - double-check it.";
+
+function isPasswordStrongEnough(password) {
+  return zxcvbn(password).score >= 2;
+}
+
+function isValidEmail(email) {
+  return validator.isEmail(email);
+}
+
+// Defense in depth for any OTHER validation rule PLANKA's API enforces that
+// isn't explicitly pre-checked above (e.g. a future PLANKA change) - never
+// surface its raw Sails framework text (which names no specific field and
+// suggests no fix) to an end user again.
+function friendlyAccountCreationError(error) {
+  if (/missing or invalid parameter/i.test(error.message)) {
+    return 'Something about those details was rejected by the server. Double-check your password is strong (not just long) and your email is valid, then try again - if it keeps happening, contact an admin.';
+  }
+
+  return error.message;
+}
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_URL = process.env.PUBLIC_URL; // e.g. https://bsymedia.duckdns.org
@@ -105,7 +156,27 @@ async function main() {
     try {
       me = await planka.getMe(token);
     } catch (error) {
-      return res.status(401).json({ error: 'Invalid or expired session - log into PLANKA again.' });
+      // A user reported this exact "log into PLANKA again" message
+      // persisting even after a real re-login - root-caused by reading the
+      // code: this branch fired for ANY failure verifying the token
+      // (network error reaching PLANKA, PLANKA returning a 500, etc.), not
+      // just an actually-expired one, and blamed the session regardless -
+      // which would never be fixed by logging in again if the real cause
+      // was something else. Now only blames the session when PLANKA
+      // itself actually said 401; anything else gets a message that
+      // doesn't send the user chasing the wrong fix, plus a server-side
+      // log line so the real cause is captured next time instead of lost.
+      if (error instanceof planka.PlankaApiError && error.status === 401) {
+        return res
+          .status(401)
+          .json({ error: 'Invalid or expired session - log into PLANKA again.' });
+      }
+
+      console.error('POST /api/send: could not verify session:', error);
+      return res.status(502).json({
+        error:
+          'Could not reach PLANKA to verify your session - this looks like a temporary server issue, not a problem with your login. Try again in a moment; contact an admin if it keeps happening.',
+      });
     }
 
     try {
@@ -134,6 +205,7 @@ async function main() {
 
       return res.json({ success: true });
     } catch (error) {
+      console.error('POST /api/send: could not complete invite:', error);
       return res.status(500).json({ error: `Could not send invite: ${error.message}` });
     }
   });
@@ -151,8 +223,16 @@ async function main() {
       return res.status(400).json({ error: 'All fields are required.' });
     }
 
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: INVALID_EMAIL_MESSAGE });
+    }
+
     if (password.length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+    }
+
+    if (!isPasswordStrongEnough(password)) {
+      return res.status(400).json({ error: PASSWORD_TOO_WEAK_MESSAGE });
     }
 
     try {
@@ -167,7 +247,9 @@ async function main() {
 
       return res.json({ success: true });
     } catch (error) {
-      return res.status(500).json({ error: `Could not create your account: ${error.message}` });
+      return res
+        .status(500)
+        .json({ error: `Could not create your account: ${friendlyAccountCreationError(error)}` });
     }
   });
 
@@ -216,6 +298,7 @@ async function main() {
 
     if (!name || !password) return redirectWithError('Name and password are required.');
     if (password.length < 8) return redirectWithError('Password must be at least 8 characters.');
+    if (!isPasswordStrongEnough(password)) return redirectWithError(PASSWORD_TOO_WEAK_MESSAGE);
     if (password !== passwordConfirm) return redirectWithError('Passwords do not match.');
 
     try {
@@ -244,7 +327,7 @@ async function main() {
 
       res.send(acceptSuccessPage(PLANKA_PUBLIC_URL));
     } catch (err) {
-      redirectWithError(`Could not create your account: ${err.message}`);
+      redirectWithError(`Could not create your account: ${friendlyAccountCreationError(err)}`);
     }
   });
 

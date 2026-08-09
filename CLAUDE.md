@@ -249,15 +249,50 @@ new routes on the same `invite-service`, no new containers/infra:
     board in that project — the closest thing to a project-level bulk grant, not used by this
     batch-assign screen, which stays at board granularity to match what `/invite/` already
     offers).
-- **Pre-existing UX gap surfaced and fixed while building this**: PLANKA's password field uses
-  `zxcvbn(value).score >= 2`, not just a length check — a password like `password1234` passes the
-  8-char `minlength` on the form but gets rejected by the API with a generic "missing or invalid
-  parameter" message that doesn't explain why. This affects the original invite-accept flow too,
-  not just the new join page. Fixed by adding a hint under the password field on both `/join` and
-  `/accept/:token`: *"Must be reasonably strong — a common word plus a few digits ... will be
-  rejected."* Not fixed: the server-side error message itself is still PLANKA's generic one if a
-  weak password slips through — acceptable, since the hint should prevent most cases and a
-  clearer message would require guessing at PLANKA's internal validation from the outside.
+- **"Could not create your account: ...1 missing or invalid parameter" — investigated 2026-08-09,
+  two causes closed, root cause for the reported incident NOT fully confirmed.** A real user hit
+  this exact PLANKA API error, passed straight through verbatim by `invite-service`, naming no
+  field and no fix. No log of their actual submitted values survived to confirm which rule they
+  tripped — lost when this service's container was recreated while deploying the fix, a mistake
+  worth remembering: **check logs for a live incident before restarting the service that logged
+  it**, not after. Rather than guess at one cause, reproduced the exact error text against two
+  independently plausible ones and closed both:
+  - **Password strength**: PLANKA rejects passwords with `zxcvbn(value).score >= 2`
+    (`utils/validators.js`'s `isPassword` custom validator), not just a length check — e.g.
+    `password1234` clears an 8-char minimum but scores 1. A 2026-08-06 fix only added a hint under
+    the field (*"Must be reasonably strong..."*), which doesn't stop someone who doesn't read it.
+  - **Email format**: the signup form's email field (PLANKA client, 2026-08-06 patch) is a plain
+    text input — no `type="email"`, no client-side format check — and `invite-service` itself only
+    checked truthiness (`!email`), not shape, before this fix. Any malformed-but-non-empty string
+    reached PLANKA's `isEmail: true` validator and produced the identical generic message.
+  Both are now checked in `invite-service` itself, mirroring PLANKA's exact server-side rules
+  (`zxcvbn` pinned to `4.4.2` to match the version actually bundled in the live PLANKA container,
+  not just its own `package.json` range; `validator` pinned to `13.15.26` same reasoning) *before*
+  ever calling PLANKA's API — either one is now caught with a specific, actionable message instead
+  of a passthrough that can still slip through. `friendlyAccountCreationError()` added as defense
+  in depth for any third, not-yet-seen validation rule. Verified live: malformed email and weak
+  password each rejected instantly with their own clear message; a valid signup still creates a
+  real account end-to-end (test account created via `/api/join`, then deleted). **Still open**: no
+  proof either fix addresses what this specific user hit, since the evidence is gone — if it
+  recurs, check `docker compose logs invite-service` *immediately*, before touching the container.
+- **"Invalid or expired session - log into PLANKA again" persisting after a real re-login — fixed
+  2026-08-09.** `admin@bsymedia.com` hit this using the Share modal's invite-by-email field
+  (`POST /invite/api/send`, added by the 2026-08-07 `0011`/`0012` patches — Bearer-token auth
+  using the caller's own PLANKA access token, no invite-service login involved at all, despite the
+  message's wording). Root cause, found by reading the code (no surviving logs — lost again to an
+  earlier container recreation, see above): the catch block around `planka.getMe(token)` blamed
+  "your session" for *any* failure verifying the token — a genuinely expired/invalid one (real
+  401), but also a network hiccup reaching PLANKA, or PLANKA returning any other error status —
+  and re-logging in obviously can't fix a cause that was never about the session. Fixed to only
+  show that message for an actual confirmed 401 from PLANKA (`error instanceof
+  planka.PlankaApiError && error.status === 401`); anything else now returns a 502 with a message
+  that says a server issue, not the user's login, is likely at fault, plus a `console.error` log
+  line so a future occurrence is actually diagnosable. **Verified both branches directly**: a
+  garbage token still correctly triggers the session message (confirmed real PLANKA 401), while a
+  simulated PLANKA-unreachable case (temporarily pointing `PLANKA_INTERNAL_URL` at a closed port
+  in an isolated `node -e` check, not the live service) confirms a connection failure is a plain
+  `TypeError`, not a `PlankaApiError` — proving it correctly falls into the new, non-misleading
+  branch instead of blaming the session.
 - Verified end-to-end on 2026-08-06 against the live site: self-signup created a real account via
   `/invite/join`, batch-assign added that account to a temporary test board via `/invite/assign`
   (confirmed via `GET /api/boards/:id` showing the new `boardMemberships` row), then all test
