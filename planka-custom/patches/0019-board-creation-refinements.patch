@@ -1,0 +1,67 @@
+diff --git a/client/src/components/boards/AddBoardModal/AddBoardModal.jsx b/client/src/components/boards/AddBoardModal/AddBoardModal.jsx
+index 0952a0a..cb723c6 100644
+--- a/client/src/components/boards/AddBoardModal/AddBoardModal.jsx
++++ b/client/src/components/boards/AddBoardModal/AddBoardModal.jsx
+@@ -132,7 +132,12 @@ const AddBoardModal = React.memo(() => {
+             onChange={handleFieldChange}
+           />
+           <div className={styles.controls}>
+-            <Button positive content={t('action.createBoard')} className={styles.button} />
++            <Button
++              positive
++              disabled={!data.name.trim()}
++              content={t('action.createBoard')}
++              className={styles.button}
++            />
+             <Button
+               type="button"
+               className={classNames(styles.button, styles.importButton)}
+diff --git a/client/src/components/boards/AddBoardModal/BoardPreview/BoardPreview.module.scss b/client/src/components/boards/AddBoardModal/BoardPreview/BoardPreview.module.scss
+index 7bfe2fa..0704b67 100644
+--- a/client/src/components/boards/AddBoardModal/BoardPreview/BoardPreview.module.scss
++++ b/client/src/components/boards/AddBoardModal/BoardPreview/BoardPreview.module.scss
+@@ -5,6 +5,8 @@
+ 
+ :global(#app) {
+   .wrapper {
++    display: flex;
++    justify-content: center;
+     margin-bottom: 16px;
+   }
+ 
+@@ -14,12 +16,17 @@
+     // once one is actually selected (see ProjectBackground.jsx, which this
+     // mirrors), it isn't itself a stored value.
+     background: linear-gradient(135deg, #4c6ef5, #5c7cfa);
++    // BSY Media: 16:9 instead of spanning the modal's full width at a
++    // shallow height - narrower and noticeably taller, closer to what an
++    // actual board looks like than a thin wide strip.
++    aspect-ratio: 16 / 9;
+     border-radius: 8px;
+     display: flex;
+     flex-direction: column;
+     gap: 10px;
+     overflow: hidden;
+-    padding: 10px;
++    padding: 12px;
++    width: 65%;
+   }
+ 
+   .header {
+@@ -39,6 +46,7 @@
+ 
+   .columns {
+     display: flex;
++    flex: 1;
+     gap: 8px;
+   }
+ 
+@@ -60,7 +68,7 @@
+     background: #fff;
+     border-radius: 3px;
+     box-shadow: 0 1px 0 #ccc;
+-    height: 14px;
++    flex: 1;
+   }
+ 
+   .cardDark {
