@@ -359,6 +359,31 @@ new routes on the same `invite-service`, no new containers/infra:
   product on this box — already gets its own timestamped `.bak` file on every edit, but isn't
   part of any recurring backup job).
 
+## Attachment upload limit (2026-08-09)
+
+Client reported a ~1MB attachment ceiling, easily hit by screenshots. **Investigated by reading
+the actual live code inside the running container** (`server/config/custom.js`'s
+`maxUploadFileSize`, `server/api/helpers/utils/receive-file.js`, and `getAvailableStorage.js`,
+which reads a DB-stored `InternalConfig.storageLimit` row) rather than assumed — confirmed neither
+`MAX_UPLOAD_FILE_SIZE` nor the DB storage-limit row were set, and traced the fallback all the way
+into the installed `skipper-disk` package's own null-safety (`!_.isNull(options.maxBytes)` guard
+in `build-progress-stream.js`) to confirm an unset limit is genuinely uncapped here, not some
+hidden small default. **Empirically verified this with a real multipart upload test against the
+live API** (not just static reading) — files up to 20MB uploaded successfully with the
+then-current config, meaning no server-side cap was actually active at time of investigation.
+
+Fixed anyway, to make the policy explicit rather than relying on an implicit "unset = uncapped"
+behavior: `MAX_UPLOAD_FILE_SIZE=50MB` added to both `.env` and `.env.example`.
+
+**Real gotcha hit while wiring this in, worth remembering for any future new `.env` var**:
+`docker-compose.yml`'s `planka` service does *not* use `env_file: .env` — it explicitly whitelists
+individual vars under `environment:` (`BASE_URL`, `DATABASE_URL`, `SECRET_KEY`,
+`DEFAULT_ADMIN_*`, etc.). Adding a value to `.env` alone does nothing; it also has to be added as
+its own `- MAX_UPLOAD_FILE_SIZE=${MAX_UPLOAD_FILE_SIZE}` line in that block, or the container never
+sees it (confirmed via `docker compose exec planka sh -c 'echo $MAX_UPLOAD_FILE_SIZE'` printing
+empty even after a `--force-recreate` restart, until the `environment:` line was added). Any
+future new env var needs both edits, not just `.env`.
+
 ## In-app "Invite users" button (Phase 1, 2026-08-05)
 
 Admins asked for a way to reach the invite tool without remembering/typing `/invite/` by hand.
