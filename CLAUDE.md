@@ -299,6 +299,28 @@ new routes on the same `invite-service`, no new containers/infra:
   artifacts (project, board, test user) were deleted — instance back to 0 projects / 3 real
   accounts (bootstrap admin, invite-service, `admin@bsymedia.com`) as of last check.
 
+## Source code backup (2026-08-09)
+
+This repo (`/home/deploy/planka`) has been a real local git repo since the board-creation-modal
+work, but had no remote — every commit only existed on this one VPS. The section below
+("Backups") only protects *data* (DB + attachments); it says nothing about the custom source code
+itself (patches, `invite-service`, `docker-compose.yml`). If the VPS were lost, the data would
+survive via the offsite Mega copy, but every custom feature built on top of stock PLANKA would
+have to be redone from scratch.
+
+Fixed by pushing this repo to a private GitHub repo, `https://github.com/shaurya453/bsymedia-planka`,
+over a **dedicated SSH deploy key** (not a personal access token) — scoped to write access on just
+this one repo, nothing else on the account:
+- Key: `~/.ssh/planka_deploy_key` (ed25519, deploy user, no passphrase, chmod 600 dir).
+- `~/.ssh/config` has a `Host github.com-planka` alias pointing at it with `IdentitiesOnly yes`,
+  so it doesn't collide with any other GitHub key that might get added later.
+- Remote: `origin` → `git@github.com-planka:shaurya453/bsymedia-planka.git`, branch `main`.
+
+**This does not auto-push.** Future commits in this repo stay local-only until someone runs
+`git push`. If ongoing hands-off protection matters, consider a cron/post-commit hook — not set up
+as of 2026-08-09, since commits here happen in bursts during active work sessions, not
+continuously.
+
 ## Backups (Phase 1, 2026-08-05; offsite added 2026-08-09)
 
 - **Offsite copy added 2026-08-09, via rclone to Mega, encrypted client-side.** Originally shipped
