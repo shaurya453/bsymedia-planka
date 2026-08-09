@@ -1,0 +1,653 @@
+diff --git a/client/src/components/boards/AddBoardStep/AddBoardStep.jsx b/client/src/components/boards/AddBoardModal/AddBoardModal.jsx
+old mode 100755
+new mode 100644
+similarity index 57%
+rename from client/src/components/boards/AddBoardStep/AddBoardStep.jsx
+rename to client/src/components/boards/AddBoardModal/AddBoardModal.jsx
+index de859a9..0952a0a
+--- a/client/src/components/boards/AddBoardStep/AddBoardStep.jsx
++++ b/client/src/components/boards/AddBoardModal/AddBoardModal.jsx
+@@ -4,25 +4,33 @@
+  */
+ 
+ import React, { useCallback, useEffect } from 'react';
+-import PropTypes from 'prop-types';
+ import classNames from 'classnames';
+ import { useDispatch } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+ import { Button, Form, Icon } from 'semantic-ui-react';
+ import { useDidUpdate, useToggle } from '../../../lib/hooks';
+-import { Input, Popup } from '../../../lib/custom-ui';
++import { Input } from '../../../lib/custom-ui';
+ 
+ import entryActions from '../../../entry-actions';
+-import { useForm, useNestedRef, useSteps } from '../../../hooks';
++import { useClosableModal, useForm, useNestedRef, useSteps } from '../../../hooks';
++import BackgroundPane from '../../projects/ProjectSettingsModal/BackgroundPane';
++import BoardPreview from './BoardPreview';
+ import ImportStep from './ImportStep';
+ 
+-import styles from './AddBoardStep.module.scss';
++import styles from './AddBoardModal.module.scss';
+ 
+ const StepTypes = {
+   IMPORT: 'IMPORT',
+ };
+ 
+-const AddBoardStep = React.memo(({ onClose }) => {
++// BSY Media: was a small Popup (see git history for AddBoardStep) - promoted
++// to a full Modal because a board has no background/theme of its own (see
++// Project.js/Board.js models), so creating one now also means picking the
++// parent project's background/theme via BackgroundPane (the same component
++// ProjectSettingsModal already hosts comfortably at this size) plus a live
++// preview - too much content for a floating popup without things clipping
++// or wrapping awkwardly, confirmed by trying the popup version first.
++const AddBoardModal = React.memo(() => {
+   const dispatch = useDispatch();
+   const [t] = useTranslation();
+ 
+@@ -36,6 +44,12 @@ const AddBoardStep = React.memo(({ onClose }) => {
+ 
+   const [nameFieldRef, handleNameFieldRef] = useNestedRef('inputRef');
+ 
++  const [ClosableModal] = useClosableModal();
++
++  const handleClose = useCallback(() => {
++    dispatch(entryActions.closeModal());
++  }, [dispatch]);
++
+   const handleSubmit = useCallback(() => {
+     const cleanData = {
+       ...data,
+@@ -48,8 +62,8 @@ const AddBoardStep = React.memo(({ onClose }) => {
+     }
+ 
+     dispatch(entryActions.createBoardInCurrentProject(cleanData));
+-    onClose();
+-  }, [onClose, dispatch, data, nameFieldRef]);
++    handleClose();
++  }, [handleClose, dispatch, data, nameFieldRef]);
+ 
+   const handleImportSelect = useCallback(
+     (nextImport) => {
+@@ -81,17 +95,31 @@ const AddBoardStep = React.memo(({ onClose }) => {
+   }, [focusNameFieldState]);
+ 
+   if (step && step.type === StepTypes.IMPORT) {
+-    return <ImportStep onSelect={handleImportSelect} onBack={handleImportBack} />;
++    return (
++      <ClosableModal closeIcon size="small" centered={false} onClose={handleClose}>
++        <ImportStep onSelect={handleImportSelect} onBack={handleImportBack} />
++      </ClosableModal>
++    );
+   }
+ 
+   return (
+-    <>
+-      <Popup.Header>
++    <ClosableModal closeIcon size="small" centered={false} onClose={handleClose}>
++      <ClosableModal.Header>
+         {t('common.createBoard', {
+           context: 'title',
+         })}
+-      </Popup.Header>
+-      <Popup.Content>
++      </ClosableModal.Header>
++      <ClosableModal.Content>
++        <BoardPreview name={data.name} />
++        {/* BSY Media: a board renders its parent PROJECT's background - a
++            board is always created inside an already-open project, so
++            picking one here themes that project directly. Correct for this
++            deployment's actual usage (one project per one board per
++            client/import), but picking a new background while adding a
++            *second* board to an already-themed project re-themes the whole
++            project, including its existing board(s) too. */}
++        <div className={styles.text}>{t('common.backgroundAndTheme')}</div>
++        <BackgroundPane />
+         <Form onSubmit={handleSubmit}>
+           <div className={styles.text}>{t('common.title')}</div>
+           <Input
+@@ -118,13 +146,9 @@ const AddBoardStep = React.memo(({ onClose }) => {
+             </Button>
+           </div>
+         </Form>
+-      </Popup.Content>
+-    </>
++      </ClosableModal.Content>
++    </ClosableModal>
+   );
+ });
+ 
+-AddBoardStep.propTypes = {
+-  onClose: PropTypes.func.isRequired,
+-};
+-
+-export default AddBoardStep;
++export default AddBoardModal;
+diff --git a/client/src/components/boards/AddBoardStep/AddBoardStep.module.scss b/client/src/components/boards/AddBoardModal/AddBoardModal.module.scss
+similarity index 89%
+rename from client/src/components/boards/AddBoardStep/AddBoardStep.module.scss
+rename to client/src/components/boards/AddBoardModal/AddBoardModal.module.scss
+index 7498c6d..91882e5 100644
+--- a/client/src/components/boards/AddBoardStep/AddBoardStep.module.scss
++++ b/client/src/components/boards/AddBoardModal/AddBoardModal.module.scss
+@@ -10,11 +10,6 @@
+ 
+   .controls {
+     display: flex;
+-    max-width: 280px;
+-
+-    @media only screen and (width < 768px) {
+-      max-width: 226px;
+-    }
+   }
+ 
+   .field {
+@@ -49,5 +44,6 @@
+     font-size: 12px;
+     font-weight: bold;
+     padding-bottom: 6px;
++    padding-top: 12px;
+   }
+ }
+diff --git a/client/src/components/boards/AddBoardModal/BoardPreview/BoardPreview.jsx b/client/src/components/boards/AddBoardModal/BoardPreview/BoardPreview.jsx
+new file mode 100644
+index 0000000..42fb307
+--- /dev/null
++++ b/client/src/components/boards/AddBoardModal/BoardPreview/BoardPreview.jsx
+@@ -0,0 +1,119 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import upperFirst from 'lodash/upperFirst';
++import camelCase from 'lodash/camelCase';
++import React, { useEffect, useMemo, useState } from 'react';
++import PropTypes from 'prop-types';
++import classNames from 'classnames';
++import { useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
++
++import selectors from '../../../../selectors';
++import { ProjectBackgroundTypes } from '../../../../constants/Enums';
++import LIGHT_BACKGROUND_GRADIENTS from '../../../../constants/BackgroundGradientLightness';
++import getImageAverageLuminance, {
++  isLuminanceLight,
++} from '../../../../utils/get-background-lightness';
++
++import styles from './BoardPreview.module.scss';
++import globalStyles from '../../../../styles.module.scss';
++
++// BSY Media: new board's background/theme is set on its parent PROJECT (see
++// AddBoardModal.jsx for why - there's no per-board background field). This
++// preview reads the same current-project background/theme state that
++// BackgroundPane writes to, so it updates live as the user picks a
++// background below it, and reuses ProjectBackground.jsx's own light/dark
++// scrim detection (same gradient table + image-luminance sampling) so the
++// header contrast shown here matches what the real board actually renders,
++// rather than a second implementation that could drift out of sync.
++const BoardPreview = React.memo(({ name }) => {
++  const selectBackgroundImageById = useMemo(() => selectors.makeSelectBackgroundImageById(), []);
++
++  const { backgroundImageId, backgroundType, backgroundGradient, cardsDarkModeEnabled } =
++    useSelector(selectors.selectCurrentProject);
++
++  const backgroundImageUrl = useSelector((state) => {
++    if (backgroundType !== ProjectBackgroundTypes.IMAGE) {
++      return null;
++    }
++
++    const backgroundImage = selectBackgroundImageById(state, backgroundImageId);
++
++    return backgroundImage ? backgroundImage.url : null;
++  });
++
++  const [t] = useTranslation();
++  const [isLightBackground, setIsLightBackground] = useState(false);
++
++  useEffect(() => {
++    if (backgroundType === ProjectBackgroundTypes.GRADIENT) {
++      setIsLightBackground(LIGHT_BACKGROUND_GRADIENTS.has(backgroundGradient));
++      return undefined;
++    }
++
++    if (backgroundType === ProjectBackgroundTypes.IMAGE && backgroundImageUrl) {
++      let isCancelled = false;
++
++      getImageAverageLuminance(backgroundImageUrl)
++        .then((luminance) => {
++          if (!isCancelled) {
++            setIsLightBackground(isLuminanceLight(luminance));
++          }
++        })
++        .catch(() => {
++          // Sampling failed (e.g. canvas security error) - keep the default
++          // (dark-background) styling rather than guessing.
++        });
++
++      return () => {
++        isCancelled = true;
++      };
++    }
++
++    setIsLightBackground(false);
++    return undefined;
++  }, [backgroundType, backgroundGradient, backgroundImageUrl]);
++
++  return (
++    <div className={styles.wrapper}>
++      <div
++        className={classNames(
++          styles.background,
++          backgroundType === ProjectBackgroundTypes.GRADIENT &&
++            globalStyles[`background${upperFirst(camelCase(backgroundGradient))}`],
++        )}
++        style={{
++          background: backgroundImageUrl && `url("${backgroundImageUrl}") center / cover`,
++        }}
++      >
++        <div className={classNames(styles.header, isLightBackground && styles.headerLight)}>
++          {name.trim() || t('common.untitledBoard')}
++        </div>
++        <div className={styles.columns}>
++          {[0, 1, 2].map((index) => (
++            <div
++              key={index}
++              className={classNames(styles.column, cardsDarkModeEnabled && styles.columnDark)}
++            >
++              <div className={classNames(styles.card, cardsDarkModeEnabled && styles.cardDark)} />
++              <div className={classNames(styles.card, cardsDarkModeEnabled && styles.cardDark)} />
++            </div>
++          ))}
++        </div>
++      </div>
++    </div>
++  );
++});
++
++BoardPreview.propTypes = {
++  name: PropTypes.string,
++};
++
++BoardPreview.defaultProps = {
++  name: '',
++};
++
++export default BoardPreview;
+diff --git a/client/src/components/boards/AddBoardModal/BoardPreview/BoardPreview.module.scss b/client/src/components/boards/AddBoardModal/BoardPreview/BoardPreview.module.scss
+new file mode 100644
+index 0000000..7bfe2fa
+--- /dev/null
++++ b/client/src/components/boards/AddBoardModal/BoardPreview/BoardPreview.module.scss
+@@ -0,0 +1,70 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .wrapper {
++    margin-bottom: 16px;
++  }
++
++  .background {
++    // BSY Media: neutral placeholder shown until a background is picked
++    // below - this preview only mirrors the project's real background/theme
++    // once one is actually selected (see ProjectBackground.jsx, which this
++    // mirrors), it isn't itself a stored value.
++    background: linear-gradient(135deg, #4c6ef5, #5c7cfa);
++    border-radius: 8px;
++    display: flex;
++    flex-direction: column;
++    gap: 10px;
++    overflow: hidden;
++    padding: 10px;
++  }
++
++  .header {
++    color: #fff;
++    font-size: 13px;
++    font-weight: bold;
++    overflow: hidden;
++    text-overflow: ellipsis;
++    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
++    white-space: nowrap;
++  }
++
++  .headerLight {
++    color: #17394d;
++    text-shadow: none;
++  }
++
++  .columns {
++    display: flex;
++    gap: 8px;
++  }
++
++  .column {
++    background: #dfe3e6;
++    border-radius: 4px;
++    display: flex;
++    flex: 1;
++    flex-direction: column;
++    gap: 6px;
++    padding: 6px;
++  }
++
++  .columnDark {
++    background: #101204;
++  }
++
++  .card {
++    background: #fff;
++    border-radius: 3px;
++    box-shadow: 0 1px 0 #ccc;
++    height: 14px;
++  }
++
++  .cardDark {
++    background: #242528;
++    box-shadow: 0 1px 0 #1d2125;
++  }
++}
+diff --git a/client/src/components/boards/AddBoardStep/index.js b/client/src/components/boards/AddBoardModal/BoardPreview/index.js
+similarity index 68%
+rename from client/src/components/boards/AddBoardStep/index.js
+rename to client/src/components/boards/AddBoardModal/BoardPreview/index.js
+index e7dc76c..92013b8 100644
+--- a/client/src/components/boards/AddBoardStep/index.js
++++ b/client/src/components/boards/AddBoardModal/BoardPreview/index.js
+@@ -3,6 +3,6 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import AddBoardStep from './AddBoardStep';
++import BoardPreview from './BoardPreview';
+ 
+-export default AddBoardStep;
++export default BoardPreview;
+diff --git a/client/src/components/boards/AddBoardStep/ImportStep.jsx b/client/src/components/boards/AddBoardModal/ImportStep.jsx
+similarity index 77%
+rename from client/src/components/boards/AddBoardStep/ImportStep.jsx
+rename to client/src/components/boards/AddBoardModal/ImportStep.jsx
+index 896d220..ed7f904 100644
+--- a/client/src/components/boards/AddBoardStep/ImportStep.jsx
++++ b/client/src/components/boards/AddBoardModal/ImportStep.jsx
+@@ -6,8 +6,8 @@
+ import React, { useCallback } from 'react';
+ import PropTypes from 'prop-types';
+ import { useTranslation } from 'react-i18next';
+-import { Button } from 'semantic-ui-react';
+-import { FilePicker, Popup } from '../../../lib/custom-ui';
++import { Button, Modal } from 'semantic-ui-react';
++import { FilePicker } from '../../../lib/custom-ui';
+ 
+ import styles from './ImportStep.module.scss';
+ 
+@@ -28,16 +28,17 @@ const ImportStep = React.memo(({ onSelect, onBack }) => {
+ 
+   return (
+     <>
+-      <Popup.Header onBack={onBack}>
++      <Modal.Header className={styles.header}>
++        <Button icon="angle left" basic onClick={onBack} className={styles.backButton} />
+         {t('common.importBoard', {
+           context: 'title',
+         })}
+-      </Popup.Header>
+-      <Popup.Content>
++      </Modal.Header>
++      <Modal.Content>
+         <FilePicker accept=".json" onSelect={(file) => handleFileSelect('trello', file)}>
+           <Button fluid content={t('common.fromTrello')} icon="trello" className={styles.button} />
+         </FilePicker>
+-      </Popup.Content>
++      </Modal.Content>
+     </>
+   );
+ });
+diff --git a/client/src/components/boards/AddBoardStep/ImportStep.module.scss b/client/src/components/boards/AddBoardModal/ImportStep.module.scss
+similarity index 80%
+rename from client/src/components/boards/AddBoardStep/ImportStep.module.scss
+rename to client/src/components/boards/AddBoardModal/ImportStep.module.scss
+index 2a03d72..cbaaf59 100644
+--- a/client/src/components/boards/AddBoardStep/ImportStep.module.scss
++++ b/client/src/components/boards/AddBoardModal/ImportStep.module.scss
+@@ -19,4 +19,14 @@
+       color: #092d42;
+     }
+   }
++
++  .header {
++    align-items: center;
++    display: flex;
++    gap: 8px;
++  }
++
++  .backButton {
++    margin: 0;
++  }
+ }
+diff --git a/client/src/components/boards/AddBoardModal/index.js b/client/src/components/boards/AddBoardModal/index.js
+new file mode 100644
+index 0000000..c699ed5
+--- /dev/null
++++ b/client/src/components/boards/AddBoardModal/index.js
+@@ -0,0 +1,8 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import AddBoardModal from './AddBoardModal';
++
++export default AddBoardModal;
+diff --git a/client/src/components/boards/Boards/Boards.jsx b/client/src/components/boards/Boards/Boards.jsx
+index 24db0c9..f86d3bc 100755
+--- a/client/src/components/boards/Boards/Boards.jsx
++++ b/client/src/components/boards/Boards/Boards.jsx
+@@ -7,13 +7,12 @@ import React, { useCallback, useRef } from 'react';
+ import { useDispatch, useSelector } from 'react-redux';
+ import { DragDropContext, Droppable } from 'react-beautiful-dnd';
+ import { Button } from 'semantic-ui-react';
+-import { closePopup, usePopup } from '../../../lib/popup';
++import { closePopup } from '../../../lib/popup';
+ 
+ import selectors from '../../../selectors';
+ import entryActions from '../../../entry-actions';
+ import DroppableTypes from '../../../constants/DroppableTypes';
+ import Item from './Item';
+-import AddBoardStep from '../AddBoardStep';
+ 
+ import styles from './Boards.module.scss';
+ import globalStyles from '../../../styles.module.scss';
+@@ -59,7 +58,13 @@ const Boards = React.memo(() => {
+     });
+   }, []);
+ 
+-  const AddBoardPopup = usePopup(AddBoardStep);
++  // BSY Media: opens as a full Modal, not a Popup - it now also holds a
++  // background/theme picker (BackgroundPane, reused from project settings)
++  // and a live preview, both cramped inside a floating popup (tried that
++  // first; text was clipping and wrapping badly at any popup width).
++  const handleAddBoardClick = useCallback(() => {
++    dispatch(entryActions.openAddBoardModal());
++  }, [dispatch]);
+ 
+   return (
+     <div className={styles.wrapper} onWheel={handleWheel}>
+@@ -74,9 +79,11 @@ const Boards = React.memo(() => {
+                 ))}
+                 {placeholder}
+                 {canAdd && (
+-                  <AddBoardPopup>
+-                    <Button icon="plus" className={styles.addButton} />
+-                  </AddBoardPopup>
++                  <Button
++                    icon="plus"
++                    className={styles.addButton}
++                    onClick={handleAddBoardClick}
++                  />
+                 )}
+               </div>
+             )}
+diff --git a/client/src/components/common/Core/Core.jsx b/client/src/components/common/Core/Core.jsx
+index 3bc81e7..b8e361b 100644
+--- a/client/src/components/common/Core/Core.jsx
++++ b/client/src/components/common/Core/Core.jsx
+@@ -20,6 +20,7 @@ import AboutModal from '../AboutModal';
+ import UserSettingsModal from '../../users/UserSettingsModal';
+ import ProjectBackground from '../../projects/ProjectBackground';
+ import AddProjectModal from '../../projects/AddProjectModal';
++import AddBoardModal from '../../boards/AddBoardModal';
+ 
+ const Core = React.memo(() => {
+   const isInitializing = useSelector(selectors.selectIsInitializing);
+@@ -74,6 +75,10 @@ const Core = React.memo(() => {
+       case ModalTypes.ADD_PROJECT:
+         modalNode = <AddProjectModal />;
+ 
++        break;
++      case ModalTypes.ADD_BOARD:
++        modalNode = <AddBoardModal />;
++
+         break;
+       default:
+     }
+diff --git a/client/src/components/common/Static/Static.jsx b/client/src/components/common/Static/Static.jsx
+index 42c4655..b12c436 100644
+--- a/client/src/components/common/Static/Static.jsx
++++ b/client/src/components/common/Static/Static.jsx
+@@ -3,20 +3,19 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useRef } from 'react';
++import React, { useCallback, useRef } from 'react';
+ import classNames from 'classnames';
+-import { useSelector } from 'react-redux';
++import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation, Trans } from 'react-i18next';
+ import { Button, Icon, Loader } from 'semantic-ui-react';
+ import { useTransitioning } from '../../../lib/hooks';
+-import { usePopup } from '../../../lib/popup';
+ 
+ import selectors from '../../../selectors';
++import entryActions from '../../../entry-actions';
+ import { BoardViews } from '../../../constants/Enums';
+ import Home from '../Home';
+ import GhostError from '../GhostError';
+ import Board from '../../boards/Board';
+-import AddBoardStep from '../../boards/AddBoardStep';
+ 
+ import styles from './Static.module.scss';
+ 
+@@ -30,6 +29,7 @@ const Static = React.memo(() => {
+     selectors.selectIsCurrentUserManagerForCurrentProject(state),
+   );
+ 
++  const dispatch = useDispatch();
+   const [t] = useTranslation();
+ 
+   const wrapperRef = useRef(null);
+@@ -38,7 +38,9 @@ const Static = React.memo(() => {
+     isFavoritesActive,
+   ]);
+ 
+-  const AddBoardPopup = usePopup(AddBoardStep);
++  const handleAddBoardClick = useCallback(() => {
++    dispatch(entryActions.openAddBoardModal());
++  }, [dispatch]);
+ 
+   let wrapperClassNames;
+   let contentNode;
+@@ -76,12 +78,16 @@ const Static = React.memo(() => {
+           <Trans i18nKey="common.createNewOneOrSelectExistingOne" />
+         </div>
+         {canAddBoard && (
+-          <AddBoardPopup>
+-            <Button basic positive size="large" className={styles.button}>
+-              <Icon name="plus" />
+-              {t('action.createBoard')}
+-            </Button>
+-          </AddBoardPopup>
++          <Button
++            basic
++            positive
++            size="large"
++            className={styles.button}
++            onClick={handleAddBoardClick}
++          >
++            <Icon name="plus" />
++            {t('action.createBoard')}
++          </Button>
+         )}
+       </div>
+     );
+diff --git a/client/src/constants/ModalTypes.js b/client/src/constants/ModalTypes.js
+index b100240..461b574 100755
+--- a/client/src/constants/ModalTypes.js
++++ b/client/src/constants/ModalTypes.js
+@@ -7,6 +7,7 @@ const ADMINISTRATION = 'ADMINISTRATION';
+ const ABOUT = 'ABOUT';
+ const USER_SETTINGS = 'USER_SETTINGS';
+ const ADD_PROJECT = 'ADD_PROJECT';
++const ADD_BOARD = 'ADD_BOARD';
+ const PROJECT_SETTINGS = 'PROJECT_SETTINGS';
+ const BOARD_SETTINGS = 'BOARD_SETTINGS';
+ const BOARD_ACTIVITIES = 'BOARD_ACTIVITIES';
+@@ -18,6 +19,7 @@ export default {
+   ABOUT,
+   USER_SETTINGS,
+   ADD_PROJECT,
++  ADD_BOARD,
+   PROJECT_SETTINGS,
+   BOARD_SETTINGS,
+   BOARD_ACTIVITIES,
+diff --git a/client/src/entry-actions/modals.js b/client/src/entry-actions/modals.js
+index 88dc192..f373b35 100755
+--- a/client/src/entry-actions/modals.js
++++ b/client/src/entry-actions/modals.js
+@@ -37,6 +37,13 @@ const openAddProjectModal = (defaultProjectType) => ({
+   },
+ });
+ 
++const openAddBoardModal = () => ({
++  type: EntryActionTypes.MODAL_OPEN,
++  payload: {
++    type: ModalTypes.ADD_BOARD,
++  },
++});
++
+ const openProjectSettingsModal = () => ({
+   type: EntryActionTypes.MODAL_OPEN,
+   payload: {
+@@ -85,6 +92,7 @@ export default {
+   openAboutModal,
+   openUserSettingsModal,
+   openAddProjectModal,
++  openAddBoardModal,
+   openProjectSettingsModal,
+   openBoardSettingsModal,
+   openBoardActivitiesModal,
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index d32a190..b697237 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -97,6 +97,7 @@ export default {
+       attachment: 'Attachment',
+       attachments: 'Attachments',
+       authentication: 'Authentication',
++      backgroundAndTheme: 'Background & Theme',
+       baseCustomFields_title: 'Base Custom Fields',
+       baseGroup: 'Base group',
+       board: 'Board',
+@@ -347,6 +348,7 @@ export default {
+       typeTitleToConfirm: 'Type the title to confirm.',
+       unlinkSso_title: 'Inlink SSO',
+       unsavedChanges: 'Unsaved changes',
++      untitledBoard: 'Untitled board',
+       uploadFailedFileIsTooBig: 'Upload failed: File is too big.',
+       uploadFailedNotEnoughStorageSpace: 'Upload failed: Not enough storage space.',
+       uploadedImages: 'Uploaded images',
