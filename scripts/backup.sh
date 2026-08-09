@@ -7,9 +7,12 @@ set -euo pipefail
 # repo entirely (not just gitignored) so a `git add -A` mistake can never
 # stage a dump full of real user data.
 #
-# Local-only for now, by deliberate choice (2026-08-05) - protects against
-# accidental deletion/corruption in PLANKA itself, NOT against this VPS or
-# its disk failing. Revisit adding an offsite target later.
+# Offsite copy added 2026-08-09: after the local dump+prune below succeeds,
+# mirrors $BACKUP_ROOT to Mega via rclone through a "crypt" remote (content
+# and filenames encrypted client-side before upload - the raw Mega listing
+# shows only scrambled names). Uses `sync`, not `copy`, so the existing
+# 14-day local prune below also prunes the offsite copy automatically - no
+# separate remote retention job to maintain.
 
 COMPOSE_DIR="/home/deploy/planka"
 BACKUP_ROOT="/home/deploy/planka-backups"
@@ -63,5 +66,11 @@ log "OK: backup completed at $DEST ($BACKUP_SIZE)"
 # Retention: prune backup directories older than RETENTION_DAYS.
 find "$BACKUP_ROOT" -maxdepth 1 -mindepth 1 -type d -mtime "+$RETENTION_DAYS" -print -exec rm -rf {} \; \
   | while read -r pruned; do log "Pruned old backup: $pruned"; done
+
+# Offsite sync (non-fatal): a transient network hiccup here shouldn't fail
+# the whole run when the local backup above already succeeded.
+if ! rclone sync "$BACKUP_ROOT" cryptremote:planka-backups --log-file="$LOG_FILE" --log-level INFO; then
+  log "WARNING: offsite sync to Mega failed (local backup is still intact)"
+fi
 
 exit 0

@@ -264,19 +264,41 @@ new routes on the same `invite-service`, no new containers/infra:
   artifacts (project, board, test user) were deleted — instance back to 0 projects / 3 real
   accounts (bootstrap admin, invite-service, `admin@bsymedia.com`) as of last check.
 
-## Backups (Phase 1, 2026-08-05)
+## Backups (Phase 1, 2026-08-05; offsite added 2026-08-09)
 
-- **Local-only, by deliberate choice.** Client was offered Hetzner Storage Box, an S3-compatible
-  bucket, or Google Drive; Google Drive turned out to require real setup friction — confirmed
-  live against rclone's own docs that rclone's shared Google API client_id is being retired
-  during 2026, so Drive now needs a self-created Google Cloud project, a custom OAuth client
-  (Desktop app type), a configured consent screen, and a one-time interactive browser
-  authorization — none of which can be done on the client's behalf without their own Google Cloud
-  Console access. Service accounts (which would skip the browser step) only get usable Drive
-  storage on a real Google Workspace domain, which BSY Media doesn't have (see Invite service
-  section above) — so that shortcut doesn't apply either. Given that friction, client chose
-  local-only for now. **This does not protect against the VPS or its disk failing** — only
-  against accidental deletion/corruption inside PLANKA itself. Revisit an offsite target later.
+- **Offsite copy added 2026-08-09, via rclone to Mega, encrypted client-side.** Originally shipped
+  local-only since Google Drive specifically needed real setup friction — confirmed live against
+  rclone's own docs that rclone's shared Google API client_id is being
+  retired during 2026, so Drive needs a self-created Google Cloud project, custom OAuth client,
+  consent screen, and one-time browser authorization. Revisited when the client wanted this gap
+  closed without that ceremony: **Mega** needs no OAuth app at all (rclone's `mega` backend just
+  takes an account email/password), has a 20GB free tier, and the *entire* local backup set
+  (263.9MB as of last check) uses under 2% of it. Two rclone remotes configured under
+  `deploy`'s own `~/.config/rclone/rclone.conf` (chmod 600, outside git):
+  - `megaremote` — the raw Mega account (`admin@bsymedia.com`).
+  - `cryptremote` — a `crypt` remote wrapping `megaremote:planka-backups`, encrypting both
+    filenames and file contents client-side before upload. Confirmed live: the raw Mega listing
+    (`rclone lsf megaremote:planka-backups/`) shows only a scrambled directory name, while
+    `rclone lsf cryptremote:...` shows real filenames — encryption is actually happening, not
+    just configured. **The crypt passphrase only exists in `rclone.conf` (obscured, not
+    plaintext) and was shown to the operator once at generation time** — if this VPS and that
+    passphrase are both lost, the offsite copies are permanently unreadable. Not this repo's
+    problem to solve further (it's out of `rclone.conf`'s own control), but worth restating: this
+    passphrase must live in a password manager, not just on this box.
+  - `scripts/backup.sh`'s last step runs `rclone sync "$BACKUP_ROOT" cryptremote:planka-backups`
+    (see below for why `sync` specifically) after the local dump+prune succeeds, non-fatal (a
+    network hiccup here doesn't fail the whole run — the local backup already landed by that
+    point). Verified end-to-end 2026-08-09: full manual run synced all 6 existing local backup
+    dirs offsite correctly, and a restore drill (download one `planka.sql.gz` off Mega through
+    `cryptremote:`, `gunzip -t`, inspect contents) confirmed a valid, intact dump.
+- **Why `sync` and not `copy`**: mirrors local's retention exactly — when the 14-day prune below
+  deletes an old local backup directory, the next `rclone sync` deletes it offsite too. No
+  separate remote-side retention job to build or maintain; the offsite copy is always "whatever's
+  currently in `$BACKUP_ROOT` locally," nothing more, nothing less.
+- The rest of this section (below) predates the offsite copy and still accurately describes the
+  local side (`scripts/backup.sh`'s dump/tar/retention logic, its cron schedule, the original
+  local restore drill) — only its old closing claim, "this does not protect against the VPS or
+  its disk failing," is now out of date: the offsite Mega copy specifically closes that gap.
 - `scripts/backup.sh` — dumps both Postgres databases (`planka`, and `planka_ops` which holds
   invite-service state) via `pg_dump` over the container's local Unix socket (confirmed: no
   password needed for local-socket connections even though `POSTGRES_PASSWORD` is set and
