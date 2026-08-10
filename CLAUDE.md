@@ -655,6 +655,31 @@ Fixed by adding the identical `makeSelectShownOnFrontOfCardTaskListIdsByCardId` 
 Verified live: both checklists' progress bars (`2/3`, `0/4`) now render directly on the card face
 in the Kanban view for this exact card. Patch: `0024-story-card-face-checklists.patch`.
 
+### Fourth/fifth fixes: checklist name label, single-calendar Dates popup (2026-08-10)
+
+1. **Checklist name wasn't shown next to its own progress bar** on the card face — with 2+
+   checklists both `showOnFrontOfCard`, there was no way to tell "2/3" apart from "0/4". Added a
+   small bold label (`taskLists.name`) above each progress row in `Card/TaskList/TaskList.jsx`
+   (shared by both card-face types, so both Project and Story cards get it).
+2. **Combined "Dates" popup simplified from two full calendars to one.** The original Trello-style
+   combined-popup design (see "Card sidebar/checklists/dates/activity-log overhaul" above) put a
+   full inline `<DatePicker>` under each of Start/Due separately — client asked for one shared
+   calendar instead. `EditDueDateStep.jsx` now uses `react-datepicker`'s `selectsRange` mode
+   (`startDate`/`endDate` props + a single `onChange([start, end])` handler) — first click sets
+   start, second sets due, both still independently overridable via the date/time text boxes above
+   (each now with its own small "×" clear button, replacing the old full-width "Remove" buttons).
+   Range days get distinct colors in `styles.module.scss` (`--range-start` blue, `--range-end`
+   orange, `--in-range`/`--in-selecting-range` a light blue fill for the days between) so it's
+   clear which highlighted day is which without needing two calendars.
+
+Patch: `0025-checklist-name-and-single-calendar-dates.patch`. Verified live on
+`/cards/1836448305429612055`: each checklist's own name now renders above its progress bar on
+the Kanban card face; the Dates popup shows exactly one calendar with both date-group text boxes
+above it (only the same-day-default-selection state was screenshotted, not an actual two-day
+range pick, to avoid another live write-test after the earlier incident — the range-color CSS
+uses react-datepicker's own documented `--range-start`/`--range-end` class names, so it's expected
+to render correctly for a real range without further live verification).
+
 ## Taiga import (2026-08-07)
 
 Client is consolidating a second source into the same PLANKA instance: some of BSY Media's work

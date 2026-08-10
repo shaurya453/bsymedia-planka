@@ -1,0 +1,249 @@
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.jsx b/client/src/components/cards/Card/TaskList/TaskList.jsx
+index 9609606..1a11dcc 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.jsx
++++ b/client/src/components/cards/Card/TaskList/TaskList.jsx
+@@ -61,6 +61,7 @@ const TaskList = React.memo(({ id }) => {
+ 
+   return (
+     <>
++      <div className={styles.name}>{taskLists.name}</div>
+       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events,
+                                    jsx-a11y/no-static-element-interactions */}
+       <div className={styles.progressRow} onClick={handleToggleClick}>
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.module.scss b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+index 306fb10..7c2856c 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.module.scss
++++ b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+@@ -35,6 +35,17 @@
+     padding: 0 6px 6px;
+   }
+ 
++  .name {
++    color: #6b808c;
++    font-size: 12px;
++    font-weight: bold;
++    margin: 0 -8px -2px;
++    overflow: hidden;
++    padding: 0 8px;
++    text-overflow: ellipsis;
++    white-space: nowrap;
++  }
++
+   .progress {
+     margin: 0;
+   }
+diff --git a/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx b/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
+index 053d45b..2803108 100755
+--- a/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
++++ b/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
+@@ -8,7 +8,7 @@ import PropTypes from 'prop-types';
+ import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+ import DatePicker from 'react-datepicker';
+-import { Button, Divider, Form } from 'semantic-ui-react';
++import { Button, Form } from 'semantic-ui-react';
+ import { useDidUpdate, useToggle } from '../../../lib/hooks';
+ import { Input, Popup } from '../../../lib/custom-ui';
+ 
+@@ -26,6 +26,12 @@ import styles from './EditDueDateStep.module.scss';
+ // transformCardData pipeline in api/cards.js); TaskList has no such
+ // transform layer, so its dates are kept as raw ISO strings in the store and
+ // parsed to Date here only for editing/display.
++//
++// A single shared calendar drives both dates via react-datepicker's
++// selectsRange (first click sets start, second sets due — matching a
++// familiar date-range picker instead of two separate full calendars), with
++// its own start/end day styling distinguishing the two. The date/time text
++// boxes above stay independently editable for exact values.
+ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) => {
+   const selectCardById = useMemo(() => selectors.makeSelectCardById(), []);
+   const selectTaskListById = useMemo(() => selectors.makeSelectTaskListById(), []);
+@@ -193,32 +199,31 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) =>
+     }
+   }, [cardId, taskListId, defaultDueDate, dispatch]);
+ 
+-  const handleStartDatePickerChange = useCallback(
+-    (date) => {
++  const handleRangeChange = useCallback(
++    ([start, end]) => {
+       setData((prevData) => ({
+         ...prevData,
+-        startDate: t('format:date', {
+-          postProcess: 'formatDate',
+-          value: date,
++        ...(start && {
++          startDate: t('format:date', {
++            postProcess: 'formatDate',
++            value: start,
++          }),
+         }),
+-      }));
+-      selectStartTimeField();
+-    },
+-    [t, setData, selectStartTimeField],
+-  );
+-
+-  const handleDueDatePickerChange = useCallback(
+-    (date) => {
+-      setData((prevData) => ({
+-        ...prevData,
+-        dueDate: t('format:date', {
+-          postProcess: 'formatDate',
+-          value: date,
++        ...(end && {
++          dueDate: t('format:date', {
++            postProcess: 'formatDate',
++            value: end,
++          }),
+         }),
+       }));
+-      selectDueTimeField();
++
++      if (end) {
++        selectDueTimeField();
++      } else {
++        selectStartTimeField();
++      }
+     },
+-    [t, setData, selectDueTimeField],
++    [t, setData, selectStartTimeField, selectDueTimeField],
+   );
+ 
+   useEffect(() => {
+@@ -268,21 +273,13 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) =>
+                 onChange={handleFieldChange}
+               />
+             </div>
++            <Button
++              type="button"
++              icon="x"
++              className={styles.clearFieldButton}
++              onClick={handleClearStartClick}
++            />
+           </div>
+-          <DatePicker
+-            inline
+-            disabledKeyboardNavigation
+-            selected={nullableStartDate}
+-            onChange={handleStartDatePickerChange}
+-          />
+-          <Button
+-            type="button"
+-            negative
+-            content={t('action.remove')}
+-            className={styles.deleteButton}
+-            onClick={handleClearStartClick}
+-          />
+-          <Divider />
+           <div className={styles.text}>
+             {t('common.dueDate', {
+               context: 'title',
+@@ -309,19 +306,20 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) =>
+                 onChange={handleFieldChange}
+               />
+             </div>
++            <Button
++              type="button"
++              icon="x"
++              className={styles.clearFieldButton}
++              onClick={handleClearDueClick}
++            />
+           </div>
+           <DatePicker
+             inline
++            selectsRange
+             disabledKeyboardNavigation
+-            selected={nullableDueDate}
+-            onChange={handleDueDatePickerChange}
+-          />
+-          <Button
+-            type="button"
+-            negative
+-            content={t('action.remove')}
+-            className={styles.deleteButton}
+-            onClick={handleClearDueClick}
++            startDate={nullableStartDate}
++            endDate={nullableDueDate}
++            onChange={handleRangeChange}
+           />
+           <Button positive content={t('action.save')} className={styles.saveButton} />
+         </Form>
+diff --git a/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss b/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss
+index 2df2415..8171120 100644
+--- a/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss
++++ b/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss
+@@ -4,25 +4,33 @@
+  */
+ 
+ :global(#app) {
+-  .deleteButton {
+-    box-shadow: 0 1px 0 #cbcccc;
+-    margin-top: 12px;
+-    width: 100%;
+-  }
+-
+   .saveButton {
+     margin-top: 12px;
+     width: 100%;
+   }
+ 
+   .fieldBox {
+-    display: inline-block;
+-    margin: 0 4px 12px;
+-    width: calc(50% - 8px);
++    flex: 1 1 auto;
++    margin: 0 4px;
++    min-width: 0;
+   }
+ 
+   .fieldWrapper {
+-    margin: 0 -4px;
++    align-items: flex-end;
++    display: flex;
++    margin: 0 -4px 12px;
++  }
++
++  .clearFieldButton {
++    background: transparent;
++    box-shadow: none;
++    flex: 0 0 auto;
++    margin: 0 0 0 2px;
++    padding: 9px 8px;
++
++    &:hover {
++      background: rgba(0, 0, 0, 0.05);
++    }
+   }
+ 
+   .text {
+diff --git a/client/src/styles.module.scss b/client/src/styles.module.scss
+index 0df777d..f348c95 100644
+--- a/client/src/styles.module.scss
++++ b/client/src/styles.module.scss
+@@ -80,6 +80,26 @@
+       color: #fff;
+     }
+ 
++    // BSY Media: the combined "Dates" popup uses one shared calendar in
++    // selectsRange mode instead of two separate calendars - start and due
++    // get distinct colors so it's clear which square is which, with a
++    // lighter shared fill for the days spanned between them.
++    .react-datepicker__day--range-start {
++      background: #2185d0 !important;
++      color: #fff;
++    }
++
++    .react-datepicker__day--range-end {
++      background: #e8632c !important;
++      color: #fff;
++    }
++
++    .react-datepicker__day--in-range:not(.react-datepicker__day--range-start):not(.react-datepicker__day--range-end),
++    .react-datepicker__day--in-selecting-range:not(.react-datepicker__day--range-start):not(.react-datepicker__day--range-end) {
++      background: rgba(33, 133, 208, 0.2);
++      color: #444444;
++    }
++
+     .react-datepicker__day-names,
+     .react-datepicker__week {
+       border-right: 1px solid #c2ccd1;
