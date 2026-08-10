@@ -550,6 +550,69 @@ against 2.1.1 still applies as-is.
   background) — no browser automation tool was available in this session. Do a quick manual pass
   before considering this fully done.
 
+## Card sidebar/checklists/dates/activity-log overhaul (2026-08-10)
+
+Four related card-detail upgrades requested together, closer to Trello's card UX: (1) sidebar
+shows assigned members directly instead of a redundant "List" section, (2) a dedicated
+"Checklists" tab alongside Comments/Actions, (3) start + due dates on both cards and checklists,
+(4) every checklist/date action logged to the card's Actions tab.
+
+**Most of the underlying data model already existed** — this was mostly wiring PLANKA's own
+`TaskList`/`Task` primitives into a new layout, not building from scratch. Checklists are
+`TaskList` (checklist) → `Task` (checkable item), a flat 2-level structure — no 3rd nesting level
+was added. Card `dueDate`/`isDueCompleted` already existed with a working popup and status chip;
+`startDate` did not exist anywhere (card or checklist) and needed new migrations
+(`20260810120000_add_start_date_to_card.js`, `20260810120001_add_dates_to_task_list.js`).
+
+- **Sidebar**: `ProjectContent.jsx`/`StoryContent.jsx`'s "List" section (list name + move-to-list
+  dropdown) removed — list-move stays reachable via drag-and-drop and the "More Actions → Move"
+  option (patch 0016). Replaced with an always-visible "Assigned Members" block reusing the
+  existing `BoardMembershipsPopup`/`UserAvatar` — no new server model, `CardMembership` untouched.
+- **Checklists tab**: `Communication.jsx`'s existing Comments/Actions `Tab` (Semantic UI) gained a
+  third "Checklists" pane rendering `TaskLists` (moved out of its old always-inline spot under
+  Description). Board-editor gating and card-face progress bars (`Card/TaskList/TaskList.jsx`)
+  were untouched — separate component tree from the modal, confirmed live.
+- **Dates**: `EditDueDateStep.jsx` extended in place into a combined "Dates" popup (Start + Due in
+  one save), parameterized by `cardId` **or** `taskListId` so the same component drives both card-
+  level dates (sidebar "Dates" button, renamed from "Due Date") and checklist-level dates (new
+  calendar-icon button next to each checklist's rename pencil in `TaskLists/Item.jsx`). Checklist
+  dates are modal-only by design (not on the Kanban card face) to avoid clutter on cards with
+  several checklists. `TaskList` dates are stored as raw ISO strings client-side (no
+  transform-at-fetch layer exists for task-lists the way `api/cards.js` has one for cards) and
+  parsed to `Date` only where displayed/edited.
+- **Activity log**: `Action.Types` gained `CREATE_TASK_LIST`/`UPDATE_TASK_LIST`/`DELETE_TASK_LIST`,
+  `CREATE_TASK`/`DELETE_TASK`, `SET_CARD_START_DATE`/`SET_CARD_DUE_DATE` (task
+  complete/uncomplete already existed). Task-list create/update/delete helpers previously sent
+  webhooks but never called `sails.helpers.actions.createOne` — checklist activity was invisible
+  before this change. Change-detection compares post-update DB records (not raw input values) to
+  avoid false positives from a same-value resubmit or a Date-vs-ISO-string type mismatch.
+
+### Deployed and verified live 2026-08-10
+
+`docker compose build planka && up -d` — migrations ran automatically on boot, `start_date`/
+`due_date`/`is_due_completed` confirmed present on both `card` and `task_list` tables. Screenshotted
+live on a real card via Puppeteer: sidebar shows Members (no List section); Comments/Checklists/
+Actions tabs all present; the combined Dates popup opens, saves both fields in one call, and
+displays correctly; the Actions tab shows real "set the start/due date" log entries next to
+pre-existing (unaffected) history. Patch: `planka-custom/patches/0021-checklists-dates-assigned-members.patch`.
+
+**Incident during verification, self-corrected**: a browser-automation script mistyped into the
+card name field instead of a checklist-item field, briefly renaming a real production card
+("Most Disturbing Undertale Horror Games..." → had "First test item" prepended). Caught
+immediately by comparing before/after DB state, fixed via a direct SQL `UPDATE` restoring the
+original title (confirmed with the user before running it), and the test start/due dates set
+during verification were cleared the same way. No other data was affected — checklist creation
+was never actually completed during the incident (the "Add Task List" click failed every attempt
+due to the same field-targeting issue, so no stray `task_list` row was ever created). **Lesson**:
+this deployment's boards mostly use PLANKA's `story` card type (Yapmaster Media's 180 cards are
+all `story`), not `project` — Checklists/Dates trigger buttons only exist in `ProjectContent.jsx`'s
+sidebar (matching the plan's scope), so hands-on testing needs a `project`-type card specifically;
+plain-text automation scripts against a live production card carry real risk and should be
+reserved for read-only checks or done with tightly-scoped selectors, not loose text-matching.
+Live-testing actual checklist item creation/completion was consciously skipped after this — the
+component is a straight relocation of PLANKA's own existing, previously-working `TaskLists` code,
+not new logic, so the residual risk was judged low relative to the cost of another live test.
+
 ## Taiga import (2026-08-07)
 
 Client is consolidating a second source into the same PLANKA instance: some of BSY Media's work

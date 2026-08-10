@@ -1,0 +1,1709 @@
+diff --git a/client/src/api/cards.js b/client/src/api/cards.js
+index e780fa7..d2b2b97 100755
+--- a/client/src/api/cards.js
++++ b/client/src/api/cards.js
+@@ -14,6 +14,9 @@ import { transformNotification } from './notifications';
+ 
+ export const transformCard = (card) => ({
+   ...card,
++  ...(card.startDate && {
++    startDate: new Date(card.startDate),
++  }),
+   ...(card.dueDate && {
+     dueDate: new Date(card.dueDate),
+   }),
+@@ -35,6 +38,9 @@ export const transformCard = (card) => ({
+ 
+ export const transformCardData = (data) => ({
+   ...data,
++  ...(data.startDate && {
++    startDate: data.startDate.toISOString(),
++  }),
+   ...(data.dueDate && {
+     dueDate: data.dueDate.toISOString(),
+   }),
+diff --git a/client/src/components/activities/CardActivities/Item.jsx b/client/src/components/activities/CardActivities/Item.jsx
+index d154e05..8dd5105 100755
+--- a/client/src/components/activities/CardActivities/Item.jsx
++++ b/client/src/components/activities/CardActivities/Item.jsx
+@@ -169,6 +169,157 @@ const Item = React.memo(({ id }) => {
+       );
+ 
+       break;
++    case ActivityTypes.CREATE_TASK_LIST:
++      contentNode = (
++        <Trans
++          i18nKey="common.userAddedChecklistToThisCard"
++          values={{
++            user: userName,
++            taskList: activity.data.taskList.name,
++          }}
++        >
++          <span className={styles.author}>{userName}</span>
++          {' added checklist '}
++          {activity.data.taskList.name}
++          {' to this card'}
++        </Trans>
++      );
++
++      break;
++    case ActivityTypes.UPDATE_TASK_LIST:
++      contentNode = (
++        <Trans
++          i18nKey="common.userUpdatedChecklistOnThisCard"
++          values={{
++            user: userName,
++            taskList: activity.data.taskList.name,
++          }}
++        >
++          <span className={styles.author}>{userName}</span>
++          {' updated checklist '}
++          {activity.data.taskList.name}
++          {' on this card'}
++        </Trans>
++      );
++
++      break;
++    case ActivityTypes.DELETE_TASK_LIST:
++      contentNode = (
++        <Trans
++          i18nKey="common.userDeletedChecklistFromThisCard"
++          values={{
++            user: userName,
++            taskList: activity.data.taskList.name,
++          }}
++        >
++          <span className={styles.author}>{userName}</span>
++          {' deleted checklist '}
++          {activity.data.taskList.name}
++          {' from this card'}
++        </Trans>
++      );
++
++      break;
++    case ActivityTypes.CREATE_TASK:
++      contentNode = (
++        <Trans
++          i18nKey="common.userAddedItemToChecklistOnThisCard"
++          values={{
++            user: userName,
++            task: activity.data.task.name,
++            taskList: activity.data.taskList.name,
++          }}
++        >
++          <span className={styles.author}>{userName}</span>
++          {' added '}
++          {activity.data.task.name}
++          {' to checklist '}
++          {activity.data.taskList.name}
++        </Trans>
++      );
++
++      break;
++    case ActivityTypes.DELETE_TASK:
++      contentNode = (
++        <Trans
++          i18nKey="common.userDeletedItemFromChecklistOnThisCard"
++          values={{
++            user: userName,
++            task: activity.data.task.name,
++            taskList: activity.data.taskList.name,
++          }}
++        >
++          <span className={styles.author}>{userName}</span>
++          {' deleted '}
++          {activity.data.task.name}
++          {' from checklist '}
++          {activity.data.taskList.name}
++        </Trans>
++      );
++
++      break;
++    case ActivityTypes.SET_CARD_START_DATE: {
++      const { startDate } = activity.data;
++
++      contentNode = startDate ? (
++        <Trans
++          i18nKey="common.userSetStartDateOnThisCard"
++          values={{
++            user: userName,
++            startDate: t('format:longDateTime', {
++              value: new Date(startDate),
++              postProcess: 'formatDate',
++            }),
++          }}
++        >
++          <span className={styles.author}>{userName}</span>
++          {' set the start date on this card'}
++        </Trans>
++      ) : (
++        <Trans
++          i18nKey="common.userRemovedStartDateFromThisCard"
++          values={{
++            user: userName,
++          }}
++        >
++          <span className={styles.author}>{userName}</span>
++          {' removed the start date from this card'}
++        </Trans>
++      );
++
++      break;
++    }
++    case ActivityTypes.SET_CARD_DUE_DATE: {
++      const { dueDate } = activity.data;
++
++      contentNode = dueDate ? (
++        <Trans
++          i18nKey="common.userSetDueDateOnThisCard"
++          values={{
++            user: userName,
++            dueDate: t('format:longDateTime', {
++              value: new Date(dueDate),
++              postProcess: 'formatDate',
++            }),
++          }}
++        >
++          <span className={styles.author}>{userName}</span>
++          {' set the due date on this card'}
++        </Trans>
++      ) : (
++        <Trans
++          i18nKey="common.userRemovedDueDateFromThisCard"
++          values={{
++            user: userName,
++          }}
++        >
++          <span className={styles.author}>{userName}</span>
++          {' removed the due date from this card'}
++        </Trans>
++      );
++
++      break;
++    }
+     default:
+       contentNode = null;
+   }
+diff --git a/client/src/components/cards/CardModal/Communication.jsx b/client/src/components/cards/CardModal/Communication.jsx
+index 3b9bbc7..a2e8d3e 100644
+--- a/client/src/components/cards/CardModal/Communication.jsx
++++ b/client/src/components/cards/CardModal/Communication.jsx
+@@ -9,6 +9,7 @@ import { Menu, Tab } from 'semantic-ui-react';
+ 
+ import Comments from '../../comments/Comments';
+ import CardActivities from '../../activities/CardActivities';
++import TaskLists from './TaskLists';
+ 
+ import styles from './Communication.module.scss';
+ 
+@@ -26,6 +27,16 @@ const Communication = React.memo(() => {
+       ),
+       render: () => <Comments />,
+     },
++    {
++      menuItem: (
++        <Menu.Item key="checklists" className={styles.menuItem}>
++          {t('common.checklists', {
++            context: 'title',
++          })}
++        </Menu.Item>
++      ),
++      render: () => <TaskLists />,
++    },
+     {
+       menuItem: (
+         <Menu.Item key="actions" className={styles.menuItem}>
+diff --git a/client/src/components/cards/CardModal/ProjectContent.jsx b/client/src/components/cards/CardModal/ProjectContent.jsx
+index bdca7d0..bf65882 100644
+--- a/client/src/components/cards/CardModal/ProjectContent.jsx
++++ b/client/src/components/cards/CardModal/ProjectContent.jsx
+@@ -20,7 +20,6 @@ import { BoardMembershipRoles, CardTypes, ListTypes } from '../../../constants/E
+ import { CardTypeIcons } from '../../../constants/Icons';
+ import { ClosableContext } from '../../../contexts';
+ import NameField from './NameField';
+-import TaskLists from './TaskLists';
+ import CustomFieldGroups from './CustomFieldGroups';
+ import Communication from './Communication';
+ import CreationDetailsStep from './CreationDetailsStep';
+@@ -36,7 +35,6 @@ import UserAvatar from '../../users/UserAvatar';
+ import BoardMembershipsStep from '../../board-memberships/BoardMembershipsStep';
+ import LabelChip from '../../labels/LabelChip';
+ import LabelsStep from '../../labels/LabelsStep';
+-import ListsStep from '../../lists/ListsStep';
+ import AddTaskListStep from '../../task-lists/AddTaskListStep';
+ import Attachments from '../../attachments/Attachments';
+ import AddAttachmentStep from '../../attachments/AddAttachmentStep';
+@@ -89,7 +87,6 @@ const ProjectContent = React.memo(() => {
+     canRestore,
+     canArchive,
+     canDelete,
+-    canUseLists,
+     canUseMembers,
+     canUseLabels,
+     canAddTaskList,
+@@ -120,7 +117,6 @@ const ProjectContent = React.memo(() => {
+         canRestore: isEditor,
+         canArchive: isEditor,
+         canDelete: isEditor,
+-        canUseLists: isEditor,
+         canUseMembers: false,
+         canUseLabels: false,
+         canAddTaskList: false,
+@@ -142,7 +138,6 @@ const ProjectContent = React.memo(() => {
+       canRestore: null,
+       canArchive: isEditor,
+       canDelete: isEditor,
+-      canUseLists: isEditor,
+       canUseMembers: isEditor,
+       canUseLabels: isEditor,
+       canAddTaskList: isEditor,
+@@ -157,13 +152,6 @@ const ProjectContent = React.memo(() => {
+   const [isEditDescriptionOpened, setIsEditDescriptionOpened] = useState(false);
+   const [, , setIsClosableActive] = useContext(ClosableContext);
+ 
+-  const handleListSelect = useCallback(
+-    (listId) => {
+-      dispatch(entryActions.moveCurrentCard(listId));
+-    },
+-    [dispatch],
+-  );
+-
+   const handleNameUpdate = useCallback(
+     (name) => {
+       dispatch(
+@@ -297,7 +285,6 @@ const ProjectContent = React.memo(() => {
+   const CreationDetailsPopup = usePopupInClosableContext(CreationDetailsStep);
+   const BoardMembershipsPopup = usePopupInClosableContext(BoardMembershipsStep);
+   const LabelsPopup = usePopupInClosableContext(LabelsStep);
+-  const ListsPopup = usePopupInClosableContext(ListsStep);
+   const EditDueDatePopup = usePopupInClosableContext(EditDueDateStep);
+   const EditStopwatchPopup = usePopupInClosableContext(EditStopwatchStep);
+   const AddTaskListPopup = usePopupInClosableContext(AddTaskListStep);
+@@ -324,7 +311,8 @@ const ProjectContent = React.memo(() => {
+       </Grid.Row>
+       <Grid.Row className={styles.modalPadding}>
+         <Grid.Column width={12} className={styles.contentPadding}>
+-          {(card.dueDate ||
++          {(card.startDate ||
++            card.dueDate ||
+             card.stopwatch ||
+             board.alwaysDisplayCardCreator ||
+             userIds.length > 0 ||
+@@ -422,6 +410,24 @@ const ProjectContent = React.memo(() => {
+                   )}
+                 </div>
+               )}
++              {card.startDate && (
++                <div className={styles.attachments}>
++                  <div className={styles.text}>
++                    {t('common.startDate', {
++                      context: 'title',
++                    })}
++                  </div>
++                  <span className={classNames(styles.attachment, styles.attachmentDueDate)}>
++                    {canEditDueDate ? (
++                      <EditDueDatePopup cardId={card.id}>
++                        <DueDateChip value={card.startDate} isCompleted={false} withStatus={false} />
++                      </EditDueDatePopup>
++                    ) : (
++                      <DueDateChip value={card.startDate} isCompleted={false} withStatus={false} />
++                    )}
++                  </span>
++                </div>
++              )}
+               {card.dueDate && (
+                 <div className={styles.attachments}>
+                   <div className={styles.text}>
+@@ -541,7 +547,6 @@ const ProjectContent = React.memo(() => {
+             </div>
+           )}
+           <CustomFieldGroups />
+-          <TaskLists />
+           {attachmentIds.length > 0 && (
+             <div className={styles.contentModule}>
+               <div className={styles.moduleWrapper}>
+@@ -561,24 +566,37 @@ const ProjectContent = React.memo(() => {
+         <Grid.Column width={4} className={styles.sidebarPadding}>
+           <div className={styles.sticky}>
+             <div className={styles.actions}>
+-              <div className={classNames(styles.attachments, styles.attachmentsList)}>
+-                <div className={classNames(styles.text, styles.textList)}>{t('common.list')}</div>
+-                {canUseLists ? (
+-                  <ListsPopup currentId={list.id} onSelect={handleListSelect}>
+-                    <button type="button" className={styles.listButton}>
+-                      <span className={classNames(styles.list, styles.listHoverable)}>
+-                        <Icon name="columns" size="small" className={styles.listIcon} />
+-                        <span className={styles.hidable}>
+-                          {list.name || t(`common.${list.type}`)}
+-                        </span>
+-                      </span>
+-                    </button>
+-                  </ListsPopup>
+-                ) : (
+-                  <span className={styles.list}>
+-                    <Icon name="columns" size="small" className={styles.listIcon} />
+-                    <span className={styles.hidable}>{list.name || t(`common.${list.type}`)}</span>
++              <div className={styles.attachments}>
++                <div className={styles.text}>
++                  {t('common.members', {
++                    context: 'title',
++                  })}
++                </div>
++                {userIds.map((userId) => (
++                  <span key={userId} className={styles.attachment}>
++                    {canUseMembers ? (
++                      <BoardMembershipsPopup
++                        currentUserIds={userIds}
++                        onUserSelect={handleUserSelect}
++                        onUserDeselect={handleUserDeselect}
++                      >
++                        <UserAvatar id={userId} />
++                      </BoardMembershipsPopup>
++                    ) : (
++                      <UserAvatar id={userId} />
++                    )}
+                   </span>
++                ))}
++                {canUseMembers && (
++                  <BoardMembershipsPopup
++                    currentUserIds={userIds}
++                    onUserSelect={handleUserSelect}
++                    onUserDeselect={handleUserDeselect}
++                  >
++                    <button type="button" className={classNames(styles.attachment, styles.dueDate)}>
++                      <Icon name="add" size="small" className={styles.addAttachment} />
++                    </button>
++                  </BoardMembershipsPopup>
+                 )}
+               </div>
+             </div>
+@@ -620,7 +638,7 @@ const ProjectContent = React.memo(() => {
+                   <EditDueDatePopup cardId={card.id}>
+                     <Button fluid className={classNames(styles.actionButton, styles.hidable)}>
+                       <Icon name="calendar check outline" className={styles.actionIcon} />
+-                      {t('common.dueDate', {
++                      {t('common.editDates', {
+                         context: 'title',
+                       })}
+                     </Button>
+diff --git a/client/src/components/cards/CardModal/StoryContent.jsx b/client/src/components/cards/CardModal/StoryContent.jsx
+index e9764ee..01b2ba1 100644
+--- a/client/src/components/cards/CardModal/StoryContent.jsx
++++ b/client/src/components/cards/CardModal/StoryContent.jsx
+@@ -32,7 +32,6 @@ import UserAvatar from '../../users/UserAvatar';
+ import BoardMembershipsStep from '../../board-memberships/BoardMembershipsStep';
+ import LabelChip from '../../labels/LabelChip';
+ import LabelsStep from '../../labels/LabelsStep';
+-import ListsStep from '../../lists/ListsStep';
+ import Attachments from '../../attachments/Attachments';
+ import AddAttachmentStep from '../../attachments/AddAttachmentStep';
+ import AddCustomFieldGroupStep from '../../custom-field-groups/AddCustomFieldGroupStep';
+@@ -90,7 +89,6 @@ const StoryContent = React.memo(() => {
+     canRestore,
+     canArchive,
+     canDelete,
+-    canUseLists,
+     canUseMembers,
+     canUseLabels,
+     canAddAttachment,
+@@ -118,7 +116,6 @@ const StoryContent = React.memo(() => {
+         canRestore: isEditor,
+         canArchive: isEditor,
+         canDelete: isEditor,
+-        canUseLists: isEditor,
+         canUseMembers: false,
+         canUseLabels: false,
+         canAddAttachment: false,
+@@ -137,7 +134,6 @@ const StoryContent = React.memo(() => {
+       canRestore: null,
+       canArchive: isEditor,
+       canDelete: isEditor,
+-      canUseLists: isEditor,
+       canUseMembers: isEditor,
+       canUseLabels: isEditor,
+       canAddAttachment: isEditor,
+@@ -151,13 +147,6 @@ const StoryContent = React.memo(() => {
+   const [isEditDescriptionOpened, setIsEditDescriptionOpened] = useState(false);
+   const [activateClosable, deactivateClosable, setIsClosableActive] = useContext(ClosableContext);
+ 
+-  const handleListSelect = useCallback(
+-    (listId) => {
+-      dispatch(entryActions.moveCurrentCard(listId));
+-    },
+-    [dispatch],
+-  );
+-
+   const handleNameUpdate = useCallback(
+     (name) => {
+       dispatch(
+@@ -284,7 +273,6 @@ const StoryContent = React.memo(() => {
+   const CreationDetailsPopup = usePopupInClosableContext(CreationDetailsStep);
+   const BoardMembershipsPopup = usePopupInClosableContext(BoardMembershipsStep);
+   const LabelsPopup = usePopupInClosableContext(LabelsStep);
+-  const ListsPopup = usePopupInClosableContext(ListsStep);
+   const AddAttachmentPopup = usePopupInClosableContext(AddAttachmentStep);
+   const AddCustomFieldGroupPopup = usePopupInClosableContext(AddCustomFieldGroupStep);
+   const MoreActionsPopup = usePopupInClosableContext(MoreActionsStep);
+@@ -483,24 +471,37 @@ const StoryContent = React.memo(() => {
+         <Grid.Column width={4} className={styles.sidebarPadding}>
+           <div className={styles.sticky}>
+             <div className={styles.actions}>
+-              <div className={classNames(styles.attachments, styles.attachmentsList)}>
+-                <div className={classNames(styles.text, styles.textList)}>{t('common.list')}</div>
+-                {canUseLists ? (
+-                  <ListsPopup currentId={list.id} onSelect={handleListSelect}>
+-                    <button type="button" className={styles.listButton}>
+-                      <span className={classNames(styles.list, styles.listHoverable)}>
+-                        <Icon name="columns" size="small" className={styles.listIcon} />
+-                        <span className={styles.hidable}>
+-                          {list.name || t(`common.${list.type}`)}
+-                        </span>
+-                      </span>
+-                    </button>
+-                  </ListsPopup>
+-                ) : (
+-                  <span className={styles.list}>
+-                    <Icon name="columns" size="small" className={styles.listIcon} />
+-                    <span className={styles.hidable}>{list.name || t(`common.${list.type}`)}</span>
++              <div className={styles.attachments}>
++                <div className={styles.text}>
++                  {t('common.members', {
++                    context: 'title',
++                  })}
++                </div>
++                {userIds.map((userId) => (
++                  <span key={userId} className={styles.attachment}>
++                    {canUseMembers ? (
++                      <BoardMembershipsPopup
++                        currentUserIds={userIds}
++                        onUserSelect={handleUserSelect}
++                        onUserDeselect={handleUserDeselect}
++                      >
++                        <UserAvatar id={userId} />
++                      </BoardMembershipsPopup>
++                    ) : (
++                      <UserAvatar id={userId} />
++                    )}
+                   </span>
++                ))}
++                {canUseMembers && (
++                  <BoardMembershipsPopup
++                    currentUserIds={userIds}
++                    onUserSelect={handleUserSelect}
++                    onUserDeselect={handleUserDeselect}
++                  >
++                    <button type="button" className={classNames(styles.attachment, styles.dueDate)}>
++                      <Icon name="add" size="small" className={styles.addAttachment} />
++                    </button>
++                  </BoardMembershipsPopup>
+                 )}
+               </div>
+             </div>
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.jsx b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+index fca51f6..b54aa6c 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.jsx
++++ b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+@@ -17,6 +17,8 @@ import { usePopupInClosableContext } from '../../../../hooks';
+ import { BoardMembershipRoles } from '../../../../constants/Enums';
+ import EditStep from './EditStep';
+ import TaskList from '../../../task-lists/TaskList';
++import DueDateChip from '../../DueDateChip';
++import EditDueDateStep from '../../EditDueDateStep';
+ 
+ import styles from './Item.module.scss';
+ 
+@@ -37,8 +39,13 @@ const Item = React.memo(({ id, index }) => {
+   }, [toggleCompletedVisible]);
+ 
+   const EditPopup = usePopupInClosableContext(EditStep);
++  const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
+ 
+   const withActions = taskList.hideCompletedTasks || canEdit;
++  // BSY Media: canEdit shows two always-visible icons (dates + pencil), the
++  // hide-completed toggle is a third, hover-only one - header padding needs
++  // to account for however many are actually visible.
++  const visibleActionsCount = (taskList.hideCompletedTasks ? 1 : 0) + (canEdit ? 2 : 0);
+ 
+   return (
+     <Draggable
+@@ -61,7 +68,8 @@ const Item = React.memo(({ id, index }) => {
+                   className={classNames(
+                     styles.moduleHeader,
+                     withActions && styles.moduleHeaderWithActions,
+-                    taskList.hideCompletedTasks && canEdit && styles.both,
++                    visibleActionsCount === 2 && styles.two,
++                    visibleActionsCount === 3 && styles.three,
+                   )}
+                 >
+                   {taskList.isPersisted && withActions && (
+@@ -78,6 +86,13 @@ const Item = React.memo(({ id, index }) => {
+                           />
+                         </Button>
+                       )}
++                      {canEdit && (
++                        <EditDatesPopup taskListId={taskList.id}>
++                          <Button className={styles.editButton}>
++                            <Icon fitted name="calendar outline" size="small" />
++                          </Button>
++                        </EditDatesPopup>
++                      )}
+                       {canEdit && (
+                         <EditPopup taskListId={taskList.id}>
+                           <Button className={styles.editButton}>
+@@ -89,6 +104,31 @@ const Item = React.memo(({ id, index }) => {
+                   )}
+                   <span className={styles.moduleHeaderTitle}>{taskList.name}</span>
+                 </div>
++                {(taskList.startDate || taskList.dueDate) && (
++                  <div className={styles.dates}>
++                    {taskList.startDate && (
++                      <span className={styles.dateChip}>
++                        <DueDateChip
++                          size="tiny"
++                          value={new Date(taskList.startDate)}
++                          isCompleted={false}
++                          withStatus={false}
++                        />
++                      </span>
++                    )}
++                    {taskList.dueDate && (
++                      <span className={styles.dateChip}>
++                        <DueDateChip
++                          size="tiny"
++                          withStatusIcon
++                          value={new Date(taskList.dueDate)}
++                          isCompleted={!!taskList.isDueCompleted}
++                          withStatus
++                        />
++                      </span>
++                    )}
++                  </div>
++                )}
+               </div>
+               <TaskList id={id} isCompletedVisible={isCompletedVisible} />
+             </div>
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.module.scss b/client/src/components/cards/CardModal/TaskLists/Item.module.scss
+index b461fca..064545f 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.module.scss
++++ b/client/src/components/cards/CardModal/TaskLists/Item.module.scss
+@@ -63,9 +63,13 @@
+       }
+     }
+ 
+-    &.both {
++    &.two {
+       padding-right: 62px;
+     }
++
++    &.three {
++      padding-right: 92px;
++    }
+   }
+ 
+   .moduleHeaderTitle {
+@@ -73,6 +77,17 @@
+     word-wrap: break-word;
+   }
+ 
++  .dates {
++    display: flex;
++    flex-wrap: wrap;
++    gap: 6px;
++    margin: -2px 0 8px;
++  }
++
++  .dateChip {
++    display: inline-block;
++  }
++
+   .moduleIcon {
+     color: #17394d;
+     font-size: 17px;
+diff --git a/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx b/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
+index 63bee7e..053d45b 100755
+--- a/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
++++ b/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
+@@ -8,7 +8,7 @@ import PropTypes from 'prop-types';
+ import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+ import DatePicker from 'react-datepicker';
+-import { Button, Form } from 'semantic-ui-react';
++import { Button, Divider, Form } from 'semantic-ui-react';
+ import { useDidUpdate, useToggle } from '../../../lib/hooks';
+ import { Input, Popup } from '../../../lib/custom-ui';
+ 
+@@ -19,128 +19,241 @@ import parseTime from '../../../utils/parse-time';
+ 
+ import styles from './EditDueDateStep.module.scss';
+ 
+-const EditDueDateStep = React.memo(({ cardId, onBack, onClose }) => {
++// BSY Media: combined "Dates" popup, shows Start Date and Due Date together
++// (Trello-style), and can target either a card or a checklist (TaskList) —
++// exactly one of cardId/taskListId is provided by the caller. Card dates are
++// stored as Date instances client-side (matching the existing transformCard/
++// transformCardData pipeline in api/cards.js); TaskList has no such
++// transform layer, so its dates are kept as raw ISO strings in the store and
++// parsed to Date here only for editing/display.
++const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) => {
+   const selectCardById = useMemo(() => selectors.makeSelectCardById(), []);
++  const selectTaskListById = useMemo(() => selectors.makeSelectTaskListById(), []);
+ 
+-  const defaultValue = useSelector((state) => selectCardById(state, cardId).dueDate);
++  const target = useSelector((state) =>
++    taskListId ? selectTaskListById(state, taskListId) : selectCardById(state, cardId),
++  );
++
++  const toDateOrNull = (value) => {
++    if (!value) {
++      return null;
++    }
++
++    return value instanceof Date ? value : new Date(value);
++  };
++
++  const defaultStartDate = toDateOrNull(target.startDate);
++  const defaultDueDate = toDateOrNull(target.dueDate);
+ 
+   const dispatch = useDispatch();
+   const [t] = useTranslation();
+ 
+   const [data, handleFieldChange, setData] = useForm(() => {
+-    const date = defaultValue || new Date().setHours(12, 0, 0, 0);
++    const startDate = defaultStartDate || new Date().setHours(12, 0, 0, 0);
++    const dueDate = defaultDueDate || new Date().setHours(12, 0, 0, 0);
+ 
+     return {
+-      date: t('format:date', {
++      startDate: t('format:date', {
++        postProcess: 'formatDate',
++        value: startDate,
++      }),
++      startTime: t('format:time', {
++        postProcess: 'formatDate',
++        value: startDate,
++      }),
++      dueDate: t('format:date', {
+         postProcess: 'formatDate',
+-        value: date,
++        value: dueDate,
+       }),
+-      time: t('format:time', {
++      dueTime: t('format:time', {
+         postProcess: 'formatDate',
+-        value: date,
++        value: dueDate,
+       }),
+     };
+   });
+ 
+-  const [selectTimeFieldState, selectTimeField] = useToggle();
++  const [selectStartTimeFieldState, selectStartTimeField] = useToggle();
++  const [selectDueTimeFieldState, selectDueTimeField] = useToggle();
+ 
+-  const [dateFieldRef, handleDateFieldRef] = useNestedRef('inputRef');
+-  const [timeFieldRef, handleTimeFieldRef] = useNestedRef('inputRef');
++  const [startDateFieldRef, handleStartDateFieldRef] = useNestedRef('inputRef');
++  const [startTimeFieldRef, handleStartTimeFieldRef] = useNestedRef('inputRef');
++  const [dueDateFieldRef, handleDueDateFieldRef] = useNestedRef('inputRef');
++  const [dueTimeFieldRef, handleDueTimeFieldRef] = useNestedRef('inputRef');
+ 
+-  const nullableDate = useMemo(() => {
++  const nullableStartDate = useMemo(() => {
+     const date = t('format:date', {
+       postProcess: 'parseDate',
+-      value: data.date,
++      value: data.startDate,
+     });
+ 
+-    if (Number.isNaN(date.getTime())) {
+-      return null;
+-    }
++    return Number.isNaN(date.getTime()) ? null : date;
++  }, [data.startDate, t]);
+ 
+-    return date;
+-  }, [data.date, t]);
++  const nullableDueDate = useMemo(() => {
++    const date = t('format:date', {
++      postProcess: 'parseDate',
++      value: data.dueDate,
++    });
++
++    return Number.isNaN(date.getTime()) ? null : date;
++  }, [data.dueDate, t]);
+ 
+   const handleSubmit = useCallback(() => {
+-    if (!nullableDate) {
+-      dateFieldRef.current.select();
++    if (!nullableStartDate) {
++      startDateFieldRef.current.select();
++      return;
++    }
++
++    if (!nullableDueDate) {
++      dueDateFieldRef.current.select();
+       return;
+     }
+ 
+-    let value = t('format:dateTime', {
++    let nextStartDate = t('format:dateTime', {
+       postProcess: 'parseDate',
+-      value: `${data.date} ${data.time}`,
++      value: `${data.startDate} ${data.startTime}`,
+     });
+ 
+-    if (Number.isNaN(value.getTime())) {
+-      value = parseTime(data.time, nullableDate);
++    if (Number.isNaN(nextStartDate.getTime())) {
++      nextStartDate = parseTime(data.startTime, nullableStartDate);
+ 
+-      if (Number.isNaN(value.getTime())) {
+-        timeFieldRef.current.select();
++      if (Number.isNaN(nextStartDate.getTime())) {
++        startTimeFieldRef.current.select();
+         return;
+       }
+     }
+ 
+-    if (!defaultValue || value.getTime() !== defaultValue.getTime()) {
+-      dispatch(
+-        entryActions.updateCard(cardId, {
+-          dueDate: value,
+-        }),
+-      );
++    let nextDueDate = t('format:dateTime', {
++      postProcess: 'parseDate',
++      value: `${data.dueDate} ${data.dueTime}`,
++    });
++
++    if (Number.isNaN(nextDueDate.getTime())) {
++      nextDueDate = parseTime(data.dueTime, nullableDueDate);
++
++      if (Number.isNaN(nextDueDate.getTime())) {
++        dueTimeFieldRef.current.select();
++        return;
++      }
+     }
+ 
+-    onClose();
+-  }, [cardId, onClose, defaultValue, dispatch, t, data, dateFieldRef, timeFieldRef, nullableDate]);
++    const values = {};
+ 
+-  const handleClearClick = useCallback(() => {
+-    if (defaultValue) {
+-      dispatch(
+-        entryActions.updateCard(cardId, {
+-          dueDate: null,
+-        }),
+-      );
++    if (!defaultStartDate || nextStartDate.getTime() !== defaultStartDate.getTime()) {
++      values.startDate = taskListId ? nextStartDate.toISOString() : nextStartDate;
++    }
++
++    if (!defaultDueDate || nextDueDate.getTime() !== defaultDueDate.getTime()) {
++      values.dueDate = taskListId ? nextDueDate.toISOString() : nextDueDate;
++    }
++
++    if (Object.keys(values).length > 0) {
++      if (taskListId) {
++        dispatch(entryActions.updateTaskList(taskListId, values));
++      } else {
++        dispatch(entryActions.updateCard(cardId, values));
++      }
+     }
+ 
+     onClose();
+-  }, [cardId, onClose, defaultValue, dispatch]);
++  }, [
++    cardId,
++    taskListId,
++    onClose,
++    defaultStartDate,
++    defaultDueDate,
++    dispatch,
++    t,
++    data,
++    startDateFieldRef,
++    startTimeFieldRef,
++    dueDateFieldRef,
++    dueTimeFieldRef,
++    nullableStartDate,
++    nullableDueDate,
++  ]);
+ 
+-  const handleDatePickerChange = useCallback(
++  const handleClearStartClick = useCallback(() => {
++    if (defaultStartDate) {
++      if (taskListId) {
++        dispatch(entryActions.updateTaskList(taskListId, { startDate: null }));
++      } else {
++        dispatch(entryActions.updateCard(cardId, { startDate: null }));
++      }
++    }
++  }, [cardId, taskListId, defaultStartDate, dispatch]);
++
++  const handleClearDueClick = useCallback(() => {
++    if (defaultDueDate) {
++      if (taskListId) {
++        dispatch(entryActions.updateTaskList(taskListId, { dueDate: null }));
++      } else {
++        dispatch(entryActions.updateCard(cardId, { dueDate: null }));
++      }
++    }
++  }, [cardId, taskListId, defaultDueDate, dispatch]);
++
++  const handleStartDatePickerChange = useCallback(
+     (date) => {
+       setData((prevData) => ({
+         ...prevData,
+-        date: t('format:date', {
++        startDate: t('format:date', {
+           postProcess: 'formatDate',
+           value: date,
+         }),
+       }));
+-      selectTimeField();
++      selectStartTimeField();
+     },
+-    [t, setData, selectTimeField],
++    [t, setData, selectStartTimeField],
++  );
++
++  const handleDueDatePickerChange = useCallback(
++    (date) => {
++      setData((prevData) => ({
++        ...prevData,
++        dueDate: t('format:date', {
++          postProcess: 'formatDate',
++          value: date,
++        }),
++      }));
++      selectDueTimeField();
++    },
++    [t, setData, selectDueTimeField],
+   );
+ 
+   useEffect(() => {
+-    dateFieldRef.current.select();
+-  }, [dateFieldRef]);
++    startDateFieldRef.current.select();
++  }, [startDateFieldRef]);
++
++  useDidUpdate(() => {
++    startTimeFieldRef.current.select();
++  }, [selectStartTimeFieldState]);
+ 
+   useDidUpdate(() => {
+-    timeFieldRef.current.select();
+-  }, [selectTimeFieldState]);
++    dueTimeFieldRef.current.select();
++  }, [selectDueTimeFieldState]);
+ 
+   return (
+     <>
+       <Popup.Header onBack={onBack}>
+-        {t('common.editDueDate', {
++        {t('common.editDates', {
+           context: 'title',
+         })}
+       </Popup.Header>
+       <Popup.Content>
+         <Form onSubmit={handleSubmit}>
++          <div className={styles.text}>
++            {t('common.startDate', {
++              context: 'title',
++            })}
++          </div>
+           <div className={styles.fieldWrapper}>
+             <div className={styles.fieldBox}>
+               <div className={styles.text}>{t('common.date')}</div>
+               <Input
+-                ref={handleDateFieldRef}
+-                name="date"
+-                value={data.date}
++                ref={handleStartDateFieldRef}
++                name="startDate"
++                value={data.startDate}
+                 maxLength={16}
+                 onChange={handleFieldChange}
+               />
+@@ -148,9 +261,9 @@ const EditDueDateStep = React.memo(({ cardId, onBack, onClose }) => {
+             <div className={styles.fieldBox}>
+               <div className={styles.text}>{t('common.time')}</div>
+               <Input
+-                ref={handleTimeFieldRef}
+-                name="time"
+-                value={data.time}
++                ref={handleStartTimeFieldRef}
++                name="startTime"
++                value={data.startTime}
+                 maxLength={16}
+                 onChange={handleFieldChange}
+               />
+@@ -159,29 +272,74 @@ const EditDueDateStep = React.memo(({ cardId, onBack, onClose }) => {
+           <DatePicker
+             inline
+             disabledKeyboardNavigation
+-            selected={nullableDate}
+-            onChange={handleDatePickerChange}
++            selected={nullableStartDate}
++            onChange={handleStartDatePickerChange}
++          />
++          <Button
++            type="button"
++            negative
++            content={t('action.remove')}
++            className={styles.deleteButton}
++            onClick={handleClearStartClick}
++          />
++          <Divider />
++          <div className={styles.text}>
++            {t('common.dueDate', {
++              context: 'title',
++            })}
++          </div>
++          <div className={styles.fieldWrapper}>
++            <div className={styles.fieldBox}>
++              <div className={styles.text}>{t('common.date')}</div>
++              <Input
++                ref={handleDueDateFieldRef}
++                name="dueDate"
++                value={data.dueDate}
++                maxLength={16}
++                onChange={handleFieldChange}
++              />
++            </div>
++            <div className={styles.fieldBox}>
++              <div className={styles.text}>{t('common.time')}</div>
++              <Input
++                ref={handleDueTimeFieldRef}
++                name="dueTime"
++                value={data.dueTime}
++                maxLength={16}
++                onChange={handleFieldChange}
++              />
++            </div>
++          </div>
++          <DatePicker
++            inline
++            disabledKeyboardNavigation
++            selected={nullableDueDate}
++            onChange={handleDueDatePickerChange}
++          />
++          <Button
++            type="button"
++            negative
++            content={t('action.remove')}
++            className={styles.deleteButton}
++            onClick={handleClearDueClick}
+           />
+-          <Button positive content={t('action.save')} />
++          <Button positive content={t('action.save')} className={styles.saveButton} />
+         </Form>
+-        <Button
+-          negative
+-          content={t('action.remove')}
+-          className={styles.deleteButton}
+-          onClick={handleClearClick}
+-        />
+       </Popup.Content>
+     </>
+   );
+ });
+ 
+ EditDueDateStep.propTypes = {
+-  cardId: PropTypes.string.isRequired,
++  cardId: PropTypes.string,
++  taskListId: PropTypes.string,
+   onBack: PropTypes.func,
+   onClose: PropTypes.func.isRequired,
+ };
+ 
+ EditDueDateStep.defaultProps = {
++  cardId: undefined,
++  taskListId: undefined,
+   onBack: undefined,
+ };
+ 
+diff --git a/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss b/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss
+index d6e91a0..2df2415 100644
+--- a/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss
++++ b/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss
+@@ -5,10 +5,14 @@
+ 
+ :global(#app) {
+   .deleteButton {
+-    bottom: 12px;
+     box-shadow: 0 1px 0 #cbcccc;
+-    position: absolute;
+-    right: 9px;
++    margin-top: 12px;
++    width: 100%;
++  }
++
++  .saveButton {
++    margin-top: 12px;
++    width: 100%;
+   }
+ 
+   .fieldBox {
+diff --git a/client/src/constants/Enums.js b/client/src/constants/Enums.js
+index 3de0090..5cf2d76 100755
+--- a/client/src/constants/Enums.js
++++ b/client/src/constants/Enums.js
+@@ -99,6 +99,13 @@ export const ActivityTypes = {
+   REMOVE_MEMBER_FROM_CARD: 'removeMemberFromCard',
+   COMPLETE_TASK: 'completeTask',
+   UNCOMPLETE_TASK: 'uncompleteTask',
++  CREATE_TASK_LIST: 'createTaskList',
++  UPDATE_TASK_LIST: 'updateTaskList',
++  DELETE_TASK_LIST: 'deleteTaskList',
++  CREATE_TASK: 'createTask',
++  DELETE_TASK: 'deleteTask',
++  SET_CARD_START_DATE: 'setCardStartDate',
++  SET_CARD_DUE_DATE: 'setCardDueDate',
+ };
+ 
+ export const NotificationTypes = {
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index b697237..db3ef0d 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -125,6 +125,7 @@ export default {
+       cardsOnThisListAreCompleteAndReadyToBeArchived:
+         'Cards on this list are complete and ready to be archived.',
+       cardsOnThisListAreReadyToBeWorkedOn: 'Cards on this list are ready to be worked on.',
++      checklists: 'Checklists',
+       clickHereOrRefreshPageToUpdate: '<0>Click here</0> or refresh the page to update.',
+       clientHostnameInEhlo: 'Client hostname in EHLO',
+       closed: 'Closed',
+@@ -191,6 +192,7 @@ export default {
+       editColor_title: 'Edit Color',
+       editCustomFieldGroup_title: 'Edit Custom Field Group',
+       editCustomField_title: 'Edit Custom Field',
++      editDates_title: 'Dates',
+       editDueDate_title: 'Edit Due Date',
+       editEmail_title: 'Edit E-mail',
+       editInformation_title: 'Edit Information',
+@@ -326,6 +328,7 @@ export default {
+       sortList_title: 'Sort List',
+       sourceCardIsNoLongerAvailableForCopying: 'Source card is no longer available for copying.',
+       sourceCardIsNoLongerAvailableForMoving: 'Source card is no longer available for moving.',
++      startDate_title: 'Start Date',
+       stopwatch: 'Stopwatch',
+       story: 'Story',
+       subscribeToCardWhenCommenting: 'Subscribe to card when commenting',
+@@ -356,12 +359,19 @@ export default {
+       useSecureConnection: 'Use secure connection',
+       userActions_title: 'User Actions',
+       userAddedCardToList: '<0>{{user}}</0> added <2>{{card}}</2> to {{list}}',
++      userAddedChecklistToThisCard: '<0>{{user}}</0> added checklist {{taskList}} to this card',
++      userAddedItemToChecklistOnThisCard:
++        '<0>{{user}}</0> added {{task}} to checklist {{taskList}}',
+       userAddedThisCardToList: '<0>{{user}}</0> added this card to {{list}}',
+       userAddedUserToCard: '<0>{{actorUser}}</0> added {{addedUser}} to <4>{{card}}</4>',
+       userAddedUserToThisCard: '<0>{{actorUser}}</0> added {{addedUser}} to this card',
+       userAddedYouToCard: '<0>{{user}}</0> added you to <2>{{card}}</2>',
+       userCompletedTaskOnCard: '<0>{{user}}</0> completed {{task}} on <4>{{card}}</4>',
+       userCompletedTaskOnThisCard: '<0>{{user}}</0> completed {{task}} on this card',
++      userDeletedChecklistFromThisCard:
++        '<0>{{user}}</0> deleted checklist {{taskList}} from this card',
++      userDeletedItemFromChecklistOnThisCard:
++        '<0>{{user}}</0> deleted {{task}} from checklist {{taskList}}',
+       userJoinedCard: '<0>{{user}}</0> joined <2>{{card}}</2>',
+       userJoinedThisCard: '<0>{{user}}</0> joined this card',
+       userLeftCard: '<0>{{user}}</0> left <2>{{card}}</2>',
+@@ -377,10 +387,17 @@ export default {
+         '<0>{{user}}</0> moved <2>{{card}}</2> from {{fromList}} to {{toList}}',
+       userMovedThisCardFromListToList:
+         '<0>{{user}}</0> moved this card from {{fromList}} to {{toList}}',
++      userRemovedDueDateFromThisCard: '<0>{{user}}</0> removed the due date from this card',
++      userRemovedStartDateFromThisCard: '<0>{{user}}</0> removed the start date from this card',
+       userRemovedUserFromCard: '<0>{{actorUser}}</0> removed {{removedUser}} from <4>{{card}}</4>',
+       userRemovedUserFromThisCard: '<0>{{actorUser}}</0> removed {{removedUser}} from this card',
+       username: 'Username',
+       users: 'Users',
++      userSetDueDateOnThisCard: '<0>{{user}}</0> set the due date on this card to {{dueDate}}',
++      userSetStartDateOnThisCard:
++        '<0>{{user}}</0> set the start date on this card to {{startDate}}',
++      userUpdatedChecklistOnThisCard:
++        '<0>{{user}}</0> updated checklist {{taskList}} on this card',
+       viewer: 'Viewer',
+       viewers: 'Viewers',
+       visualTaskManagementWithLists: 'Visual task management with lists.',
+diff --git a/client/src/models/Card.js b/client/src/models/Card.js
+index d4afc07..d771c25 100755
+--- a/client/src/models/Card.js
++++ b/client/src/models/Card.js
+@@ -19,6 +19,7 @@ export default class extends BaseModel {
+     position: attr(),
+     name: attr(),
+     description: attr(),
++    startDate: attr(),
+     dueDate: attr(),
+     isDueCompleted: attr(),
+     stopwatch: attr(),
+diff --git a/client/src/models/TaskList.js b/client/src/models/TaskList.js
+index 50cc7fe..e992370 100755
+--- a/client/src/models/TaskList.js
++++ b/client/src/models/TaskList.js
+@@ -17,6 +17,9 @@ export default class extends BaseModel {
+     name: attr(),
+     showOnFrontOfCard: attr(),
+     hideCompletedTasks: attr(),
++    startDate: attr(),
++    dueDate: attr(),
++    isDueCompleted: attr(),
+     cardId: fk({
+       to: 'Card',
+       as: 'card',
+diff --git a/server/api/controllers/cards/update.js b/server/api/controllers/cards/update.js
+index 7c02b99..966b497 100755
+--- a/server/api/controllers/cards/update.js
++++ b/server/api/controllers/cards/update.js
+@@ -62,6 +62,12 @@
+  *                 nullable: true
+  *                 description: Detailed description of the card
+  *                 example: Add JWT-based authentication system...
++ *               startDate:
++ *                 type: string
++ *                 format: date-time
++ *                 nullable: true
++ *                 description: Start date for the card
++ *                 example: 2024-01-01T00:00:00.000Z
+  *               dueDate:
+  *                 type: string
+  *                 format: date-time
+@@ -179,6 +185,11 @@ module.exports = {
+       maxLength: 1048576,
+       allowNull: true,
+     },
++    startDate: {
++      type: 'string',
++      custom: isDueDate,
++      allowNull: true,
++    },
+     dueDate: {
+       type: 'string',
+       custom: isDueDate,
+@@ -257,6 +268,7 @@ module.exports = {
+         'position',
+         'name',
+         'description',
++        'startDate',
+         'dueDate',
+         'isDueCompleted',
+         'stopwatch',
+@@ -325,6 +337,7 @@ module.exports = {
+       'position',
+       'name',
+       'description',
++      'startDate',
+       'dueDate',
+       'isDueCompleted',
+       'stopwatch',
+diff --git a/server/api/controllers/task-lists/create.js b/server/api/controllers/task-lists/create.js
+index e6853cc..ac18f62 100755
+--- a/server/api/controllers/task-lists/create.js
++++ b/server/api/controllers/task-lists/create.js
+@@ -48,6 +48,23 @@
+  *                 type: boolean
+  *                 description: Whether to hide completed tasks
+  *                 example: false
++ *               startDate:
++ *                 type: string
++ *                 format: date-time
++ *                 nullable: true
++ *                 description: Start date for the task list
++ *                 example: 2024-01-01T00:00:00.000Z
++ *               dueDate:
++ *                 type: string
++ *                 format: date-time
++ *                 nullable: true
++ *                 description: Due date for the task list
++ *                 example: 2024-01-01T00:00:00.000Z
++ *               isDueCompleted:
++ *                 type: boolean
++ *                 nullable: true
++ *                 description: Whether the due date is marked as completed
++ *                 example: false
+  *     responses:
+  *       200:
+  *         description: Task list created successfully
+@@ -71,6 +88,7 @@
+  */
+ 
+ const { idInput } = require('../../../utils/inputs');
++const { isDueDate } = require('../../../utils/validators');
+ 
+ const Errors = {
+   NOT_ENOUGH_RIGHTS: {
+@@ -103,6 +121,20 @@ module.exports = {
+     hideCompletedTasks: {
+       type: 'boolean',
+     },
++    startDate: {
++      type: 'string',
++      custom: isDueDate,
++      allowNull: true,
++    },
++    dueDate: {
++      type: 'string',
++      custom: isDueDate,
++      allowNull: true,
++    },
++    isDueCompleted: {
++      type: 'boolean',
++      allowNull: true,
++    },
+   },
+ 
+   exits: {
+@@ -132,7 +164,15 @@ module.exports = {
+       throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.CARD_NOT_FOUND;
+     }
+ 
+-    const values = _.pick(inputs, ['position', 'name', 'showOnFrontOfCard', 'hideCompletedTasks']);
++    const values = _.pick(inputs, [
++      'position',
++      'name',
++      'showOnFrontOfCard',
++      'hideCompletedTasks',
++      'startDate',
++      'dueDate',
++      'isDueCompleted',
++    ]);
+ 
+     const taskList = await sails.helpers.taskLists.createOne.with({
+       project,
+diff --git a/server/api/controllers/task-lists/update.js b/server/api/controllers/task-lists/update.js
+index c116c5d..8f62ee6 100755
+--- a/server/api/controllers/task-lists/update.js
++++ b/server/api/controllers/task-lists/update.js
+@@ -45,6 +45,23 @@
+  *                 type: boolean
+  *                 description: Whether to hide completed tasks
+  *                 example: false
++ *               startDate:
++ *                 type: string
++ *                 format: date-time
++ *                 nullable: true
++ *                 description: Start date for the task list
++ *                 example: 2024-01-01T00:00:00.000Z
++ *               dueDate:
++ *                 type: string
++ *                 format: date-time
++ *                 nullable: true
++ *                 description: Due date for the task list
++ *                 example: 2024-01-01T00:00:00.000Z
++ *               isDueCompleted:
++ *                 type: boolean
++ *                 nullable: true
++ *                 description: Whether the due date is marked as completed
++ *                 example: false
+  *     responses:
+  *       200:
+  *         description: Task list updated successfully
+@@ -68,6 +85,7 @@
+  */
+ 
+ const { idInput } = require('../../../utils/inputs');
++const { isDueDate } = require('../../../utils/validators');
+ 
+ const Errors = {
+   NOT_ENOUGH_RIGHTS: {
+@@ -99,6 +117,20 @@ module.exports = {
+     hideCompletedTasks: {
+       type: 'boolean',
+     },
++    startDate: {
++      type: 'string',
++      custom: isDueDate,
++      allowNull: true,
++    },
++    dueDate: {
++      type: 'string',
++      custom: isDueDate,
++      allowNull: true,
++    },
++    isDueCompleted: {
++      type: 'boolean',
++      allowNull: true,
++    },
+   },
+ 
+   exits: {
+@@ -131,7 +163,15 @@ module.exports = {
+       throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.TASK_LIST_NOT_FOUND;
+     }
+ 
+-    const values = _.pick(inputs, ['position', 'name', 'showOnFrontOfCard', 'hideCompletedTasks']);
++    const values = _.pick(inputs, [
++      'position',
++      'name',
++      'showOnFrontOfCard',
++      'hideCompletedTasks',
++      'startDate',
++      'dueDate',
++      'isDueCompleted',
++    ]);
+ 
+     taskList = await sails.helpers.taskLists.updateOne.with({
+       values,
+diff --git a/server/api/helpers/cards/update-one.js b/server/api/helpers/cards/update-one.js
+index 969a974..589739b 100644
+--- a/server/api/helpers/cards/update-one.js
++++ b/server/api/helpers/cards/update-one.js
+@@ -380,6 +380,55 @@ module.exports = {
+         }),
+         user: inputs.actorUser,
+       });
++
++      // BSY Media: card start/due date activity logging - compares the
++      // post-update record against the pre-update one (both DB-shaped
++      // Date/null) rather than the raw input values, so a same-value
++      // resubmit can't produce a false positive.
++      const dateFieldChanged = (key) => {
++        const prevValue = inputs.record[key];
++        const nextValue = card[key];
++        const prevTime = prevValue ? new Date(prevValue).getTime() : null;
++        const nextTime = nextValue ? new Date(nextValue).getTime() : null;
++
++        return prevTime !== nextTime;
++      };
++
++      if (dateFieldChanged('startDate')) {
++        await sails.helpers.actions.createOne.with({
++          webhooks,
++          values: {
++            card,
++            type: Action.Types.SET_CARD_START_DATE,
++            data: {
++              card: _.pick(card, ['name']),
++              startDate: card.startDate,
++            },
++            user: inputs.actorUser,
++          },
++          project,
++          board,
++          list,
++        });
++      }
++
++      if (dateFieldChanged('dueDate')) {
++        await sails.helpers.actions.createOne.with({
++          webhooks,
++          values: {
++            card,
++            type: Action.Types.SET_CARD_DUE_DATE,
++            data: {
++              card: _.pick(card, ['name']),
++              dueDate: card.dueDate,
++            },
++            user: inputs.actorUser,
++          },
++          project,
++          board,
++          list,
++        });
++      }
+     }
+ 
+     if (!_.isUndefined(isSubscribed)) {
+diff --git a/server/api/helpers/task-lists/create-one.js b/server/api/helpers/task-lists/create-one.js
+index e0b0a29..5028aa0 100644
+--- a/server/api/helpers/task-lists/create-one.js
++++ b/server/api/helpers/task-lists/create-one.js
+@@ -97,6 +97,22 @@ module.exports = {
+       user: inputs.actorUser,
+     });
+ 
++    await sails.helpers.actions.createOne.with({
++      webhooks,
++      values: {
++        type: Action.Types.CREATE_TASK_LIST,
++        data: {
++          card: _.pick(values.card, ['name']),
++          taskList: _.pick(taskList, ['id', 'name']),
++        },
++        user: inputs.actorUser,
++        card: values.card,
++      },
++      project: inputs.project,
++      board: inputs.board,
++      list: inputs.list,
++    });
++
+     return taskList;
+   },
+ };
+diff --git a/server/api/helpers/task-lists/delete-one.js b/server/api/helpers/task-lists/delete-one.js
+index b88c468..2ada9e6 100644
+--- a/server/api/helpers/task-lists/delete-one.js
++++ b/server/api/helpers/task-lists/delete-one.js
+@@ -65,6 +65,22 @@ module.exports = {
+         }),
+         user: inputs.actorUser,
+       });
++
++      await sails.helpers.actions.createOne.with({
++        webhooks,
++        values: {
++          type: Action.Types.DELETE_TASK_LIST,
++          data: {
++            card: _.pick(inputs.card, ['name']),
++            taskList: _.pick(taskList, ['id', 'name']),
++          },
++          user: inputs.actorUser,
++          card: inputs.card,
++        },
++        project: inputs.project,
++        board: inputs.board,
++        list: inputs.list,
++      });
+     }
+ 
+     return taskList;
+diff --git a/server/api/helpers/task-lists/update-one.js b/server/api/helpers/task-lists/update-one.js
+index 2acc37f..08bcaad 100644
+--- a/server/api/helpers/task-lists/update-one.js
++++ b/server/api/helpers/task-lists/update-one.js
+@@ -110,6 +110,44 @@ module.exports = {
+         }),
+         user: inputs.actorUser,
+       });
++
++      // BSY Media: only rename/date changes are worth a card-activity entry -
++      // position (drag reorder) and the two display-preference toggles would
++      // just be noise. Compares the post-update record against the
++      // pre-update one (both DB-shaped) rather than the raw input values, so
++      // a same-value resubmit or a Date-vs-ISO-string type mismatch can't
++      // cause a false positive.
++      const isLoggableChange = ['name', 'startDate', 'dueDate', 'isDueCompleted'].some((key) => {
++        const prevValue = inputs.record[key];
++        const nextValue = taskList[key];
++
++        if (prevValue instanceof Date || nextValue instanceof Date) {
++          const prevTime = prevValue ? new Date(prevValue).getTime() : null;
++          const nextTime = nextValue ? new Date(nextValue).getTime() : null;
++
++          return prevTime !== nextTime;
++        }
++
++        return prevValue !== nextValue;
++      });
++
++      if (isLoggableChange) {
++        await sails.helpers.actions.createOne.with({
++          webhooks,
++          values: {
++            type: Action.Types.UPDATE_TASK_LIST,
++            data: {
++              card: _.pick(inputs.card, ['name']),
++              taskList: _.pick(taskList, ['id', 'name']),
++            },
++            user: inputs.actorUser,
++            card: inputs.card,
++          },
++          project: inputs.project,
++          board: inputs.board,
++          list: inputs.list,
++        });
++      }
+     }
+ 
+     return taskList;
+diff --git a/server/api/helpers/tasks/create-one.js b/server/api/helpers/tasks/create-one.js
+index 5eba941..738f6e1 100644
+--- a/server/api/helpers/tasks/create-one.js
++++ b/server/api/helpers/tasks/create-one.js
+@@ -119,6 +119,23 @@ module.exports = {
+       user: inputs.actorUser,
+     });
+ 
++    await sails.helpers.actions.createOne.with({
++      webhooks,
++      values: {
++        type: Action.Types.CREATE_TASK,
++        data: {
++          card: _.pick(inputs.card, ['name']),
++          taskList: _.pick(values.taskList, ['id', 'name']),
++          task: _.pick(task, ['id', 'name']),
++        },
++        user: inputs.actorUser,
++        card: inputs.card,
++      },
++      project: inputs.project,
++      board: inputs.board,
++      list: inputs.list,
++    });
++
+     return task;
+   },
+ };
+diff --git a/server/api/helpers/tasks/delete-one.js b/server/api/helpers/tasks/delete-one.js
+index ab1bdb9..a75fb1f 100644
+--- a/server/api/helpers/tasks/delete-one.js
++++ b/server/api/helpers/tasks/delete-one.js
+@@ -68,6 +68,23 @@ module.exports = {
+         }),
+         user: inputs.actorUser,
+       });
++
++      await sails.helpers.actions.createOne.with({
++        webhooks,
++        values: {
++          type: Action.Types.DELETE_TASK,
++          data: {
++            card: _.pick(inputs.card, ['name']),
++            taskList: _.pick(inputs.taskList, ['id', 'name']),
++            task: _.pick(task, ['id', 'name']),
++          },
++          user: inputs.actorUser,
++          card: inputs.card,
++        },
++        project: inputs.project,
++        board: inputs.board,
++        list: inputs.list,
++      });
+     }
+ 
+     return task;
+diff --git a/server/api/models/Action.js b/server/api/models/Action.js
+index 3623c49..c3c2d08 100755
+--- a/server/api/models/Action.js
++++ b/server/api/models/Action.js
+@@ -46,7 +46,7 @@
+  *           example: "1357158568008091267"
+  *         type:
+  *           type: string
+- *           enum: [createCard, moveCard, addMemberToCard, removeMemberFromCard, completeTask, uncompleteTask]
++ *           enum: [createCard, moveCard, addMemberToCard, removeMemberFromCard, completeTask, uncompleteTask, createTaskList, updateTaskList, deleteTaskList, createTask, deleteTask, setCardStartDate, setCardDueDate]
+  *           description: Type of the action
+  *           example: moveCard
+  *         data:
+@@ -74,6 +74,17 @@ const Types = {
+   REMOVE_MEMBER_FROM_CARD: 'removeMemberFromCard',
+   COMPLETE_TASK: 'completeTask',
+   UNCOMPLETE_TASK: 'uncompleteTask',
++  // BSY Media: checklist (TaskList/Task) and card/checklist date activity
++  // logging - task-lists/create-one.js, update-one.js, delete-one.js and
++  // tasks/create-one.js, delete-one.js previously sent webhooks only, never
++  // an Action row, so none of this showed up in the card's Actions tab.
++  CREATE_TASK_LIST: 'createTaskList',
++  UPDATE_TASK_LIST: 'updateTaskList',
++  DELETE_TASK_LIST: 'deleteTaskList',
++  CREATE_TASK: 'createTask',
++  DELETE_TASK: 'deleteTask',
++  SET_CARD_START_DATE: 'setCardStartDate',
++  SET_CARD_DUE_DATE: 'setCardDueDate',
+ };
+ 
+ const INTERNAL_NOTIFIABLE_TYPES = [Types.MOVE_CARD, Types.ADD_MEMBER_TO_CARD];
+diff --git a/server/api/models/Card.js b/server/api/models/Card.js
+index e8a2061..8b4fc25 100755
+--- a/server/api/models/Card.js
++++ b/server/api/models/Card.js
+@@ -171,6 +171,10 @@ module.exports = {
+       isNotEmptyString: true,
+       allowNull: true,
+     },
++    startDate: {
++      type: 'ref',
++      columnName: 'start_date',
++    },
+     dueDate: {
+       type: 'ref',
+       columnName: 'due_date',
+diff --git a/server/api/models/TaskList.js b/server/api/models/TaskList.js
+index 8909400..3784307 100644
+--- a/server/api/models/TaskList.js
++++ b/server/api/models/TaskList.js
+@@ -52,6 +52,23 @@
+  *           default: false
+  *           description: Whether to hide completed tasks
+  *           example: false
++ *         startDate:
++ *           type: string
++ *           format: date-time
++ *           nullable: true
++ *           description: Start date of the task list
++ *           example: 2024-01-01T00:00:00.000Z
++ *         dueDate:
++ *           type: string
++ *           format: date-time
++ *           nullable: true
++ *           description: Due date of the task list
++ *           example: 2024-01-01T00:00:00.000Z
++ *         isDueCompleted:
++ *           type: boolean
++ *           nullable: true
++ *           description: Whether the due date is marked as completed
++ *           example: false
+  *         createdAt:
+  *           type: string
+  *           format: date-time
+@@ -90,6 +107,19 @@ module.exports = {
+       defaultsTo: false,
+       columnName: 'hide_completed_tasks',
+     },
++    startDate: {
++      type: 'ref',
++      columnName: 'start_date',
++    },
++    dueDate: {
++      type: 'ref',
++      columnName: 'due_date',
++    },
++    isDueCompleted: {
++      type: 'boolean',
++      allowNull: true,
++      columnName: 'is_due_completed',
++    },
+ 
+     //  ╔═╗╔╦╗╔╗ ╔═╗╔╦╗╔═╗
+     //  ║╣ ║║║╠╩╗║╣  ║║╚═╗
+diff --git a/server/db/migrations/20260810120000_add_start_date_to_card.js b/server/db/migrations/20260810120000_add_start_date_to_card.js
+new file mode 100644
+index 0000000..2c5f127
+--- /dev/null
++++ b/server/db/migrations/20260810120000_add_start_date_to_card.js
+@@ -0,0 +1,14 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++module.exports.up = (knex) =>
++  knex.schema.alterTable('card', (table) => {
++    table.timestamp('start_date', true);
++  });
++
++module.exports.down = (knex) =>
++  knex.schema.alterTable('card', (table) => {
++    table.dropColumn('start_date');
++  });
+diff --git a/server/db/migrations/20260810120001_add_dates_to_task_list.js b/server/db/migrations/20260810120001_add_dates_to_task_list.js
+new file mode 100644
+index 0000000..1372668
+--- /dev/null
++++ b/server/db/migrations/20260810120001_add_dates_to_task_list.js
+@@ -0,0 +1,18 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++module.exports.up = (knex) =>
++  knex.schema.alterTable('task_list', (table) => {
++    table.timestamp('start_date', true);
++    table.timestamp('due_date', true);
++    table.boolean('is_due_completed');
++  });
++
++module.exports.down = (knex) =>
++  knex.schema.alterTable('task_list', (table) => {
++    table.dropColumn('start_date');
++    table.dropColumn('due_date');
++    table.dropColumn('is_due_completed');
++  });
