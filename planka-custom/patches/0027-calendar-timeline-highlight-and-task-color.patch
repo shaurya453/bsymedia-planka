@@ -1,0 +1,95 @@
+diff --git a/client/src/components/cards/Card/TaskList/Task.module.scss b/client/src/components/cards/Card/TaskList/Task.module.scss
+index be41249..8205876 100644
+--- a/client/src/components/cards/Card/TaskList/Task.module.scss
++++ b/client/src/components/cards/Card/TaskList/Task.module.scss
+@@ -34,3 +34,23 @@
+     }
+   }
+ }
++
++// BSY Media: dark theme for card text - directly controlled by the "Dark
++// mode for cards & columns" project toggle (see StoryContent.module.scss/
++// ProjectContent.module.scss for the same pattern on card title/description).
++// `.nameCompleted`'s #aaa was already visible on both backgrounds by luck;
++// the plain (not-yet-completed) `.name` had no color override at all, so it
++// fell back to the light-mode-only default and was unreadable on a dark
++// card background.
++:global(#app.dark-mode-cards-enabled) {
++  // :not(.nameCompleted) keeps the already-fine #aaa strikethrough color for
++  // completed tasks - #app's id selector would otherwise outrank .nameCompleted's
++  // single class and override it even though nothing was wrong there.
++  .name:not(.nameCompleted) {
++    color: #9fadbc;
++  }
++
++  .icon {
++    color: rgba(159, 173, 188, 0.5);
++  }
++}
+diff --git a/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx b/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
+index e559d48..1db594e 100755
+--- a/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
++++ b/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
+@@ -213,10 +213,41 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) =>
+     [t, setData, selectDueTimeField],
+   );
+ 
+-  const highlightDates = useMemo(
+-    () => (nullableStartDate ? [{ [styles.startDateHighlight]: [nullableStartDate] }] : []),
+-    [nullableStartDate],
+-  );
++  // BSY Media: days strictly between start and due get a faint highlight so
++  // the range reads as a timeline at a glance - computed by hand (not
++  // react-datepicker's selectsRange) since that mode is what caused the
++  // click-target bug this replaced: every click on a calendar in range mode
++  // starts a brand new range instead of just moving the due date.
++  const inRangeDates = useMemo(() => {
++    if (!nullableStartDate || !nullableDueDate) {
++      return [];
++    }
++
++    const dates = [];
++    const cursor = new Date(nullableStartDate);
++    cursor.setDate(cursor.getDate() + 1);
++
++    while (cursor < nullableDueDate) {
++      dates.push(new Date(cursor));
++      cursor.setDate(cursor.getDate() + 1);
++    }
++
++    return dates;
++  }, [nullableStartDate, nullableDueDate]);
++
++  const highlightDates = useMemo(() => {
++    const groups = [];
++
++    if (nullableStartDate) {
++      groups.push({ [styles.startDateHighlight]: [nullableStartDate] });
++    }
++
++    if (inRangeDates.length > 0) {
++      groups.push({ [styles.inRangeHighlight]: inRangeDates });
++    }
++
++    return groups;
++  }, [nullableStartDate, inRangeDates]);
+ 
+   useEffect(() => {
+     startDateFieldRef.current.select();
+diff --git a/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss b/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss
+index 491cb4e..bc123a7 100644
+--- a/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss
++++ b/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss
+@@ -49,4 +49,12 @@
+     border-radius: 0;
+     color: #fff !important;
+   }
++
++  // Faint orange fill for the days strictly between start and due, so the
++  // range reads as a timeline at a glance.
++  .inRangeHighlight {
++    background: rgba(232, 99, 44, 0.2) !important;
++    border-radius: 0;
++    color: #444444 !important;
++  }
+ }

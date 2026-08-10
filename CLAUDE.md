@@ -705,6 +705,38 @@ incident) — the fix reuses this same component's own pre-range-mode single-dat
 (what it looked like before the "single calendar" fix introduced `selectsRange`), a known-working
 pattern rather than new logic.
 
+### Eighth/ninth fixes: faint timeline highlight, dark-mode subtask text color (2026-08-10)
+
+Client confirmed the calendar fix (blue start / orange due) works well and asked for two more
+refinements:
+
+1. **Faint highlight for the days between start and due**, so the range reads as a timeline at a
+   glance. Deliberately **not** done via react-datepicker's `selectsRange` (that's the exact mode
+   that caused the earlier click-target bug — every click on it starts a new range). Instead,
+   `EditDueDateStep.jsx` computes the in-between dates by hand (a simple day-by-day loop from
+   `startDate+1` to `dueDate-1`, empty array if either date is unset or the range is inverted) and
+   passes them to `highlightDates` as a second custom-class group alongside the existing start-date
+   marker — a light `rgba(232, 99, 44, 0.2)` fill, same hue as the solid due-date orange but faint.
+2. **Checklist item text was unreadable on dark-mode card backgrounds** (`Card/TaskList/Task.jsx`,
+   the card-face renderer — not the modal's checklist tab, which is white-background and
+   unaffected). `.name` had no color override at all — it inherited the light-mode-only default;
+   `.nameCompleted`'s `#aaa` (strikethrough state) happened to already read fine on both
+   backgrounds, which is why only the *incomplete* state looked broken. Fixed the same way the
+   card title/description already handle this
+   (`:global(#app.dark-mode-cards-enabled) { .name { color: ... } }`, see the "fourth/fifth fixes"
+   entry above) — added `#9fadbc` for `.name:not(.nameCompleted)` specifically, since `#app`'s id
+   selector would otherwise outrank `.nameCompleted`'s plain class and override the
+   already-correct completed-state color too. Also lightened the linked-card task's exchange icon
+   color, same root cause.
+
+Patch: `0027-calendar-timeline-highlight-and-task-color.patch`. **Not live-verified this round** —
+while checking, found the test checklists on the card used for prior verification had been
+deleted/recreated several times via the client's *own* live testing session in the meantime
+(confirmed via the Actions-tab audit log this feature itself added — same "PLANKA Admin" account,
+real `createTaskList`/`completeTask`/`deleteTaskList` entries with timestamps during this work
+session). Since the client was actively testing the feature live at the time, deliberately avoided
+adding more test data on top of that and left both fixes for them to confirm directly.
+
 ## Taiga import (2026-08-07)
 
 Client is consolidating a second source into the same PLANKA instance: some of BSY Media's work
