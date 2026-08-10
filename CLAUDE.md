@@ -636,6 +636,25 @@ Two gaps found by the client immediately after the above shipped:
 Both rebuilt, redeployed, and screenshotted live on real cards (one confirming the checklist add
 button, one with 7 real members confirming the scrollable list actually scrolls).
 
+### Third fix: Story-card face never rendered checklists at all (2026-08-10)
+
+Client reported "show in front of card" doing nothing on a specific card
+(`/cards/1836448305429612055`, "Most Disturbing Crimes That Happened In Gmod Community"). Root
+cause: that card is `type: story`, and stock PLANKA's Story-type Kanban card face
+(`Card/StoryContent.jsx`) **never rendered `TaskList` at all** — only the Project-type face
+(`Card/ProjectContent.jsx`) did. This wasn't a regression exactly, but the earlier same-day fix
+(giving the Checklists *tab* its own "Add task list" button, in `TaskLists.jsx`) is not
+card-type-gated, so it became possible to add checklists to Story cards for the first time —
+except their `showOnFrontOfCard` setting had nowhere to actually render. Confirmed via DB: the
+card had two real checklists with real (non-empty) task rows and `show_on_front_of_card = true`
+on both, so this wasn't an empty-checklist or data issue.
+
+Fixed by adding the identical `makeSelectShownOnFrontOfCardTaskListIdsByCardId` selector +
+`<TaskList>` render loop to `Card/StoryContent.jsx`, copied verbatim from `ProjectContent.jsx` —
+`Card/TaskList/TaskList.jsx` itself has zero card-type coupling, so no changes were needed there.
+Verified live: both checklists' progress bars (`2/3`, `0/4`) now render directly on the card face
+in the Kanban view for this exact card. Patch: `0024-story-card-face-checklists.patch`.
+
 ## Taiga import (2026-08-07)
 
 Client is consolidating a second source into the same PLANKA instance: some of BSY Media's work

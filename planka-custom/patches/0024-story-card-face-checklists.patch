@@ -1,0 +1,51 @@
+diff --git a/client/src/components/cards/Card/StoryContent.jsx b/client/src/components/cards/Card/StoryContent.jsx
+index 51e3a49..c56fd1d 100644
+--- a/client/src/components/cards/Card/StoryContent.jsx
++++ b/client/src/components/cards/Card/StoryContent.jsx
+@@ -12,6 +12,7 @@ import { Icon } from 'semantic-ui-react';
+ import selectors from '../../../selectors';
+ import markdownToText from '../../../utils/markdown-to-text';
+ import { BoardViews } from '../../../constants/Enums';
++import TaskList from './TaskList';
+ import TimeAgo from '../../common/TimeAgo';
+ import LabelChip from '../../labels/LabelChip';
+ import CustomFieldValueChip from '../../custom-field-values/CustomFieldValueChip';
+@@ -23,6 +24,16 @@ const StoryContent = React.memo(({ cardId }) => {
+   const selectListById = useMemo(() => selectors.makeSelectListById(), []);
+   const selectLabelIdsByCardId = useMemo(() => selectors.makeSelectLabelIdsByCardId(), []);
+ 
++  // BSY Media: Story cards can have checklists too now (the Checklists tab's
++  // own "Add task list" button isn't card-type-gated - see TaskLists.jsx),
++  // but this card face never rendered them, so "show on front of card" quietly
++  // did nothing for a Story-type card. Mirrors Card/ProjectContent.jsx's
++  // identical selector/render pattern verbatim.
++  const selectShownOnFrontOfCardTaskListIdsByCardId = useMemo(
++    () => selectors.makeSelectShownOnFrontOfCardTaskListIdsByCardId(),
++    [],
++  );
++
+   const selectAttachmentsTotalByCardId = useMemo(
+     () => selectors.makeSelectAttachmentsTotalByCardId(),
+     [],
+@@ -43,6 +54,11 @@ const StoryContent = React.memo(({ cardId }) => {
+   const card = useSelector((state) => selectCardById(state, cardId));
+   const list = useSelector((state) => selectListById(state, card.listId));
+   const labelIds = useSelector((state) => selectLabelIdsByCardId(state, cardId));
++
++  const taskListIds = useSelector((state) =>
++    selectShownOnFrontOfCardTaskListIdsByCardId(state, cardId),
++  );
++
+   const attachmentsTotal = useSelector((state) => selectAttachmentsTotalByCardId(state, cardId));
+ 
+   const customFieldValueIds = useSelector((state) =>
+@@ -105,6 +121,9 @@ const StoryContent = React.memo(({ cardId }) => {
+           {card.name}
+         </div>
+         {card.description && <div className={styles.descriptionText}>{descriptionText}</div>}
++        {taskListIds.map((taskListId) => (
++          <TaskList key={taskListId} id={taskListId} />
++        ))}
+         {(withAge ||
+           attachmentsTotal > 0 ||
+           card.commentsTotal > 0 ||
