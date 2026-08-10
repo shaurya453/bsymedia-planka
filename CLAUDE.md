@@ -613,6 +613,29 @@ Live-testing actual checklist item creation/completion was consciously skipped a
 component is a straight relocation of PLANKA's own existing, previously-working `TaskLists` code,
 not new logic, so the residual risk was judged low relative to the cost of another live test.
 
+### Follow-up fixes (2026-08-10, same day)
+
+Two gaps found by the client immediately after the above shipped:
+
+1. **Checklists tab had no add button.** Moving `TaskLists` into its own tab (see above) didn't
+   carry over an add-affordance — the only "Add Task List" trigger was (and still is) the
+   sidebar's "Add to Card" button, so a card with zero checklists showed a dead-end blank pane
+   when you opened the tab. Fixed by giving `TaskLists.jsx` itself a local `canAdd` check (mirrors
+   `Comments.jsx`'s own local board-editor computation) and a "+ Add task list" button at the
+   bottom of the pane, reusing the existing `AddTaskListStep` popup unchanged.
+   Patch: `0022-add-checklist-button-in-tab.patch`.
+2. **Members shown as bare circular avatars.** Client asked for a proper list instead — avatar
+   circle followed by name, scrollable rather than wrapping the sidebar taller. New
+   `CardModal/AssignedMembers/` component (`AssignedMembers.jsx` + `Item.jsx`, modeled directly on
+   the board Share modal's existing `ShareModal/MembersList` avatar+name row pattern) replaces the
+   old inline avatar-row markup in both `ProjectContent.jsx` and `StoryContent.jsx`. List caps at
+   `max-height: 208px` (~5 rows) with `overflow-y: auto`; the "+ Add Member" trigger sits below it,
+   still opening the same `BoardMembershipsPopup` used everywhere else for add/remove.
+   Patch: `0023-members-list-with-names.patch`.
+
+Both rebuilt, redeployed, and screenshotted live on real cards (one confirming the checklist add
+button, one with 7 real members confirming the scrollable list actually scrolls).
+
 ## Taiga import (2026-08-07)
 
 Client is consolidating a second source into the same PLANKA instance: some of BSY Media's work

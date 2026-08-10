@@ -1,0 +1,112 @@
+diff --git a/client/src/components/cards/CardModal/TaskLists/TaskLists.jsx b/client/src/components/cards/CardModal/TaskLists/TaskLists.jsx
+index 9a11032..f8fc2bc 100644
+--- a/client/src/components/cards/CardModal/TaskLists/TaskLists.jsx
++++ b/client/src/components/cards/CardModal/TaskLists/TaskLists.jsx
+@@ -5,20 +5,41 @@
+ 
+ import React, { useCallback } from 'react';
+ import { useDispatch, useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
+ import { DragDropContext, Droppable } from 'react-beautiful-dnd';
++import { Button, Icon } from 'semantic-ui-react';
+ import { closePopup } from '../../../../lib/popup';
+ 
+ import selectors from '../../../../selectors';
+ import entryActions from '../../../../entry-actions';
+ import parseDndId from '../../../../utils/parse-dnd-id';
+ import DroppableTypes from '../../../../constants/DroppableTypes';
++import { usePopupInClosableContext } from '../../../../hooks';
++import { BoardMembershipRoles } from '../../../../constants/Enums';
++import AddTaskListStep from '../../../task-lists/AddTaskListStep';
+ import Item from './Item';
+ 
+ import globalStyles from '../../../../styles.module.scss';
++import styles from './TaskLists.module.scss';
+ 
+ const TaskLists = React.memo(() => {
++  const [t] = useTranslation();
++
+   const taskListIds = useSelector(selectors.selectTaskListIdsForCurrentCard);
+ 
++  // BSY Media: the sidebar's "Task List" button under "Add to Card" is the
++  // only way to create a checklist today - since checklists moved into their
++  // own tab, that tab needs its own add affordance too, or an empty card
++  // shows a dead-end blank pane. Mirrors Comments.jsx's own local canAdd
++  // computation (board editor - the same check Item.jsx already uses for
++  // per-checklist edit/date actions).
++  const canAdd = useSelector((state) => {
++    const boardMembership = selectors.selectCurrentUserMembershipForCurrentBoard(state);
++    return !!boardMembership && boardMembership.role === BoardMembershipRoles.EDITOR;
++  });
++
++  const AddTaskListPopup = usePopupInClosableContext(AddTaskListStep);
++
+   const dispatch = useDispatch();
+ 
+   const handleDragStart = useCallback(() => {
+@@ -58,19 +79,29 @@ const TaskLists = React.memo(() => {
+   );
+ 
+   return (
+-    <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+-      <Droppable droppableId="card" type={DroppableTypes.TASK_LIST} direction="vertical">
+-        {({ innerRef, droppableProps, placeholder }) => (
+-          // eslint-disable-next-line react/jsx-props-no-spreading
+-          <div {...droppableProps} ref={innerRef}>
+-            {taskListIds.map((taskListId, index) => (
+-              <Item key={taskListId} id={taskListId} index={index} />
+-            ))}
+-            {placeholder}
+-          </div>
+-        )}
+-      </Droppable>
+-    </DragDropContext>
++    <>
++      <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
++        <Droppable droppableId="card" type={DroppableTypes.TASK_LIST} direction="vertical">
++          {({ innerRef, droppableProps, placeholder }) => (
++            // eslint-disable-next-line react/jsx-props-no-spreading
++            <div {...droppableProps} ref={innerRef}>
++              {taskListIds.map((taskListId, index) => (
++                <Item key={taskListId} id={taskListId} index={index} />
++              ))}
++              {placeholder}
++            </div>
++          )}
++        </Droppable>
++      </DragDropContext>
++      {canAdd && (
++        <AddTaskListPopup>
++          <Button fluid className={styles.addButton}>
++            <Icon name="plus" />
++            {t('action.addTaskList')}
++          </Button>
++        </AddTaskListPopup>
++      )}
++    </>
+   );
+ });
+ 
+diff --git a/client/src/components/cards/CardModal/TaskLists/TaskLists.module.scss b/client/src/components/cards/CardModal/TaskLists/TaskLists.module.scss
+new file mode 100644
+index 0000000..c7896de
+--- /dev/null
++++ b/client/src/components/cards/CardModal/TaskLists/TaskLists.module.scss
+@@ -0,0 +1,17 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .addButton {
++    background: #f4f5f7;
++    color: #6b808c;
++    margin: 0;
++    text-align: left;
++
++    &:hover {
++      background: #e9ebee;
++    }
++  }
++}

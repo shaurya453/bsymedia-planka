@@ -1,0 +1,276 @@
+diff --git a/client/src/components/cards/CardModal/AssignedMembers/AssignedMembers.jsx b/client/src/components/cards/CardModal/AssignedMembers/AssignedMembers.jsx
+new file mode 100644
+index 0000000..360379d
+--- /dev/null
++++ b/client/src/components/cards/CardModal/AssignedMembers/AssignedMembers.jsx
+@@ -0,0 +1,57 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React from 'react';
++import PropTypes from 'prop-types';
++import { useTranslation } from 'react-i18next';
++import { Button, Icon } from 'semantic-ui-react';
++
++import Item from './Item';
++
++import styles from './AssignedMembers.module.scss';
++
++// BSY Media: replaces the old row-of-circular-avatars layout with a proper
++// list (avatar + name per row, like the board Share modal's MembersList),
++// scrolling internally past a handful of rows instead of wrapping the
++// sidebar ever taller.
++const AssignedMembers = React.memo(
++  ({ userIds, canEdit, MembershipsPopup, onUserSelect, onUserDeselect }) => {
++    const [t] = useTranslation();
++
++    return (
++      <div className={styles.wrapper}>
++        {userIds.length > 0 && (
++          <div className={styles.list}>
++            {userIds.map((userId) => (
++              <Item key={userId} id={userId} />
++            ))}
++          </div>
++        )}
++        {canEdit && (
++          <MembershipsPopup
++            currentUserIds={userIds}
++            onUserSelect={onUserSelect}
++            onUserDeselect={onUserDeselect}
++          >
++            <Button type="button" fluid basic className={styles.addButton}>
++              <Icon fitted name="add user" />
++              {t('action.addMember')}
++            </Button>
++          </MembershipsPopup>
++        )}
++      </div>
++    );
++  },
++);
++
++AssignedMembers.propTypes = {
++  userIds: PropTypes.arrayOf(PropTypes.string).isRequired,
++  canEdit: PropTypes.bool.isRequired,
++  MembershipsPopup: PropTypes.elementType.isRequired,
++  onUserSelect: PropTypes.func.isRequired,
++  onUserDeselect: PropTypes.func.isRequired,
++};
++
++export default AssignedMembers;
+diff --git a/client/src/components/cards/CardModal/AssignedMembers/AssignedMembers.module.scss b/client/src/components/cards/CardModal/AssignedMembers/AssignedMembers.module.scss
+new file mode 100644
+index 0000000..970e331
+--- /dev/null
++++ b/client/src/components/cards/CardModal/AssignedMembers/AssignedMembers.module.scss
+@@ -0,0 +1,19 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .wrapper {
++    width: 100%;
++  }
++
++  .list {
++    max-height: 208px;
++    overflow-y: auto;
++  }
++
++  .addButton {
++    margin: 8px 0 0;
++  }
++}
+diff --git a/client/src/components/cards/CardModal/AssignedMembers/Item.jsx b/client/src/components/cards/CardModal/AssignedMembers/Item.jsx
+new file mode 100644
+index 0000000..da41ce0
+--- /dev/null
++++ b/client/src/components/cards/CardModal/AssignedMembers/Item.jsx
+@@ -0,0 +1,33 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useMemo } from 'react';
++import PropTypes from 'prop-types';
++import { useSelector } from 'react-redux';
++
++import selectors from '../../../../selectors';
++import UserAvatar from '../../../users/UserAvatar';
++
++import styles from './Item.module.scss';
++
++const Item = React.memo(({ id }) => {
++  const selectUserById = useMemo(() => selectors.makeSelectUserById(), []);
++  const user = useSelector((state) => selectUserById(state, id));
++
++  return (
++    <div className={styles.row}>
++      <span className={styles.user}>
++        <UserAvatar id={id} />
++      </span>
++      <span className={styles.name}>{user.name}</span>
++    </div>
++  );
++});
++
++Item.propTypes = {
++  id: PropTypes.string.isRequired,
++};
++
++export default Item;
+diff --git a/client/src/components/cards/CardModal/AssignedMembers/Item.module.scss b/client/src/components/cards/CardModal/AssignedMembers/Item.module.scss
+new file mode 100644
+index 0000000..16efe16
+--- /dev/null
++++ b/client/src/components/cards/CardModal/AssignedMembers/Item.module.scss
+@@ -0,0 +1,25 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .row {
++    align-items: center;
++    display: flex;
++    gap: 8px;
++    padding: 4px 0;
++  }
++
++  .user {
++    flex: 0 0 auto;
++  }
++
++  .name {
++    flex: 1 1 auto;
++    font-size: 13px;
++    overflow: hidden;
++    text-overflow: ellipsis;
++    white-space: nowrap;
++  }
++}
+diff --git a/client/src/components/cards/CardModal/AssignedMembers/index.js b/client/src/components/cards/CardModal/AssignedMembers/index.js
+new file mode 100644
+index 0000000..fd172c6
+--- /dev/null
++++ b/client/src/components/cards/CardModal/AssignedMembers/index.js
+@@ -0,0 +1,8 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import AssignedMembers from './AssignedMembers';
++
++export default AssignedMembers;
+diff --git a/client/src/components/cards/CardModal/ProjectContent.jsx b/client/src/components/cards/CardModal/ProjectContent.jsx
+index bf65882..35ba355 100644
+--- a/client/src/components/cards/CardModal/ProjectContent.jsx
++++ b/client/src/components/cards/CardModal/ProjectContent.jsx
+@@ -33,6 +33,7 @@ import EditMarkdown from '../../common/EditMarkdown';
+ import ConfirmationStep from '../../common/ConfirmationStep';
+ import UserAvatar from '../../users/UserAvatar';
+ import BoardMembershipsStep from '../../board-memberships/BoardMembershipsStep';
++import AssignedMembers from './AssignedMembers';
+ import LabelChip from '../../labels/LabelChip';
+ import LabelsStep from '../../labels/LabelsStep';
+ import AddTaskListStep from '../../task-lists/AddTaskListStep';
+@@ -572,32 +573,13 @@ const ProjectContent = React.memo(() => {
+                     context: 'title',
+                   })}
+                 </div>
+-                {userIds.map((userId) => (
+-                  <span key={userId} className={styles.attachment}>
+-                    {canUseMembers ? (
+-                      <BoardMembershipsPopup
+-                        currentUserIds={userIds}
+-                        onUserSelect={handleUserSelect}
+-                        onUserDeselect={handleUserDeselect}
+-                      >
+-                        <UserAvatar id={userId} />
+-                      </BoardMembershipsPopup>
+-                    ) : (
+-                      <UserAvatar id={userId} />
+-                    )}
+-                  </span>
+-                ))}
+-                {canUseMembers && (
+-                  <BoardMembershipsPopup
+-                    currentUserIds={userIds}
+-                    onUserSelect={handleUserSelect}
+-                    onUserDeselect={handleUserDeselect}
+-                  >
+-                    <button type="button" className={classNames(styles.attachment, styles.dueDate)}>
+-                      <Icon name="add" size="small" className={styles.addAttachment} />
+-                    </button>
+-                  </BoardMembershipsPopup>
+-                )}
++                <AssignedMembers
++                  userIds={userIds}
++                  canEdit={canUseMembers}
++                  MembershipsPopup={BoardMembershipsPopup}
++                  onUserSelect={handleUserSelect}
++                  onUserDeselect={handleUserDeselect}
++                />
+               </div>
+             </div>
+             {(canEditDueDate ||
+diff --git a/client/src/components/cards/CardModal/StoryContent.jsx b/client/src/components/cards/CardModal/StoryContent.jsx
+index 01b2ba1..87ff2ca 100644
+--- a/client/src/components/cards/CardModal/StoryContent.jsx
++++ b/client/src/components/cards/CardModal/StoryContent.jsx
+@@ -30,6 +30,7 @@ import EditMarkdown from '../../common/EditMarkdown';
+ import ConfirmationStep from '../../common/ConfirmationStep';
+ import UserAvatar from '../../users/UserAvatar';
+ import BoardMembershipsStep from '../../board-memberships/BoardMembershipsStep';
++import AssignedMembers from './AssignedMembers';
+ import LabelChip from '../../labels/LabelChip';
+ import LabelsStep from '../../labels/LabelsStep';
+ import Attachments from '../../attachments/Attachments';
+@@ -477,32 +478,13 @@ const StoryContent = React.memo(() => {
+                     context: 'title',
+                   })}
+                 </div>
+-                {userIds.map((userId) => (
+-                  <span key={userId} className={styles.attachment}>
+-                    {canUseMembers ? (
+-                      <BoardMembershipsPopup
+-                        currentUserIds={userIds}
+-                        onUserSelect={handleUserSelect}
+-                        onUserDeselect={handleUserDeselect}
+-                      >
+-                        <UserAvatar id={userId} />
+-                      </BoardMembershipsPopup>
+-                    ) : (
+-                      <UserAvatar id={userId} />
+-                    )}
+-                  </span>
+-                ))}
+-                {canUseMembers && (
+-                  <BoardMembershipsPopup
+-                    currentUserIds={userIds}
+-                    onUserSelect={handleUserSelect}
+-                    onUserDeselect={handleUserDeselect}
+-                  >
+-                    <button type="button" className={classNames(styles.attachment, styles.dueDate)}>
+-                      <Icon name="add" size="small" className={styles.addAttachment} />
+-                    </button>
+-                  </BoardMembershipsPopup>
+-                )}
++                <AssignedMembers
++                  userIds={userIds}
++                  canEdit={canUseMembers}
++                  MembershipsPopup={BoardMembershipsPopup}
++                  onUserSelect={handleUserSelect}
++                  onUserDeselect={handleUserDeselect}
++                />
+               </div>
+             </div>
+             {(canUseMembers || canUseLabels || canAddAttachment || canAddCustomFieldGroup) && (
