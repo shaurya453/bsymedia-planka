@@ -1,0 +1,164 @@
+diff --git a/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx b/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
+index 2803108..e559d48 100755
+--- a/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
++++ b/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
+@@ -27,11 +27,12 @@ import styles from './EditDueDateStep.module.scss';
+ // transform layer, so its dates are kept as raw ISO strings in the store and
+ // parsed to Date here only for editing/display.
+ //
+-// A single shared calendar drives both dates via react-datepicker's
+-// selectsRange (first click sets start, second sets due — matching a
+-// familiar date-range picker instead of two separate full calendars), with
+-// its own start/end day styling distinguishing the two. The date/time text
+-// boxes above stay independently editable for exact values.
++// A single shared calendar drives the due date only - clicking a day moves
++// the due date (orange), matching the common case of "start stays put,
++// figure out the due date". The start date (blue) is shown on the same
++// calendar as a passive marker (react-datepicker's highlightDates, not
++// `selected`), editable only via its own text box above, not by clicking
++// the calendar - a plain single-date picker, not a range picker.
+ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) => {
+   const selectCardById = useMemo(() => selectors.makeSelectCardById(), []);
+   const selectTaskListById = useMemo(() => selectors.makeSelectTaskListById(), []);
+@@ -78,7 +79,6 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) =>
+     };
+   });
+ 
+-  const [selectStartTimeFieldState, selectStartTimeField] = useToggle();
+   const [selectDueTimeFieldState, selectDueTimeField] = useToggle();
+ 
+   const [startDateFieldRef, handleStartDateFieldRef] = useNestedRef('inputRef');
+@@ -199,41 +199,29 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) =>
+     }
+   }, [cardId, taskListId, defaultDueDate, dispatch]);
+ 
+-  const handleRangeChange = useCallback(
+-    ([start, end]) => {
++  const handleDueDatePickerChange = useCallback(
++    (date) => {
+       setData((prevData) => ({
+         ...prevData,
+-        ...(start && {
+-          startDate: t('format:date', {
+-            postProcess: 'formatDate',
+-            value: start,
+-          }),
+-        }),
+-        ...(end && {
+-          dueDate: t('format:date', {
+-            postProcess: 'formatDate',
+-            value: end,
+-          }),
++        dueDate: t('format:date', {
++          postProcess: 'formatDate',
++          value: date,
+         }),
+       }));
+-
+-      if (end) {
+-        selectDueTimeField();
+-      } else {
+-        selectStartTimeField();
+-      }
++      selectDueTimeField();
+     },
+-    [t, setData, selectStartTimeField, selectDueTimeField],
++    [t, setData, selectDueTimeField],
++  );
++
++  const highlightDates = useMemo(
++    () => (nullableStartDate ? [{ [styles.startDateHighlight]: [nullableStartDate] }] : []),
++    [nullableStartDate],
+   );
+ 
+   useEffect(() => {
+     startDateFieldRef.current.select();
+   }, [startDateFieldRef]);
+ 
+-  useDidUpdate(() => {
+-    startTimeFieldRef.current.select();
+-  }, [selectStartTimeFieldState]);
+-
+   useDidUpdate(() => {
+     dueTimeFieldRef.current.select();
+   }, [selectDueTimeFieldState]);
+@@ -315,11 +303,10 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) =>
+           </div>
+           <DatePicker
+             inline
+-            selectsRange
+             disabledKeyboardNavigation
+-            startDate={nullableStartDate}
+-            endDate={nullableDueDate}
+-            onChange={handleRangeChange}
++            selected={nullableDueDate}
++            highlightDates={highlightDates}
++            onChange={handleDueDatePickerChange}
+           />
+           <Button positive content={t('action.save')} className={styles.saveButton} />
+         </Form>
+diff --git a/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss b/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss
+index 8171120..491cb4e 100644
+--- a/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss
++++ b/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss
+@@ -40,4 +40,13 @@
+     padding-bottom: 4px;
+     padding-left: 2px;
+   }
++
++  // BSY Media: passive "this is the start date" marker on the calendar
++  // (react-datepicker highlightDates) - blue, distinct from the orange
++  // `.react-datepicker__day--selected` used for the (clickable) due date.
++  .startDateHighlight {
++    background: #2185d0 !important;
++    border-radius: 0;
++    color: #fff !important;
++  }
+ }
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index db3ef0d..68c9388 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -4,7 +4,7 @@ export default {
+   markdownEditor,
+ 
+   format: {
+-    date: 'M/d/yyyy',
++    date: 'dd/MM/yyyy',
+     time: 'p',
+     dateTime: '$t(format:date) $t(format:time)',
+     longDate: 'MMM d',
+diff --git a/client/src/styles.module.scss b/client/src/styles.module.scss
+index f348c95..770fff3 100644
+--- a/client/src/styles.module.scss
++++ b/client/src/styles.module.scss
+@@ -80,24 +80,12 @@
+       color: #fff;
+     }
+ 
+-    // BSY Media: the combined "Dates" popup uses one shared calendar in
+-    // selectsRange mode instead of two separate calendars - start and due
+-    // get distinct colors so it's clear which square is which, with a
+-    // lighter shared fill for the days spanned between them.
+-    .react-datepicker__day--range-start {
+-      background: #2185d0 !important;
+-      color: #fff;
+-    }
+-
+-    .react-datepicker__day--range-end {
++    // BSY Media: the combined "Dates" popup's calendar only ever selects the
++    // due date directly (see EditDueDateStep.jsx) - orange, distinct from
++    // the blue `.startDateHighlight` marker it draws for the start date via
++    // highlightDates.
++    .react-datepicker__day--selected {
+       background: #e8632c !important;
+-      color: #fff;
+-    }
+-
+-    .react-datepicker__day--in-range:not(.react-datepicker__day--range-start):not(.react-datepicker__day--range-end),
+-    .react-datepicker__day--in-selecting-range:not(.react-datepicker__day--range-start):not(.react-datepicker__day--range-end) {
+-      background: rgba(33, 133, 208, 0.2);
+-      color: #444444;
+     }
+ 
+     .react-datepicker__day-names,

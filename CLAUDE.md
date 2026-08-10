@@ -680,6 +680,31 @@ range pick, to avoid another live write-test after the earlier incident — the 
 uses react-datepicker's own documented `--range-start`/`--range-end` class names, so it's expected
 to render correctly for a real range without further live verification).
 
+### Sixth/seventh fixes: calendar click was inverted, platform date format (2026-08-10)
+
+1. **The single-calendar `selectsRange` approach from the previous fix picked the wrong field.**
+   Client feedback: clicking the calendar moved the *start* date (blue), when the expected
+   behavior is the opposite — start stays put (defaults to today), and a calendar click should
+   only move the *due* date (orange). This is inherent to how `selectsRange` works: every click
+   on an already-complete range begins a brand new range, treating that click as the new start.
+   Replaced with a plain single-date `<DatePicker selected={dueDate} onChange={...} />` — the
+   calendar now only ever sets the due date. The start date is drawn on the same calendar as a
+   passive, non-interactive marker via react-datepicker's `highlightDates` prop (a custom blue
+   CSS class, `styles.startDateHighlight`), not `selected` — clicking it does nothing, matching
+   the "start doesn't move" expectation. Editing the start date only happens via its own text box.
+2. **Date format switched to DD/MM/YYYY platform-wide.** Single source of truth:
+   `client/src/locales/en-US/core.js`'s `format.date` key (`'M/d/yyyy'` → `'dd/MM/yyyy'`) — every
+   date display and every date-text-box parse/format in the app routes through this one
+   date-fns-pattern string via the `formatDate`/`parseDate` i18next postprocessors in `i18n.js`,
+   so changing it here was sufficient; no other file hardcodes a month-first format.
+
+Patch: `0026-dates-calendar-fix-and-dmy-format.patch`. Verified live: date boxes read `10/08/2026`
+(10th of August, correct DD/MM/YYYY) instead of the old `8/10/2026`. Calendar-click behavior itself
+wasn't live-tested with an actual click (would require another production write after the earlier
+incident) — the fix reuses this same component's own pre-range-mode single-date-picker code
+(what it looked like before the "single calendar" fix introduced `selectsRange`), a known-working
+pattern rather than new logic.
+
 ## Taiga import (2026-08-07)
 
 Client is consolidating a second source into the same PLANKA instance: some of BSY Media's work
