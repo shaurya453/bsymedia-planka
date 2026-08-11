@@ -127,14 +127,14 @@ async function apply(model, memberMatches, { plankaClient, token, pool }) {
   const sha = model.sourceFileSha256;
 
   async function getOrCreate(entityType, sourceRef, createFn) {
-    const existing = await db.getEntity(pool, { source, sourceFileSha256: sha, entityType, sourceRef });
+    const existing = await db.getEntity(pool, { source, entityType, sourceRef });
     if (existing) return { id: existing, reused: true };
     const created = await createFn();
     await db.recordEntity(pool, { source, sourceFileSha256: sha, entityType, sourceRef, plankaId: created.id });
     return { id: created.id, reused: false };
   }
 
-  const result = { created: {}, reused: {}, skippedAssignments: 0, failedAttachments: [] };
+  const result = { created: {}, reused: {}, updated: {}, skippedAssignments: 0, failedAttachments: [] };
   const bump = (bucket, key) => {
     result[bucket][key] = (result[bucket][key] || 0) + 1;
   };
@@ -190,6 +190,25 @@ async function apply(model, memberMatches, { plankaClient, token, pool }) {
     }
   }
 
+  // For cards already imported by a prior run, sync fields that may have
+  // changed in a newer re-export of the same source project (title,
+  // description, due date, column) - fetched once up front rather than
+  // per-card, since GET /boards/:id already returns full card records.
+  const existingBoardState = await plankaClient.getBoard(board.id, token);
+  const existingCardById = new Map((existingBoardState.included.cards || []).map((c) => [c.id, c]));
+  const normalizeDate = (value) => (value ? new Date(value).getTime() : null);
+  const nextPositionCache = new Map();
+  const nextPositionInList = async (targetListId) => {
+    if (!nextPositionCache.has(targetListId)) {
+      const cardsInList = await plankaClient.getCardsInList(targetListId, token);
+      const maxPosition = cardsInList.reduce((max, c) => Math.max(max, c.position || 0), 0);
+      nextPositionCache.set(targetListId, maxPosition);
+    }
+    const position = nextPositionCache.get(targetListId) + 65536;
+    nextPositionCache.set(targetListId, position);
+    return position;
+  };
+
   for (const [i, card] of model.cards.entries()) {
     const listId = listIdByColumnKey.get(card.columnKey);
     const cardRes = await getOrCreate('card', card.sourceRef, () =>
@@ -201,6 +220,29 @@ async function apply(model, memberMatches, { plankaClient, token, pool }) {
       }, token));
     bump(cardRes.reused ? 'reused' : 'created', 'card');
     const cardId = cardRes.id;
+
+    if (cardRes.reused) {
+      const existing = existingCardById.get(cardId);
+      if (existing) {
+        const patch = {};
+        if (existing.name !== card.title) patch.name = card.title;
+        if ((existing.description || '') !== (card.description || '')) patch.description = card.description;
+        if (normalizeDate(existing.dueDate) !== normalizeDate(card.dueDate)) {
+          // dueDate has no allowNull on the input side (see createCard) -
+          // only send it when there's an actual value to set.
+          if (card.dueDate) patch.dueDate = card.dueDate;
+        }
+        if (existing.listId !== listId) {
+          patch.listId = listId;
+          patch.boardId = board.id;
+          patch.position = await nextPositionInList(listId);
+        }
+        if (Object.keys(patch).length > 0) {
+          await plankaClient.updateCard(cardId, patch, token);
+          bump('updated', 'card');
+        }
+      }
+    }
 
     for (const email of card.assigneeEmails) {
       const userId = matchedByEmail.get(email);
@@ -237,7 +279,7 @@ async function apply(model, memberMatches, { plankaClient, token, pool }) {
     }
 
     for (const [ai, att] of card.attachments.entries()) {
-      const existing = await db.getEntity(pool, { source, sourceFileSha256: sha, entityType: 'attachment', sourceRef: `${card.sourceRef}:${ai}` });
+      const existing = await db.getEntity(pool, { source, entityType: 'attachment', sourceRef: `${card.sourceRef}:${ai}` });
       if (existing) {
         bump('reused', 'attachment');
         continue;

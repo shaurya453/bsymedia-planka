@@ -80,6 +80,7 @@ async function main() {
         `Board id: ${boardId}`,
         `Created: ${JSON.stringify(result.created, null, 2)}`,
         `Reused (already existed from a prior run): ${JSON.stringify(result.reused, null, 2)}`,
+        `Updated (already existed, fields synced from this export): ${JSON.stringify(result.updated, null, 2)}`,
         `Skipped assignments (no matching PLANKA account): ${result.skippedAssignments}`,
         `Failed assignments (matched account, but card-membership call still failed): ${JSON.stringify(result.failedAssignments || [], null, 2)}`,
         `Failed attachments: ${JSON.stringify(result.failedAttachments, null, 2)}`,

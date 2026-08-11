@@ -270,7 +270,13 @@ function parse(raw, { sourceFile, sourceFileSha256 }) {
   );
 
   return {
-    source: 'taiga',
+    // Scoped by project slug, not just the adapter name: Taiga's `ref`
+    // numbering and column slugs (e.g. "review", "script") are only unique
+    // within a single project, and this deployment imports several Taiga
+    // projects through the same adapter - a bare 'taiga' source caused
+    // cross-project sourceRef collisions once source_file_sha256 was
+    // dropped from the identity key (see db.js).
+    source: `taiga:${raw.slug}`,
     sourceFile,
     sourceFileSha256,
     project: { name: raw.name, description: raw.description || null },

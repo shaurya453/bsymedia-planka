@@ -94,6 +94,15 @@ async function createCard(listId, { name, description, position, dueDate }, toke
   return data.item;
 }
 
+async function updateCard(cardId, patch, token) {
+  const data = await request(`/api/cards/${cardId}`, {
+    method: 'PATCH',
+    token,
+    body: patch,
+  });
+  return data.item;
+}
+
 async function createBoardMembership(boardId, userId, role, token) {
   const data = await request(`/api/boards/${boardId}/board-memberships`, {
     method: 'POST',
@@ -176,6 +185,7 @@ module.exports = {
   createBoard,
   createList,
   createCard,
+  updateCard,
   createBoardMembership,
   createCardMembership,
   createComment,

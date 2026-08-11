@@ -920,6 +920,49 @@ both sections below).
   attempting card-level assignments, and per-assignment failures are caught and reported instead
   of aborting the whole run.
 
+### Re-running against a newer re-export ("update apply") — 2026-08-11
+
+The client re-exported both Yapmaster Media and Unindexed Media from Taiga (`/home/deploy/yapmaster
+media - 11082026.json`, `/home/deploy/thaireis-unindexed-media-new.json`) weeks after the initial
+import, expecting the existing boards to pick up what changed. The tool as built for the initial
+one-time migration was **not actually safe to rerun against an updated export** — found and fixed
+two real bugs before running it against production:
+
+- **Idempotency was keyed on the source file's SHA-256 hash**, not just `(source, entityType,
+  sourceRef)`. A newer export has a different hash, so every already-imported entity would have
+  looked "new" and `apply()` would have recreated all 180+23 cards (plus their comments/lists/etc.)
+  as duplicates on top of the existing boards. Fixed in `lib/db.js`: `source_file_sha256` is now
+  an audit-only column (records which file last touched a row), dropped from the uniqueness
+  constraint on both `import_entities` and `cycle_time_events`.
+- That fix immediately surfaced a **second, latent bug**: the adapter used a bare `source: 'taiga'`
+  for every project, and Taiga's `ref` numbers and column slugs are only unique *within* a project
+  (e.g. every project has a card `ref 1` and a `review` column) — three already-imported projects
+  sharing one identity namespace collided the moment file-hash stopped disambiguating them. Fixed
+  by scoping `source` per project slug in `adapters/taiga.js` (`taiga:<project-slug>`), plus a
+  one-time backfill migration in `db.js` that rewrites the ~450 already-existing rows from the bare
+  `taiga` source to the correct `taiga:<slug>` using the known sha256→slug mapping of this
+  deployment's 3 already-imported export files (Yapmaster, Unindexed Media, Disturbing Place) —
+  verified zero identity collisions remained before adding the new constraint.
+- `apply()` previously only ever filled in *missing* entities — a reused card was never checked
+  against the new export for a changed title/description/due date/column. Added a sync step
+  (`lib/planka-client.js`'s new `updateCard`, called from `framework.js`): after fetching the
+  board's current card state once up front, any reused card whose name/description/dueDate/column
+  differs from the new export gets `PATCH /api/cards/:id`'d (column moves compute the append
+  position via `getCardsInList` on the target list). Reported as a new `Updated` bucket in the
+  apply-result report, separate from `Created`/`Reused`.
+
+Diffed both new export files against the previously-imported ones by story `ref` before touching
+anything, to know exactly what to expect: **Yapmaster Media** — 7 new cards, 1 new column
+("Compilations"), 7 existing cards moved to a different column, 1 new comment.
+**Unindexed Media** — 0 new cards, 1 existing card's description edited + 4 new comments. Took a
+manual off-cycle backup (`scripts/backup.sh`, offsite to Mega) before applying. `--apply` results
+matched these numbers exactly for both boards with zero duplicate cards created, and `--verify`
+confirmed all card/column counts. Two apparent verify "mismatches" on Yapmaster (2 extra checklist
+items, 1 extra native comment) were confirmed via direct DB inspection to be real staff activity
+through the live board on 2026-08-09/11 (using the checklist/comment features from the prior
+session's work) — not caused by this run, and outside what a Taiga-snapshot comparison can know
+about.
+
 ## Trello import (Phase 2 — not started)
 
 Deferred so far at the client's explicit direction ("leave the trello import" — 2026-08-06). Plan
