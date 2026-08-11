@@ -812,6 +812,85 @@ the existing Dates popup pre-filled with that exact card's real stored dates, co
 `cardId`/`taskListId` wiring is correct end-to-end. (Did not click Save during verification — no
 data was modified.)
 
+## Sub-task dates/assignees, simplified Dates popup, trimmed card sidebar (2026-08-11)
+
+Follow-up to the checklist overhaul and Gantt view above. Five changes, all client-side except
+two small server additions:
+
+- **Checklist items (`Task`) can now have their own start/due dates**, mirroring the exact
+  Card/TaskList pattern from the prior session: migration `20260811130000_add_dates_to_task.js`
+  (`start_date`/`due_date`/`is_due_completed` on `task`), `startDate`/`dueDate` inputs on
+  `tasks/update.js` (`isDueDate` validator, same as `task-lists/update.js`), matching `attr()`
+  fields on the client `Task` model. Each checklist item row now shows a compact date chip row
+  (when set) and an always-visible calendar-icon button (`EditDueDateStep` with a new `taskId`
+  prop) next to its assignee/edit-pencil buttons.
+- **Checklists (`TaskList`) now have their own single assignee** — a genuinely new concept,
+  distinct from the per-item assignee that already existed. Migration
+  `20260811130001_add_assignee_to_task_list.js` adds `assignee_user_id`; `task-lists/update.js`
+  validates board membership the same way `tasks/update.js` already did for its own assignee.
+  Reuses `task-lists/TaskList/Task/SelectAssigneeStep.jsx` unmodified from the checklist header
+  (it turned out to already be fully generic, no Task-specific coupling despite its file
+  location) — the checklist header now shows 3 always-visible icons (assignee, dates, pencil)
+  instead of 2, with a new `.four` padding class in `Item.module.scss` (the existing
+  `.two`/`.three` pattern, +30px per icon).
+- **Checklist item assignee button is no longer hover-only** — was `opacity: 0` with a
+  `.contentHoverable:hover` reveal in `Task.module.scss`; now `opacity: 1` like the edit pencil
+  already was. The button's own render-gating logic (`task.assigneeUserId || isEditable`) needed
+  no change — it was purely a CSS trick.
+- **Dates popup redesigned into two tabs** (`EditDueDateStep.jsx`) — previously showed both
+  dates' fields at once with a single calendar hardwired to drive only the due date; due date's
+  text fields were silently pre-filled to today, and Save was hard-blocked unless *both* dates
+  parsed, meaning a start-only edit was never actually possible through this popup despite the
+  UI suggesting otherwise. Now: "Start Date"/"Due Date" tab switcher (tinted blue/orange to match
+  the calendar's own color logic), only the active tab's date+time boxes render, the shared
+  calendar's `selected`/`onChange` follow whichever tab is active, and both dates render as
+  colored markers on the calendar regardless of active tab (`dueDateHighlight` added alongside
+  the existing `startDateHighlight`). Start date still defaults to today; due date now genuinely
+  has no default and is optional — leaving it blank and saving no longer touches it (or clears it
+  if previously set). Gained a third optional target prop, `taskId`, alongside the existing
+  `cardId`/`taskListId` (mutually exclusive, Task dates are ISO strings like TaskList's, not Date
+  instances like Card's). A cross-tab-safe focus mechanism (`focusField`/`pendingFocusField`)
+  handles the edge case of a validation failure on a field whose tab isn't currently active.
+- **Card modal's "Add to card" sidebar section removed entirely** (`ProjectContent.jsx`,
+  `StoryContent.jsx`) — client's call, no replacement needed. Its own Members button was an exact
+  duplicate of the separate Members section (`AssignedMembers.jsx`) that already existed
+  independently; Labels remains reachable both inline in the card's main content and from the
+  board-level card three-dot menu (`CardActionsStep.jsx`, confirmed by reading it); Stopwatch,
+  checklist-add, attachment-add (drag & drop / paste via `AddAttachmentZone` still works,
+  confirmed by reading it — only the explicit browse-button trigger is gone), and custom-field-add
+  lost their sidebar shortcut with no replacement, per the client's explicit "I have no use for
+  the custom field" / "ensure only Members and Actions remain". Removed the now-fully-dead
+  `AddTaskListStep`/`AddAttachmentStep`/`AddCustomFieldGroupStep` imports and their
+  `canAddTaskList`/`canAddAttachment`/`canAddCustomFieldGroup` permission flags rather than
+  leaving them as unused dead code.
+- **Sub-task dates surfaced in the Gantt view** (Timeline/Team workload/Schedule, not Tasks tab —
+  client's call): `selectors/gantt.js` adds a `tasks` array (pre-filtered to dated items) to each
+  `taskList` entry, plus `assigneeUserId` on both `taskList` and `task`. Rendered as a 3rd
+  indentation level under their checklist, using the same "icon-prefixed label with inline
+  padding" trick as Team workload's existing 2-level indent — no `Row.jsx` CSS changes needed for
+  indentation, but `Row.jsx`/`GanttChart.jsx` did need a new `taskId` prop threaded through to
+  `EditDueDateStep` (**caught in testing**: `GanttChart.jsx` accepted `taskId` in its rows'
+  `PropTypes.shape` but never actually passed `row.taskId` down to `<Row>` — sub-task bars would
+  have rendered but never opened the right popup on click). **Also caught in testing**: Timeline
+  and Team workload's checklist-row filters (`taskList.startDate || taskList.dueDate`) only
+  surfaced a checklist if the checklist *itself* had dates, silently hiding checklists whose only
+  dated content was a sub-task — fixed by also matching `taskList.tasks.length > 0` (that array is
+  already pre-filtered to dated items by the selector). Team workload additionally needed a second
+  pass + a `pushedTaskListIds` dedup set, since a checklist can now surface for a member either via
+  card membership *or* via direct checklist/task assignment (possibly both).
+
+Patch: `0029-sub-task-dates-assignees-dates-popup-sidebar.patch`. **Live-verified** via Puppeteer
+against a throwaway sandbox project created and deleted via the API for this purpose (never
+touched real client boards) — confirmed: checklist item and checklist header assignee buttons
+render without hovering; Dates popup's two tabs, today-default on Start/blank-default on Due,
+and both-dates-visible-regardless-of-tab all work exactly as designed; a start-only save (no due
+date) succeeds, which the prior single-view popup silently couldn't do; card modal sidebar shows
+only Members + Actions; Gantt Timeline and Team workload both correctly show the 3-level
+card→checklist→sub-task nesting with a working gradient bar, and clicking the sub-task's bar
+opens the Dates popup pre-filled with its real stored dates. Sandbox project (including its one
+test card/checklist/task) deleted after verification — no trace left on the live boards, and
+production card/project counts were confirmed unchanged before and after.
+
 ## Taiga import (2026-08-07)
 
 Client is consolidating a second source into the same PLANKA instance: some of BSY Media's work

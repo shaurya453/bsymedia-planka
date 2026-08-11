@@ -1,0 +1,1821 @@
+diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+index afad6ed..d69e37d 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
++++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+@@ -136,6 +136,7 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+                 dueDate={row.dueDate}
+                 cardId={row.cardId}
+                 taskListId={row.taskListId}
++                taskId={row.taskId}
+                 rangeStart={range.start}
+                 dayWidth={DAY_WIDTH}
+                 canEdit={canEdit}
+@@ -159,6 +160,7 @@ GanttChart.propTypes = {
+       dueDate: PropTypes.instanceOf(Date),
+       cardId: PropTypes.string,
+       taskListId: PropTypes.string,
++      taskId: PropTypes.string,
+     }),
+   ).isRequired,
+   canEdit: PropTypes.bool.isRequired,
+diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.jsx b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
+index 865abd3..a05672e 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/Row.jsx
++++ b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
+@@ -27,6 +27,7 @@ const Row = React.memo(
+     dueDate,
+     cardId,
+     taskListId,
++    taskId,
+     rangeStart,
+     dayWidth,
+     canEdit,
+@@ -64,7 +65,7 @@ const Row = React.memo(
+       background: bar.background,
+     };
+ 
+-    const isClickable = !!bar && canEdit && !!(cardId || taskListId);
++    const isClickable = !!bar && canEdit && !!(cardId || taskListId || taskId);
+ 
+     return (
+       <div
+@@ -80,7 +81,7 @@ const Row = React.memo(
+         <div className={styles.track}>
+           {bar &&
+             (isClickable ? (
+-              <EditDatesPopup cardId={cardId} taskListId={taskListId}>
++              <EditDatesPopup cardId={cardId} taskListId={taskListId} taskId={taskId}>
+                 <button type="button" className={styles.barButton} style={barStyle} />
+               </EditDatesPopup>
+             ) : (
+@@ -100,6 +101,7 @@ Row.propTypes = {
+   dueDate: PropTypes.instanceOf(Date),
+   cardId: PropTypes.string,
+   taskListId: PropTypes.string,
++  taskId: PropTypes.string,
+   rangeStart: PropTypes.instanceOf(Date).isRequired,
+   dayWidth: PropTypes.number.isRequired,
+   canEdit: PropTypes.bool.isRequired,
+@@ -110,6 +112,7 @@ Row.defaultProps = {
+   dueDate: null,
+   cardId: undefined,
+   taskListId: undefined,
++  taskId: undefined,
+ };
+ 
+ export default Row;
+diff --git a/client/src/components/boards/GanttModal/Schedule/Schedule.jsx b/client/src/components/boards/GanttModal/Schedule/Schedule.jsx
+index c3d3387..710826b 100644
+--- a/client/src/components/boards/GanttModal/Schedule/Schedule.jsx
++++ b/client/src/components/boards/GanttModal/Schedule/Schedule.jsx
+@@ -22,17 +22,26 @@ import styles from './Schedule.module.scss';
+ const ScheduleEntry = React.memo(({ entry, canEdit }) => {
+   const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
+ 
++  const iconByType = {
++    card: 'file outline',
++    taskList: 'check square outline',
++    task: 'check circle outline',
++  };
++
+   const content = (
+     <div className={styles.entry}>
+-      <Icon
+-        name={entry.type === 'card' ? 'file outline' : 'check square outline'}
+-        className={styles.entryIcon}
+-      />
++      <Icon name={iconByType[entry.type]} className={styles.entryIcon} />
+       <span className={styles.entryName}>
+         {entry.name}
+         {entry.type === 'taskList' && (
+           <span className={styles.entryCardName}> · {entry.cardName}</span>
+         )}
++        {entry.type === 'task' && (
++          <span className={styles.entryCardName}>
++            {' '}
++            · {entry.cardName} · {entry.taskListName}
++          </span>
++        )}
+       </span>
+       <span className={styles.dates}>
+         {entry.startDate && (
+@@ -48,7 +57,7 @@ const ScheduleEntry = React.memo(({ entry, canEdit }) => {
+           />
+         )}
+       </span>
+-      {entry.type === 'card' && entry.userIds.length > 0 && (
++      {(entry.type === 'card' || entry.type === 'task') && entry.userIds.length > 0 && (
+         <span className={styles.avatars}>
+           {entry.userIds.map((userId) => (
+             <UserAvatar key={userId} id={userId} size="tiny" />
+@@ -66,6 +75,7 @@ const ScheduleEntry = React.memo(({ entry, canEdit }) => {
+     <EditDatesPopup
+       cardId={entry.type === 'card' ? entry.cardId : undefined}
+       taskListId={entry.type === 'taskList' ? entry.taskListId : undefined}
++      taskId={entry.type === 'task' ? entry.taskId : undefined}
+     >
+       <button type="button" className={styles.entryButton}>
+         {content}
+@@ -77,14 +87,16 @@ const ScheduleEntry = React.memo(({ entry, canEdit }) => {
+ ScheduleEntry.propTypes = {
+   entry: PropTypes.shape({
+     key: PropTypes.string.isRequired,
+-    type: PropTypes.oneOf(['card', 'taskList']).isRequired,
++    type: PropTypes.oneOf(['card', 'taskList', 'task']).isRequired,
+     name: PropTypes.string.isRequired,
+     cardName: PropTypes.string,
++    taskListName: PropTypes.string,
+     startDate: PropTypes.instanceOf(Date),
+     dueDate: PropTypes.instanceOf(Date),
+     isDueCompleted: PropTypes.bool.isRequired,
+     cardId: PropTypes.string,
+     taskListId: PropTypes.string,
++    taskId: PropTypes.string,
+     userIds: PropTypes.arrayOf(PropTypes.string),
+   }).isRequired,
+   canEdit: PropTypes.bool.isRequired,
+@@ -140,6 +152,26 @@ const Schedule = React.memo(() => {
+             userIds: [],
+           });
+         }
++
++        taskList.tasks.forEach((task) => {
++          const taskDate = task.dueDate || task.startDate;
++
++          if (taskDate) {
++            entries.push({
++              key: `task:${task.id}`,
++              date: taskDate,
++              type: 'task',
++              name: task.name,
++              cardName: item.cardName,
++              taskListName: taskList.name,
++              startDate: task.startDate,
++              dueDate: task.dueDate,
++              isDueCompleted: task.isDueCompleted,
++              taskId: task.id,
++              userIds: task.assigneeUserId ? [task.assigneeUserId] : [],
++            });
++          }
++        });
+       });
+     });
+ 
+diff --git a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
+index 35a9025..c79b68d 100644
+--- a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
++++ b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
+@@ -16,10 +16,12 @@ import GanttChart from '../GanttChart';
+ import styles from './TeamWorkload.module.scss';
+ 
+ // BSY Media: same GanttChart renderer as Timeline, grouped by board member
+-// instead of by card - each member's dated cards and dated checklists are
+-// nested under their name. Attribution is card-membership only (checklist
+-// items do have an assigneeUserId field, but no dates to plot, so they're
+-// intentionally not used here).
++// instead of by card - each member's dated cards, dated checklists, and
++// dated checklist items are nested under their name. A checklist appears
++// under a member either because they're a card member (regardless of the
++// checklist's own assignee) or because the checklist itself - or one of its
++// dated items - is directly assigned to them; pushTaskListRow dedupes so it
++// never renders twice for the same member.
+ const TeamWorkload = React.memo(() => {
+   const items = useSelector(selectors.selectGanttItemsForCurrentBoard);
+   const memberships = useSelector(selectors.selectMembershipsForCurrentBoard);
+@@ -52,12 +54,60 @@ const TeamWorkload = React.memo(() => {
+       });
+ 
+       let memberRowsTotal = 0;
++      const pushedTaskListIds = new Set();
++
++      const pushTaskListRow = (taskList) => {
++        if (pushedTaskListIds.has(taskList.id)) {
++          return;
++        }
++
++        pushedTaskListIds.add(taskList.id);
++
++        result.push({
++          key: `${userId}:taskList:${taskList.id}`,
++          label: (
++            <span className={styles.itemLabelChecklist}>
++              <Icon name="check square outline" className={styles.itemIcon} />
++              {taskList.name}
++            </span>
++          ),
++          isGroupHeader: false,
++          isGroupBoundary: false,
++          startDate: taskList.startDate,
++          dueDate: taskList.dueDate,
++          taskListId: taskList.id,
++        });
++        memberRowsTotal += 1;
++
++        taskList.tasks
++          .filter((task) => task.assigneeUserId === userId)
++          .forEach((task) => {
++            result.push({
++              key: `${userId}:task:${task.id}`,
++              label: (
++                <span className={styles.itemLabelTask}>
++                  <Icon name="check circle outline" className={styles.itemIcon} />
++                  {task.name}
++                </span>
++              ),
++              isGroupHeader: false,
++              isGroupBoundary: false,
++              startDate: task.startDate,
++              dueDate: task.dueDate,
++              taskId: task.id,
++            });
++            memberRowsTotal += 1;
++          });
++      };
+ 
+       items
+         .filter((item) => item.userIds.includes(userId))
+         .forEach((item) => {
++          // A checklist counts as "dated" here if it has its own dates, or
++          // has no dates of its own but contains at least one dated item
++          // (taskList.tasks is already pre-filtered to dated items).
+           const datedTaskLists = item.taskLists.filter(
+-            (taskList) => taskList.startDate || taskList.dueDate,
++            (taskList) => taskList.startDate || taskList.dueDate || taskList.tasks.length > 0,
+           );
+ 
+           const cardHasDates = !!(item.startDate || item.dueDate);
+@@ -82,25 +132,23 @@ const TeamWorkload = React.memo(() => {
+           });
+           memberRowsTotal += 1;
+ 
+-          datedTaskLists.forEach((taskList) => {
+-            result.push({
+-              key: `${userId}:taskList:${taskList.id}`,
+-              label: (
+-                <span className={styles.itemLabelChecklist}>
+-                  <Icon name="check square outline" className={styles.itemIcon} />
+-                  {taskList.name}
+-                </span>
+-              ),
+-              isGroupHeader: false,
+-              isGroupBoundary: false,
+-              startDate: taskList.startDate,
+-              dueDate: taskList.dueDate,
+-              taskListId: taskList.id,
+-            });
+-            memberRowsTotal += 1;
+-          });
++          datedTaskLists.forEach(pushTaskListRow);
+         });
+ 
++      // BSY Media: a checklist (or one of its dated items) directly assigned
++      // to this member surfaces here even if they're not a member of its
++      // card - pushTaskListRow's Set dedupes against the pass above.
++      items.forEach((item) => {
++        item.taskLists
++          .filter((taskList) => taskList.startDate || taskList.dueDate || taskList.tasks.length > 0)
++          .filter(
++            (taskList) =>
++              taskList.assigneeUserId === userId ||
++              taskList.tasks.some((task) => task.assigneeUserId === userId),
++          )
++          .forEach(pushTaskListRow);
++      });
++
+       if (memberRowsTotal === 0) {
+         result.push({
+           key: `${userId}:empty`,
+diff --git a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.module.scss b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.module.scss
+index 462adc4..e3854ef 100644
+--- a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.module.scss
++++ b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.module.scss
+@@ -20,7 +20,8 @@
+   }
+ 
+   .itemLabel,
+-  .itemLabelChecklist {
++  .itemLabelChecklist,
++  .itemLabelTask {
+     align-items: center;
+     display: flex;
+     gap: 6px;
+@@ -35,6 +36,12 @@
+     padding-left: 16px;
+   }
+ 
++  .itemLabelTask {
++    color: rgba(9, 30, 66, 0.55);
++    font-size: 12px;
++    padding-left: 32px;
++  }
++
+   .itemIcon {
+     color: rgba(9, 30, 66, 0.4);
+     flex: 0 0 auto;
+diff --git a/client/src/components/boards/GanttModal/Timeline/Timeline.jsx b/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
+index 2e82dc8..5fe592f 100644
+--- a/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
++++ b/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
+@@ -31,8 +31,12 @@ const Timeline = React.memo(() => {
+     const result = [];
+ 
+     items.forEach((item) => {
++      // A checklist is worth a row here if it has its own dates, or if it
++      // has no dates of its own but contains at least one dated item
++      // (item.taskLists' `tasks` array is already pre-filtered to dated
++      // ones by the selector) - either way it still needs plotting.
+       const datedTaskLists = item.taskLists.filter(
+-        (taskList) => taskList.startDate || taskList.dueDate,
++        (taskList) => taskList.startDate || taskList.dueDate || taskList.tasks.length > 0,
+       );
+ 
+       const cardHasDates = !!(item.startDate || item.dueDate);
+@@ -61,6 +65,18 @@ const Timeline = React.memo(() => {
+           dueDate: taskList.dueDate,
+           taskListId: taskList.id,
+         });
++
++        taskList.tasks.forEach((task) => {
++          result.push({
++            key: `task:${task.id}`,
++            label: <span style={{ paddingLeft: 16 }}>{task.name}</span>,
++            isGroupHeader: false,
++            isGroupBoundary: false,
++            startDate: task.startDate,
++            dueDate: task.dueDate,
++            taskId: task.id,
++          });
++        });
+       });
+     });
+ 
+diff --git a/client/src/components/cards/CardModal/ProjectContent.jsx b/client/src/components/cards/CardModal/ProjectContent.jsx
+index 35ba355..c161ca5 100644
+--- a/client/src/components/cards/CardModal/ProjectContent.jsx
++++ b/client/src/components/cards/CardModal/ProjectContent.jsx
+@@ -36,10 +36,7 @@ import BoardMembershipsStep from '../../board-memberships/BoardMembershipsStep';
+ import AssignedMembers from './AssignedMembers';
+ import LabelChip from '../../labels/LabelChip';
+ import LabelsStep from '../../labels/LabelsStep';
+-import AddTaskListStep from '../../task-lists/AddTaskListStep';
+ import Attachments from '../../attachments/Attachments';
+-import AddAttachmentStep from '../../attachments/AddAttachmentStep';
+-import AddCustomFieldGroupStep from '../../custom-field-groups/AddCustomFieldGroupStep';
+ 
+ import styles from './ProjectContent.module.scss';
+ 
+@@ -90,9 +87,6 @@ const ProjectContent = React.memo(() => {
+     canDelete,
+     canUseMembers,
+     canUseLabels,
+-    canAddTaskList,
+-    canAddAttachment,
+-    canAddCustomFieldGroup,
+   } = useSelector((state) => {
+     const boardMembership = selectors.selectCurrentUserMembershipForCurrentBoard(state);
+ 
+@@ -120,9 +114,6 @@ const ProjectContent = React.memo(() => {
+         canDelete: isEditor,
+         canUseMembers: false,
+         canUseLabels: false,
+-        canAddTaskList: false,
+-        canAddAttachment: false,
+-        canAddCustomFieldGroup: false,
+       };
+     }
+ 
+@@ -141,9 +132,6 @@ const ProjectContent = React.memo(() => {
+       canDelete: isEditor,
+       canUseMembers: isEditor,
+       canUseLabels: isEditor,
+-      canAddTaskList: isEditor,
+-      canAddAttachment: isEditor,
+-      canAddCustomFieldGroup: isEditor,
+     };
+   }, shallowEqual);
+ 
+@@ -237,13 +225,6 @@ const ProjectContent = React.memo(() => {
+     [dispatch],
+   );
+ 
+-  const handleCustomFieldGroupCreate = useCallback(
+-    (data) => {
+-      dispatch(entryActions.createCustomFieldGroupInCurrentCard(data));
+-    },
+-    [dispatch],
+-  );
+-
+   const handleToggleJointClick = useCallback(() => {
+     if (isJoined) {
+       dispatch(entryActions.removeCurrentUserFromCurrentCard());
+@@ -288,9 +269,6 @@ const ProjectContent = React.memo(() => {
+   const LabelsPopup = usePopupInClosableContext(LabelsStep);
+   const EditDueDatePopup = usePopupInClosableContext(EditDueDateStep);
+   const EditStopwatchPopup = usePopupInClosableContext(EditStopwatchStep);
+-  const AddTaskListPopup = usePopupInClosableContext(AddTaskListStep);
+-  const AddAttachmentPopup = usePopupInClosableContext(AddAttachmentStep);
+-  const AddCustomFieldGroupPopup = usePopupInClosableContext(AddCustomFieldGroupStep);
+   const MoreActionsPopup = usePopupInClosableContext(MoreActionsStep);
+   const ConfirmationPopup = usePopupInClosableContext(ConfirmationStep);
+ 
+@@ -582,88 +560,6 @@ const ProjectContent = React.memo(() => {
+                 />
+               </div>
+             </div>
+-            {(canEditDueDate ||
+-              canEditStopwatch ||
+-              canUseMembers ||
+-              canUseLabels ||
+-              canAddTaskList ||
+-              canAddAttachment ||
+-              canAddCustomFieldGroup) && (
+-              <div className={styles.actions}>
+-                <span className={styles.actionsTitle}>{t('action.addToCard')}</span>
+-                {canUseMembers && (
+-                  <BoardMembershipsPopup
+-                    currentUserIds={userIds}
+-                    onUserSelect={handleUserSelect}
+-                    onUserDeselect={handleUserDeselect}
+-                  >
+-                    <Button fluid className={classNames(styles.actionButton, styles.hidable)}>
+-                      <Icon name="user outline" className={styles.actionIcon} />
+-                      {t('common.members')}
+-                    </Button>
+-                  </BoardMembershipsPopup>
+-                )}
+-                {canUseLabels && (
+-                  <LabelsPopup
+-                    currentIds={labelIds}
+-                    cardId={card.id}
+-                    onSelect={handleLabelSelect}
+-                    onDeselect={handleLabelDeselect}
+-                  >
+-                    <Button fluid className={classNames(styles.actionButton, styles.hidable)}>
+-                      <Icon name="bookmark outline" className={styles.actionIcon} />
+-                      {t('common.labels')}
+-                    </Button>
+-                  </LabelsPopup>
+-                )}
+-                {canEditDueDate && (
+-                  <EditDueDatePopup cardId={card.id}>
+-                    <Button fluid className={classNames(styles.actionButton, styles.hidable)}>
+-                      <Icon name="calendar check outline" className={styles.actionIcon} />
+-                      {t('common.editDates', {
+-                        context: 'title',
+-                      })}
+-                    </Button>
+-                  </EditDueDatePopup>
+-                )}
+-                {canEditStopwatch && (
+-                  <EditStopwatchPopup cardId={card.id}>
+-                    <Button fluid className={classNames(styles.actionButton, styles.hidable)}>
+-                      <Icon name="clock outline" className={styles.actionIcon} />
+-                      {t('common.stopwatch')}
+-                    </Button>
+-                  </EditStopwatchPopup>
+-                )}
+-                {canAddTaskList && (
+-                  <AddTaskListPopup>
+-                    <Button fluid className={classNames(styles.actionButton, styles.hidable)}>
+-                      <Icon name="check square outline" className={styles.actionIcon} />
+-                      {t('common.taskList', {
+-                        context: 'title',
+-                      })}
+-                    </Button>
+-                  </AddTaskListPopup>
+-                )}
+-                {canAddAttachment && (
+-                  <AddAttachmentPopup>
+-                    <Button fluid className={classNames(styles.actionButton, styles.hidable)}>
+-                      <Icon name="attach" className={styles.actionIcon} />
+-                      {t('common.attachment')}
+-                    </Button>
+-                  </AddAttachmentPopup>
+-                )}
+-                {canAddCustomFieldGroup && (
+-                  <AddCustomFieldGroupPopup onCreate={handleCustomFieldGroupCreate}>
+-                    <Button fluid className={classNames(styles.actionButton, styles.hidable)}>
+-                      <Icon name="sticky note outline" className={styles.actionIcon} />
+-                      {t('common.customField', {
+-                        context: 'title',
+-                      })}
+-                    </Button>
+-                  </AddCustomFieldGroupPopup>
+-                )}
+-              </div>
+-            )}
+             {((!board.limitCardTypesToDefaultOne && canEditType) ||
+               canSubscribe ||
+               canJoin ||
+diff --git a/client/src/components/cards/CardModal/StoryContent.jsx b/client/src/components/cards/CardModal/StoryContent.jsx
+index 87ff2ca..8019328 100644
+--- a/client/src/components/cards/CardModal/StoryContent.jsx
++++ b/client/src/components/cards/CardModal/StoryContent.jsx
+@@ -34,8 +34,6 @@ import AssignedMembers from './AssignedMembers';
+ import LabelChip from '../../labels/LabelChip';
+ import LabelsStep from '../../labels/LabelsStep';
+ import Attachments from '../../attachments/Attachments';
+-import AddAttachmentStep from '../../attachments/AddAttachmentStep';
+-import AddCustomFieldGroupStep from '../../custom-field-groups/AddCustomFieldGroupStep';
+ 
+ import styles from './StoryContent.module.scss';
+ 
+@@ -92,8 +90,6 @@ const StoryContent = React.memo(() => {
+     canDelete,
+     canUseMembers,
+     canUseLabels,
+-    canAddAttachment,
+-    canAddCustomFieldGroup,
+   } = useSelector((state) => {
+     const boardMembership = selectors.selectCurrentUserMembershipForCurrentBoard(state);
+ 
+@@ -119,8 +115,6 @@ const StoryContent = React.memo(() => {
+         canDelete: isEditor,
+         canUseMembers: false,
+         canUseLabels: false,
+-        canAddAttachment: false,
+-        canAddCustomFieldGroup: false,
+       };
+     }
+ 
+@@ -137,8 +131,6 @@ const StoryContent = React.memo(() => {
+       canDelete: isEditor,
+       canUseMembers: isEditor,
+       canUseLabels: isEditor,
+-      canAddAttachment: isEditor,
+-      canAddCustomFieldGroup: isEditor,
+     };
+   }, shallowEqual);
+ 
+@@ -214,13 +206,6 @@ const StoryContent = React.memo(() => {
+     [dispatch],
+   );
+ 
+-  const handleCustomFieldGroupCreate = useCallback(
+-    (data) => {
+-      dispatch(entryActions.createCustomFieldGroupInCurrentCard(data));
+-    },
+-    [dispatch],
+-  );
+-
+   const handleToggleJointClick = useCallback(() => {
+     if (isJoined) {
+       dispatch(entryActions.removeCurrentUserFromCurrentCard());
+@@ -274,8 +259,6 @@ const StoryContent = React.memo(() => {
+   const CreationDetailsPopup = usePopupInClosableContext(CreationDetailsStep);
+   const BoardMembershipsPopup = usePopupInClosableContext(BoardMembershipsStep);
+   const LabelsPopup = usePopupInClosableContext(LabelsStep);
+-  const AddAttachmentPopup = usePopupInClosableContext(AddAttachmentStep);
+-  const AddCustomFieldGroupPopup = usePopupInClosableContext(AddCustomFieldGroupStep);
+   const MoreActionsPopup = usePopupInClosableContext(MoreActionsStep);
+   const ConfirmationPopup = usePopupInClosableContext(ConfirmationStep);
+ 
+@@ -487,54 +470,6 @@ const StoryContent = React.memo(() => {
+                 />
+               </div>
+             </div>
+-            {(canUseMembers || canUseLabels || canAddAttachment || canAddCustomFieldGroup) && (
+-              <div className={styles.actions}>
+-                <span className={styles.actionsTitle}>{t('action.addToCard')}</span>
+-                {canUseLabels && (
+-                  <LabelsPopup
+-                    currentIds={labelIds}
+-                    cardId={card.id}
+-                    onSelect={handleLabelSelect}
+-                    onDeselect={handleLabelDeselect}
+-                  >
+-                    <Button fluid className={classNames(styles.actionButton, styles.hidable)}>
+-                      <Icon name="bookmark outline" className={styles.actionIcon} />
+-                      {t('common.labels')}
+-                    </Button>
+-                  </LabelsPopup>
+-                )}
+-                {canAddAttachment && (
+-                  <AddAttachmentPopup>
+-                    <Button fluid className={classNames(styles.actionButton, styles.hidable)}>
+-                      <Icon name="attach" className={styles.actionIcon} />
+-                      {t('common.attachment')}
+-                    </Button>
+-                  </AddAttachmentPopup>
+-                )}
+-                {canAddCustomFieldGroup && (
+-                  <AddCustomFieldGroupPopup onCreate={handleCustomFieldGroupCreate}>
+-                    <Button fluid className={classNames(styles.actionButton, styles.hidable)}>
+-                      <Icon name="sticky note outline" className={styles.actionIcon} />
+-                      {t('common.customField', {
+-                        context: 'title',
+-                      })}
+-                    </Button>
+-                  </AddCustomFieldGroupPopup>
+-                )}
+-                {canUseMembers && (
+-                  <BoardMembershipsPopup
+-                    currentUserIds={userIds}
+-                    onUserSelect={handleUserSelect}
+-                    onUserDeselect={handleUserDeselect}
+-                  >
+-                    <Button fluid className={classNames(styles.actionButton, styles.hidable)}>
+-                      <Icon name="user outline" className={styles.actionIcon} />
+-                      {t('common.members')}
+-                    </Button>
+-                  </BoardMembershipsPopup>
+-                )}
+-              </div>
+-            )}
+             {((!board.limitCardTypesToDefaultOne && canEditType) ||
+               canSubscribe ||
+               canJoin ||
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.jsx b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+index b54aa6c..32d619f 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.jsx
++++ b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+@@ -7,18 +7,21 @@ import React, { useCallback, useMemo } from 'react';
+ import ReactDOM from 'react-dom';
+ import PropTypes from 'prop-types';
+ import classNames from 'classnames';
+-import { useSelector } from 'react-redux';
++import { useDispatch, useSelector } from 'react-redux';
+ import { Draggable } from 'react-beautiful-dnd';
+ import { Button, Icon } from 'semantic-ui-react';
+ import { useToggle } from '../../../../lib/hooks';
+ 
+ import selectors from '../../../../selectors';
++import entryActions from '../../../../entry-actions';
+ import { usePopupInClosableContext } from '../../../../hooks';
+ import { BoardMembershipRoles } from '../../../../constants/Enums';
+ import EditStep from './EditStep';
+ import TaskList from '../../../task-lists/TaskList';
++import SelectAssigneeStep from '../../../task-lists/TaskList/Task/SelectAssigneeStep';
+ import DueDateChip from '../../DueDateChip';
+ import EditDueDateStep from '../../EditDueDateStep';
++import UserAvatar from '../../../users/UserAvatar';
+ 
+ import styles from './Item.module.scss';
+ 
+@@ -32,20 +35,37 @@ const Item = React.memo(({ id, index }) => {
+     return !!boardMembership && boardMembership.role === BoardMembershipRoles.EDITOR;
+   });
+ 
++  const dispatch = useDispatch();
++
+   const [isCompletedVisible, toggleCompletedVisible] = useToggle();
+ 
+   const handleToggleCompletedVisibleClick = useCallback(() => {
+     toggleCompletedVisible();
+   }, [toggleCompletedVisible]);
+ 
++  const handleUserSelect = useCallback(
++    (userId) => {
++      dispatch(entryActions.updateTaskList(taskList.id, { assigneeUserId: userId }));
++    },
++    [taskList.id, dispatch],
++  );
++
++  const handleUserDeselect = useCallback(() => {
++    dispatch(entryActions.updateTaskList(taskList.id, { assigneeUserId: null }));
++  }, [taskList.id, dispatch]);
++
+   const EditPopup = usePopupInClosableContext(EditStep);
+   const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
++  const SelectAssigneePopup = usePopupInClosableContext(SelectAssigneeStep);
+ 
+-  const withActions = taskList.hideCompletedTasks || canEdit;
+-  // BSY Media: canEdit shows two always-visible icons (dates + pencil), the
+-  // hide-completed toggle is a third, hover-only one - header padding needs
+-  // to account for however many are actually visible.
+-  const visibleActionsCount = (taskList.hideCompletedTasks ? 1 : 0) + (canEdit ? 2 : 0);
++  // BSY Media: canEdit shows three always-visible icons (assignee + dates +
++  // pencil); a non-editor still sees a plain assignee avatar if one is set.
++  // The hide-completed toggle is a fourth, hover-only one, shown to everyone
++  // (not gated by canEdit) whenever the checklist has it enabled - header
++  // padding needs to account for however many are actually visible.
++  const withActions = taskList.hideCompletedTasks || canEdit || !!taskList.assigneeUserId;
++  const visibleActionsCount =
++    (taskList.hideCompletedTasks ? 1 : 0) + (canEdit ? 3 : Number(!!taskList.assigneeUserId));
+ 
+   return (
+     <Draggable
+@@ -70,6 +90,7 @@ const Item = React.memo(({ id, index }) => {
+                     withActions && styles.moduleHeaderWithActions,
+                     visibleActionsCount === 2 && styles.two,
+                     visibleActionsCount === 3 && styles.three,
++                    visibleActionsCount === 4 && styles.four,
+                   )}
+                 >
+                   {taskList.isPersisted && withActions && (
+@@ -86,6 +107,33 @@ const Item = React.memo(({ id, index }) => {
+                           />
+                         </Button>
+                       )}
++                      {canEdit ? (
++                        <SelectAssigneePopup
++                          currentUserId={taskList.assigneeUserId}
++                          onUserSelect={handleUserSelect}
++                          onUserDeselect={handleUserDeselect}
++                        >
++                          {taskList.assigneeUserId ? (
++                            <UserAvatar
++                              id={taskList.assigneeUserId}
++                              size="tiny"
++                              className={styles.assigneeUserAvatar}
++                            />
++                          ) : (
++                            <Button className={styles.editButton}>
++                              <Icon fitted name="add user" size="small" />
++                            </Button>
++                          )}
++                        </SelectAssigneePopup>
++                      ) : (
++                        taskList.assigneeUserId && (
++                          <UserAvatar
++                            id={taskList.assigneeUserId}
++                            size="tiny"
++                            className={styles.assigneeUserAvatar}
++                          />
++                        )
++                      )}
+                       {canEdit && (
+                         <EditDatesPopup taskListId={taskList.id}>
+                           <Button className={styles.editButton}>
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.module.scss b/client/src/components/cards/CardModal/TaskLists/Item.module.scss
+index 064545f..56a20af 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.module.scss
++++ b/client/src/components/cards/CardModal/TaskLists/Item.module.scss
+@@ -12,6 +12,10 @@
+     top: 4px;
+   }
+ 
++  .assigneeUserAvatar {
++    padding: 2px;
++  }
++
+   .button {
+     background: transparent;
+     box-shadow: none;
+@@ -70,6 +74,10 @@
+     &.three {
+       padding-right: 92px;
+     }
++
++    &.four {
++      padding-right: 122px;
++    }
+   }
+ 
+   .moduleHeaderTitle {
+diff --git a/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx b/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
+index 1db594e..e266774 100755
+--- a/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
++++ b/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
+@@ -3,8 +3,9 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useCallback, useEffect, useMemo } from 'react';
++import React, { useCallback, useEffect, useMemo, useState } from 'react';
+ import PropTypes from 'prop-types';
++import classNames from 'classnames';
+ import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+ import DatePicker from 'react-datepicker';
+@@ -19,27 +20,35 @@ import parseTime from '../../../utils/parse-time';
+ 
+ import styles from './EditDueDateStep.module.scss';
+ 
+-// BSY Media: combined "Dates" popup, shows Start Date and Due Date together
+-// (Trello-style), and can target either a card or a checklist (TaskList) —
+-// exactly one of cardId/taskListId is provided by the caller. Card dates are
+-// stored as Date instances client-side (matching the existing transformCard/
+-// transformCardData pipeline in api/cards.js); TaskList has no such
+-// transform layer, so its dates are kept as raw ISO strings in the store and
+-// parsed to Date here only for editing/display.
++// BSY Media: "Dates" popup, targets a card, a checklist (TaskList), or a
++// checklist item (Task) - exactly one of cardId/taskListId/taskId is
++// provided by the caller. Card dates are stored as Date instances
++// client-side (matching the existing transformCard/transformCardData
++// pipeline in api/cards.js); TaskList and Task have no such transform
++// layer, so their dates are kept as raw ISO strings in the store and parsed
++// to Date here only for editing/display.
+ //
+-// A single shared calendar drives the due date only - clicking a day moves
+-// the due date (orange), matching the common case of "start stays put,
+-// figure out the due date". The start date (blue) is shown on the same
+-// calendar as a passive marker (react-datepicker's highlightDates, not
+-// `selected`), editable only via its own text box above, not by clicking
+-// the calendar - a plain single-date picker, not a range picker.
+-const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) => {
++// Two tabs, "Start date" and "Due date", each with its own date+time boxes
++// and the same shared calendar underneath - whichever tab is active decides
++// what the calendar's `selected` day is and what a day-click updates. Start
++// date always has a value (defaults to today when unset); due date has no
++// default and is entirely optional - leaving its fields blank and saving
++// simply doesn't touch the due date (or clears it, if it was previously
++// set). Colour logic: blue for start, orange for due, both shown as
++// highlightDates markers on the calendar regardless of which tab is active,
++// with a faint fill on the days strictly between the two.
++const EditDueDateStep = React.memo(({ cardId, taskListId, taskId, onBack, onClose }) => {
+   const selectCardById = useMemo(() => selectors.makeSelectCardById(), []);
+   const selectTaskListById = useMemo(() => selectors.makeSelectTaskListById(), []);
++  const selectTaskById = useMemo(() => selectors.makeSelectTaskById(), []);
+ 
+-  const target = useSelector((state) =>
+-    taskListId ? selectTaskListById(state, taskListId) : selectCardById(state, cardId),
+-  );
++  const target = useSelector((state) => {
++    if (taskId) {
++      return selectTaskById(state, taskId);
++    }
++
++    return taskListId ? selectTaskListById(state, taskListId) : selectCardById(state, cardId);
++  });
+ 
+   const toDateOrNull = (value) => {
+     if (!value) {
+@@ -55,9 +64,11 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) =>
+   const dispatch = useDispatch();
+   const [t] = useTranslation();
+ 
++  const [activeTab, setActiveTab] = useState('startDate');
++
+   const [data, handleFieldChange, setData] = useForm(() => {
+     const startDate = defaultStartDate || new Date().setHours(12, 0, 0, 0);
+-    const dueDate = defaultDueDate || new Date().setHours(12, 0, 0, 0);
++    const dueTimeBasis = defaultDueDate || new Date().setHours(12, 0, 0, 0);
+ 
+     return {
+       startDate: t('format:date', {
+@@ -68,24 +79,75 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) =>
+         postProcess: 'formatDate',
+         value: startDate,
+       }),
+-      dueDate: t('format:date', {
+-        postProcess: 'formatDate',
+-        value: dueDate,
+-      }),
++      dueDate: defaultDueDate
++        ? t('format:date', {
++            postProcess: 'formatDate',
++            value: defaultDueDate,
++          })
++        : '',
+       dueTime: t('format:time', {
+         postProcess: 'formatDate',
+-        value: dueDate,
++        value: dueTimeBasis,
+       }),
+     };
+   });
+ 
++  const [selectStartTimeFieldState, selectStartTimeField] = useToggle();
+   const [selectDueTimeFieldState, selectDueTimeField] = useToggle();
++  const [pendingFocusField, setPendingFocusField] = useState(null);
+ 
+   const [startDateFieldRef, handleStartDateFieldRef] = useNestedRef('inputRef');
+   const [startTimeFieldRef, handleStartTimeFieldRef] = useNestedRef('inputRef');
+   const [dueDateFieldRef, handleDueDateFieldRef] = useNestedRef('inputRef');
+   const [dueTimeFieldRef, handleDueTimeFieldRef] = useNestedRef('inputRef');
+ 
++  const fieldRefByName = useMemo(
++    () => ({
++      startDate: startDateFieldRef,
++      startTime: startTimeFieldRef,
++      dueDate: dueDateFieldRef,
++      dueTime: dueTimeFieldRef,
++    }),
++    [startDateFieldRef, startTimeFieldRef, dueDateFieldRef, dueTimeFieldRef],
++  );
++
++  const tabByField = {
++    startDate: 'startDate',
++    startTime: 'startDate',
++    dueDate: 'dueDate',
++    dueTime: 'dueDate',
++  };
++
++  // BSY Media: a validation failure can be for a field on the tab that
++  // isn't currently active (e.g. the user broke the start time, switched to
++  // the due tab, then hit Save) - its input isn't mounted yet, so focusing
++  // it has to wait until the tab switch actually renders it.
++  const focusField = useCallback(
++    (fieldName) => {
++      const tab = tabByField[fieldName];
++
++      if (activeTab === tab) {
++        fieldRefByName[fieldName].current.select();
++      } else {
++        setActiveTab(tab);
++        setPendingFocusField(fieldName);
++      }
++    },
++    [activeTab, fieldRefByName], // eslint-disable-line react-hooks/exhaustive-deps
++  );
++
++  useDidUpdate(() => {
++    if (pendingFocusField) {
++      const ref = fieldRefByName[pendingFocusField];
++
++      if (ref.current) {
++        ref.current.select();
++      }
++
++      setPendingFocusField(null);
++    }
++  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
++
+   const nullableStartDate = useMemo(() => {
+     const date = t('format:date', {
+       postProcess: 'parseDate',
+@@ -106,12 +168,7 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) =>
+ 
+   const handleSubmit = useCallback(() => {
+     if (!nullableStartDate) {
+-      startDateFieldRef.current.select();
+-      return;
+-    }
+-
+-    if (!nullableDueDate) {
+-      dueDateFieldRef.current.select();
++      focusField('startDate');
+       return;
+     }
+ 
+@@ -124,37 +181,53 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) =>
+       nextStartDate = parseTime(data.startTime, nullableStartDate);
+ 
+       if (Number.isNaN(nextStartDate.getTime())) {
+-        startTimeFieldRef.current.select();
++        focusField('startTime');
+         return;
+       }
+     }
+ 
+-    let nextDueDate = t('format:dateTime', {
+-      postProcess: 'parseDate',
+-      value: `${data.dueDate} ${data.dueTime}`,
+-    });
++    const isDueDateProvided = data.dueDate.trim().length > 0;
++    let nextDueDate = null;
++
++    if (isDueDateProvided) {
++      if (!nullableDueDate) {
++        focusField('dueDate');
++        return;
++      }
+ 
+-    if (Number.isNaN(nextDueDate.getTime())) {
+-      nextDueDate = parseTime(data.dueTime, nullableDueDate);
++      nextDueDate = t('format:dateTime', {
++        postProcess: 'parseDate',
++        value: `${data.dueDate} ${data.dueTime}`,
++      });
+ 
+       if (Number.isNaN(nextDueDate.getTime())) {
+-        dueTimeFieldRef.current.select();
+-        return;
++        nextDueDate = parseTime(data.dueTime, nullableDueDate);
++
++        if (Number.isNaN(nextDueDate.getTime())) {
++          focusField('dueTime');
++          return;
++        }
+       }
+     }
+ 
+     const values = {};
+ 
+     if (!defaultStartDate || nextStartDate.getTime() !== defaultStartDate.getTime()) {
+-      values.startDate = taskListId ? nextStartDate.toISOString() : nextStartDate;
++      values.startDate = cardId ? nextStartDate : nextStartDate.toISOString();
+     }
+ 
+-    if (!defaultDueDate || nextDueDate.getTime() !== defaultDueDate.getTime()) {
+-      values.dueDate = taskListId ? nextDueDate.toISOString() : nextDueDate;
++    if (nextDueDate) {
++      if (!defaultDueDate || nextDueDate.getTime() !== defaultDueDate.getTime()) {
++        values.dueDate = cardId ? nextDueDate : nextDueDate.toISOString();
++      }
++    } else if (defaultDueDate) {
++      values.dueDate = null;
+     }
+ 
+     if (Object.keys(values).length > 0) {
+-      if (taskListId) {
++      if (taskId) {
++        dispatch(entryActions.updateTask(taskId, values));
++      } else if (taskListId) {
+         dispatch(entryActions.updateTaskList(taskListId, values));
+       } else {
+         dispatch(entryActions.updateCard(cardId, values));
+@@ -165,59 +238,79 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) =>
+   }, [
+     cardId,
+     taskListId,
++    taskId,
+     onClose,
+     defaultStartDate,
+     defaultDueDate,
+     dispatch,
+     t,
+     data,
+-    startDateFieldRef,
+-    startTimeFieldRef,
+-    dueDateFieldRef,
+-    dueTimeFieldRef,
++    focusField,
+     nullableStartDate,
+     nullableDueDate,
+   ]);
+ 
+   const handleClearStartClick = useCallback(() => {
+     if (defaultStartDate) {
+-      if (taskListId) {
++      if (taskId) {
++        dispatch(entryActions.updateTask(taskId, { startDate: null }));
++      } else if (taskListId) {
+         dispatch(entryActions.updateTaskList(taskListId, { startDate: null }));
+       } else {
+         dispatch(entryActions.updateCard(cardId, { startDate: null }));
+       }
+     }
+-  }, [cardId, taskListId, defaultStartDate, dispatch]);
++  }, [cardId, taskListId, taskId, defaultStartDate, dispatch]);
+ 
+   const handleClearDueClick = useCallback(() => {
+     if (defaultDueDate) {
+-      if (taskListId) {
++      if (taskId) {
++        dispatch(entryActions.updateTask(taskId, { dueDate: null }));
++      } else if (taskListId) {
+         dispatch(entryActions.updateTaskList(taskListId, { dueDate: null }));
+       } else {
+         dispatch(entryActions.updateCard(cardId, { dueDate: null }));
+       }
+     }
+-  }, [cardId, taskListId, defaultDueDate, dispatch]);
++  }, [cardId, taskListId, taskId, defaultDueDate, dispatch]);
+ 
+-  const handleDueDatePickerChange = useCallback(
++  const handleStartTabClick = useCallback(() => {
++    setActiveTab('startDate');
++  }, []);
++
++  const handleDueTabClick = useCallback(() => {
++    setActiveTab('dueDate');
++  }, []);
++
++  const handleCalendarChange = useCallback(
+     (date) => {
+-      setData((prevData) => ({
+-        ...prevData,
+-        dueDate: t('format:date', {
+-          postProcess: 'formatDate',
+-          value: date,
+-        }),
+-      }));
+-      selectDueTimeField();
++      const formattedDate = t('format:date', {
++        postProcess: 'formatDate',
++        value: date,
++      });
++
++      if (activeTab === 'startDate') {
++        setData((prevData) => ({
++          ...prevData,
++          startDate: formattedDate,
++        }));
++        selectStartTimeField();
++      } else {
++        setData((prevData) => ({
++          ...prevData,
++          dueDate: formattedDate,
++        }));
++        selectDueTimeField();
++      }
+     },
+-    [t, setData, selectDueTimeField],
++    [activeTab, t, setData, selectStartTimeField, selectDueTimeField],
+   );
+ 
+   // BSY Media: days strictly between start and due get a faint highlight so
+   // the range reads as a timeline at a glance - computed by hand (not
+   // react-datepicker's selectsRange) since that mode is what caused the
+   // click-target bug this replaced: every click on a calendar in range mode
+-  // starts a brand new range instead of just moving the due date.
++  // starts a brand new range instead of just moving the active tab's date.
+   const inRangeDates = useMemo(() => {
+     if (!nullableStartDate || !nullableDueDate) {
+       return [];
+@@ -242,17 +335,25 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) =>
+       groups.push({ [styles.startDateHighlight]: [nullableStartDate] });
+     }
+ 
++    if (nullableDueDate) {
++      groups.push({ [styles.dueDateHighlight]: [nullableDueDate] });
++    }
++
+     if (inRangeDates.length > 0) {
+       groups.push({ [styles.inRangeHighlight]: inRangeDates });
+     }
+ 
+     return groups;
+-  }, [nullableStartDate, inRangeDates]);
++  }, [nullableStartDate, nullableDueDate, inRangeDates]);
+ 
+   useEffect(() => {
+     startDateFieldRef.current.select();
+   }, [startDateFieldRef]);
+ 
++  useDidUpdate(() => {
++    startTimeFieldRef.current.select();
++  }, [selectStartTimeFieldState]);
++
+   useDidUpdate(() => {
+     dueTimeFieldRef.current.select();
+   }, [selectDueTimeFieldState]);
+@@ -266,78 +367,97 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) =>
+       </Popup.Header>
+       <Popup.Content>
+         <Form onSubmit={handleSubmit}>
+-          <div className={styles.text}>
+-            {t('common.startDate', {
+-              context: 'title',
+-            })}
+-          </div>
+-          <div className={styles.fieldWrapper}>
+-            <div className={styles.fieldBox}>
+-              <div className={styles.text}>{t('common.date')}</div>
+-              <Input
+-                ref={handleStartDateFieldRef}
+-                name="startDate"
+-                value={data.startDate}
+-                maxLength={16}
+-                onChange={handleFieldChange}
+-              />
+-            </div>
+-            <div className={styles.fieldBox}>
+-              <div className={styles.text}>{t('common.time')}</div>
+-              <Input
+-                ref={handleStartTimeFieldRef}
+-                name="startTime"
+-                value={data.startTime}
+-                maxLength={16}
+-                onChange={handleFieldChange}
+-              />
+-            </div>
++          <div className={styles.tabs}>
+             <Button
+               type="button"
+-              icon="x"
+-              className={styles.clearFieldButton}
+-              onClick={handleClearStartClick}
+-            />
+-          </div>
+-          <div className={styles.text}>
+-            {t('common.dueDate', {
+-              context: 'title',
+-            })}
++              className={classNames(
++                styles.tabButton,
++                activeTab === 'startDate' && styles.tabButtonStartActive,
++              )}
++              onClick={handleStartTabClick}
++            >
++              {t('common.startDate', {
++                context: 'title',
++              })}
++            </Button>
++            <Button
++              type="button"
++              className={classNames(
++                styles.tabButton,
++                activeTab === 'dueDate' && styles.tabButtonDueActive,
++              )}
++              onClick={handleDueTabClick}
++            >
++              {t('common.dueDate', {
++                context: 'title',
++              })}
++            </Button>
+           </div>
+-          <div className={styles.fieldWrapper}>
+-            <div className={styles.fieldBox}>
+-              <div className={styles.text}>{t('common.date')}</div>
+-              <Input
+-                ref={handleDueDateFieldRef}
+-                name="dueDate"
+-                value={data.dueDate}
+-                maxLength={16}
+-                onChange={handleFieldChange}
++          {activeTab === 'startDate' ? (
++            <div className={styles.fieldWrapper}>
++              <div className={styles.fieldBox}>
++                <div className={styles.text}>{t('common.date')}</div>
++                <Input
++                  ref={handleStartDateFieldRef}
++                  name="startDate"
++                  value={data.startDate}
++                  maxLength={16}
++                  onChange={handleFieldChange}
++                />
++              </div>
++              <div className={styles.fieldBox}>
++                <div className={styles.text}>{t('common.time')}</div>
++                <Input
++                  ref={handleStartTimeFieldRef}
++                  name="startTime"
++                  value={data.startTime}
++                  maxLength={16}
++                  onChange={handleFieldChange}
++                />
++              </div>
++              <Button
++                type="button"
++                icon="x"
++                className={styles.clearFieldButton}
++                onClick={handleClearStartClick}
+               />
+             </div>
+-            <div className={styles.fieldBox}>
+-              <div className={styles.text}>{t('common.time')}</div>
+-              <Input
+-                ref={handleDueTimeFieldRef}
+-                name="dueTime"
+-                value={data.dueTime}
+-                maxLength={16}
+-                onChange={handleFieldChange}
++          ) : (
++            <div className={styles.fieldWrapper}>
++              <div className={styles.fieldBox}>
++                <div className={styles.text}>{t('common.date')}</div>
++                <Input
++                  ref={handleDueDateFieldRef}
++                  name="dueDate"
++                  value={data.dueDate}
++                  maxLength={16}
++                  onChange={handleFieldChange}
++                />
++              </div>
++              <div className={styles.fieldBox}>
++                <div className={styles.text}>{t('common.time')}</div>
++                <Input
++                  ref={handleDueTimeFieldRef}
++                  name="dueTime"
++                  value={data.dueTime}
++                  maxLength={16}
++                  onChange={handleFieldChange}
++                />
++              </div>
++              <Button
++                type="button"
++                icon="x"
++                className={styles.clearFieldButton}
++                onClick={handleClearDueClick}
+               />
+             </div>
+-            <Button
+-              type="button"
+-              icon="x"
+-              className={styles.clearFieldButton}
+-              onClick={handleClearDueClick}
+-            />
+-          </div>
++          )}
+           <DatePicker
+             inline
+             disabledKeyboardNavigation
+-            selected={nullableDueDate}
++            selected={activeTab === 'startDate' ? nullableStartDate : nullableDueDate}
+             highlightDates={highlightDates}
+-            onChange={handleDueDatePickerChange}
++            onChange={handleCalendarChange}
+           />
+           <Button positive content={t('action.save')} className={styles.saveButton} />
+         </Form>
+@@ -349,6 +469,7 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, onBack, onClose }) =>
+ EditDueDateStep.propTypes = {
+   cardId: PropTypes.string,
+   taskListId: PropTypes.string,
++  taskId: PropTypes.string,
+   onBack: PropTypes.func,
+   onClose: PropTypes.func.isRequired,
+ };
+@@ -356,6 +477,7 @@ EditDueDateStep.propTypes = {
+ EditDueDateStep.defaultProps = {
+   cardId: undefined,
+   taskListId: undefined,
++  taskId: undefined,
+   onBack: undefined,
+ };
+ 
+diff --git a/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss b/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss
+index bc123a7..2177cf8 100644
+--- a/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss
++++ b/client/src/components/cards/EditDueDateStep/EditDueDateStep.module.scss
+@@ -9,6 +9,36 @@
+     width: 100%;
+   }
+ 
++  // BSY Media: two-tab switcher ("Start date" / "Due date") above the
++  // date/time boxes - active tab tinted to match the calendar's colour
++  // logic (blue for start, orange for due) so it's obvious at a glance
++  // which date you're currently editing.
++  .tabs {
++    display: flex;
++    gap: 4px;
++    margin-bottom: 12px;
++  }
++
++  .tabButton {
++    background: rgba(9, 30, 66, 0.06);
++    flex: 1 1 auto;
++    margin: 0;
++
++    &:hover {
++      background: rgba(9, 30, 66, 0.12);
++    }
++  }
++
++  .tabButtonStartActive {
++    background: #2185d0 !important;
++    color: #fff !important;
++  }
++
++  .tabButtonDueActive {
++    background: #e8632c !important;
++    color: #fff !important;
++  }
++
+   .fieldBox {
+     flex: 1 1 auto;
+     margin: 0 4px;
+@@ -50,6 +80,14 @@
+     color: #fff !important;
+   }
+ 
++  // Same as above, but for the due date - shown regardless of which tab is
++  // active so switching tabs never hides the other date's marker.
++  .dueDateHighlight {
++    background: #e8632c !important;
++    border-radius: 0;
++    color: #fff !important;
++  }
++
+   // Faint orange fill for the days strictly between start and due, so the
+   // range reads as a timeline at a glance.
+   .inRangeHighlight {
+diff --git a/client/src/components/task-lists/TaskList/Task/Task.jsx b/client/src/components/task-lists/TaskList/Task/Task.jsx
+index 42a5763..f6ac971 100755
+--- a/client/src/components/task-lists/TaskList/Task/Task.jsx
++++ b/client/src/components/task-lists/TaskList/Task/Task.jsx
+@@ -25,6 +25,8 @@ import SelectAssigneeStep from './SelectAssigneeStep';
+ import ActionsStep from './ActionsStep';
+ import Linkify from '../../../common/Linkify';
+ import UserAvatar from '../../../users/UserAvatar';
++import DueDateChip from '../../../cards/DueDateChip';
++import EditDueDateStep from '../../../cards/EditDueDateStep';
+ 
+ import styles from './Task.module.scss';
+ 
+@@ -115,6 +117,7 @@ const Task = React.memo(({ id, index }) => {
+   }, [isEditNameOpened]);
+ 
+   const SelectAssigneePopup = usePopupInClosableContext(SelectAssigneeStep);
++  const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
+   const ActionsPopup = usePopupInClosableContext(ActionsStep);
+ 
+   return (
+@@ -186,6 +189,31 @@ const Task = React.memo(({ id, index }) => {
+                     )}
+                   </span>
+                 </span>
++                {(task.startDate || task.dueDate) && (
++                  <div className={styles.dates}>
++                    {task.startDate && (
++                      <span className={styles.dateChip}>
++                        <DueDateChip
++                          size="tiny"
++                          value={new Date(task.startDate)}
++                          isCompleted={false}
++                          withStatus={false}
++                        />
++                      </span>
++                    )}
++                    {task.dueDate && (
++                      <span className={styles.dateChip}>
++                        <DueDateChip
++                          size="tiny"
++                          withStatusIcon
++                          value={new Date(task.dueDate)}
++                          isCompleted={!!task.isDueCompleted}
++                          withStatus
++                        />
++                      </span>
++                    )}
++                  </div>
++                )}
+                 {(task.assigneeUserId || isEditable) && (
+                   <div className={classNames(styles.actions, isEditable && styles.actionsEditable)}>
+                     {isEditable ? (
+@@ -209,6 +237,13 @@ const Task = React.memo(({ id, index }) => {
+                             )}
+                           </SelectAssigneePopup>
+                         )}
++                        {!task.linkedCardId && (
++                          <EditDatesPopup taskId={id}>
++                            <Button className={styles.editButton}>
++                              <Icon fitted name="calendar outline" size="small" />
++                            </Button>
++                          </EditDatesPopup>
++                        )}
+                         <ActionsPopup taskId={id} onNameEdit={handleNameEdit}>
+                           <Button className={styles.editButton}>
+                             <Icon fitted name="pencil" size="small" />
+diff --git a/client/src/components/task-lists/TaskList/Task/Task.module.scss b/client/src/components/task-lists/TaskList/Task/Task.module.scss
+index ba7540f..fcda157 100644
+--- a/client/src/components/task-lists/TaskList/Task/Task.module.scss
++++ b/client/src/components/task-lists/TaskList/Task/Task.module.scss
+@@ -20,13 +20,16 @@
+     padding: 2px;
+   }
+ 
++  // BSY Media: was hover-only (opacity: 0, revealed via .contentHoverable:hover
++  // below) - the client wants the add-assignee button always visible, same
++  // as the edit pencil already is.
+   .button {
+     background: transparent;
+     box-shadow: none;
+     line-height: 28px;
+     margin: 0;
+     min-height: auto;
+-    opacity: 0;
++    opacity: 1;
+     padding: 0;
+     width: 28px;
+ 
+@@ -35,6 +38,17 @@
+     }
+   }
+ 
++  .dates {
++    display: flex;
++    flex-wrap: wrap;
++    gap: 6px;
++    margin: -4px 0 4px 40px;
++  }
++
++  .dateChip {
++    display: inline-block;
++  }
++
+   // BSY Media: same as .button, but always visible - the edit pencil
+   // shouldn't be hover-only, unlike the add-assignee button above.
+   .editButton {
+@@ -67,10 +81,6 @@
+ 
+   .contentHoverable:hover {
+     background: rgba(9, 30, 66, 0.04);
+-
+-    .button {
+-      opacity: 1;
+-    }
+   }
+ 
+   .icon {
+@@ -116,7 +126,7 @@
+   }
+ 
+   .textEditable {
+-    padding-right: 68px;
++    padding-right: 98px;
+ 
+     &.textLinked {
+       padding-right: 34px;
+diff --git a/client/src/models/Task.js b/client/src/models/Task.js
+index 73a8feb..574cf1b 100755
+--- a/client/src/models/Task.js
++++ b/client/src/models/Task.js
+@@ -18,6 +18,9 @@ export default class extends BaseModel {
+     isCompleted: attr({
+       getDefault: () => false,
+     }),
++    startDate: attr(),
++    dueDate: attr(),
++    isDueCompleted: attr(),
+     taskListId: fk({
+       to: 'TaskList',
+       as: 'taskList',
+diff --git a/client/src/models/TaskList.js b/client/src/models/TaskList.js
+index e992370..ecee804 100755
+--- a/client/src/models/TaskList.js
++++ b/client/src/models/TaskList.js
+@@ -25,6 +25,11 @@ export default class extends BaseModel {
+       as: 'card',
+       relatedName: 'taskLists',
+     }),
++    assigneeUserId: fk({
++      to: 'User',
++      as: 'user',
++      relatedName: 'assignedTaskLists',
++    }),
+   };
+ 
+   static reducer({ type, payload }, TaskList) {
+diff --git a/client/src/selectors/gantt.js b/client/src/selectors/gantt.js
+index 2c7826c..362d90a 100644
+--- a/client/src/selectors/gantt.js
++++ b/client/src/selectors/gantt.js
+@@ -43,14 +43,28 @@ export const selectGanttItemsForCurrentBoard = createSelector(
+         .map((taskListModel) => {
+           const taskRefs = taskListModel.getTasksQuerySet().toRefArray();
+ 
++          const tasks = taskRefs
++            .filter((task) => task.startDate || task.dueDate)
++            .map((task) => ({
++              id: task.id,
++              name: task.name,
++              startDate: toDateOrNull(task.startDate),
++              dueDate: toDateOrNull(task.dueDate),
++              isDueCompleted: !!task.isDueCompleted,
++              isCompleted: !!task.isCompleted,
++              assigneeUserId: task.assigneeUserId,
++            }));
++
+           return {
+             id: taskListModel.id,
+             name: taskListModel.name,
+             startDate: toDateOrNull(taskListModel.startDate),
+             dueDate: toDateOrNull(taskListModel.dueDate),
+             isDueCompleted: !!taskListModel.isDueCompleted,
++            assigneeUserId: taskListModel.assigneeUserId,
+             tasksTotal: taskRefs.length,
+             tasksCompletedCount: taskRefs.filter((task) => task.isCompleted).length,
++            tasks,
+           };
+         });
+ 
+diff --git a/server/api/controllers/task-lists/update.js b/server/api/controllers/task-lists/update.js
+index 8f62ee6..e0a739f 100755
+--- a/server/api/controllers/task-lists/update.js
++++ b/server/api/controllers/task-lists/update.js
+@@ -62,6 +62,11 @@
+  *                 nullable: true
+  *                 description: Whether the due date is marked as completed
+  *                 example: false
++ *               assigneeUserId:
++ *                 type: string
++ *                 nullable: true
++ *                 description: ID of the user assigned as the owner of this task list (null to unassign)
++ *                 example: "1357158568008091268"
+  *     responses:
+  *       200:
+  *         description: Task list updated successfully
+@@ -94,6 +99,9 @@ const Errors = {
+   TASK_LIST_NOT_FOUND: {
+     taskListNotFound: 'Task list not found',
+   },
++  USER_NOT_FOUND: {
++    userNotFound: 'User not found',
++  },
+ };
+ 
+ module.exports = {
+@@ -131,6 +139,10 @@ module.exports = {
+       type: 'boolean',
+       allowNull: true,
+     },
++    assigneeUserId: {
++      ...idInput,
++      allowNull: true,
++    },
+   },
+ 
+   exits: {
+@@ -140,6 +152,9 @@ module.exports = {
+     taskListNotFound: {
+       responseType: 'notFound',
+     },
++    userNotFound: {
++      responseType: 'notFound',
++    },
+   },
+ 
+   async fn(inputs) {
+@@ -163,6 +178,17 @@ module.exports = {
+       throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.TASK_LIST_NOT_FOUND;
+     }
+ 
++    if (inputs.assigneeUserId) {
++      const isBoardMember = await sails.helpers.users.isBoardMember(
++        inputs.assigneeUserId,
++        board.id,
++      );
++
++      if (!isBoardMember) {
++        throw Errors.USER_NOT_FOUND;
++      }
++    }
++
+     const values = _.pick(inputs, [
+       'position',
+       'name',
+@@ -171,6 +197,7 @@ module.exports = {
+       'startDate',
+       'dueDate',
+       'isDueCompleted',
++      'assigneeUserId',
+     ]);
+ 
+     taskList = await sails.helpers.taskLists.updateOne.with({
+diff --git a/server/api/controllers/tasks/update.js b/server/api/controllers/tasks/update.js
+index 1aec85e..4475f2b 100755
+--- a/server/api/controllers/tasks/update.js
++++ b/server/api/controllers/tasks/update.js
+@@ -50,6 +50,23 @@
+  *                 type: boolean
+  *                 description: Whether the task is completed
+  *                 example: true
++ *               startDate:
++ *                 type: string
++ *                 format: date-time
++ *                 nullable: true
++ *                 description: Start date for the task
++ *                 example: 2024-01-01T00:00:00.000Z
++ *               dueDate:
++ *                 type: string
++ *                 format: date-time
++ *                 nullable: true
++ *                 description: Due date for the task
++ *                 example: 2024-01-01T00:00:00.000Z
++ *               isDueCompleted:
++ *                 type: boolean
++ *                 nullable: true
++ *                 description: Whether the due date is marked as completed
++ *                 example: false
+  *     responses:
+  *       200:
+  *         description: Task updated successfully
+@@ -73,6 +90,7 @@
+  */
+ 
+ const { idInput } = require('../../../utils/inputs');
++const { isDueDate } = require('../../../utils/validators');
+ 
+ const Errors = {
+   NOT_ENOUGH_RIGHTS: {
+@@ -112,6 +130,20 @@ module.exports = {
+     isCompleted: {
+       type: 'boolean',
+     },
++    startDate: {
++      type: 'string',
++      custom: isDueDate,
++      allowNull: true,
++    },
++    dueDate: {
++      type: 'string',
++      custom: isDueDate,
++      allowNull: true,
++    },
++    isDueCompleted: {
++      type: 'boolean',
++      allowNull: true,
++    },
+   },
+ 
+   exits: {
+@@ -180,7 +212,15 @@ module.exports = {
+       }
+     }
+ 
+-    const values = _.pick(inputs, ['assigneeUserId', 'position', 'name', 'isCompleted']);
++    const values = _.pick(inputs, [
++      'assigneeUserId',
++      'position',
++      'name',
++      'isCompleted',
++      'startDate',
++      'dueDate',
++      'isDueCompleted',
++    ]);
+ 
+     task = await sails.helpers.tasks.updateOne.with({
+       project,
+diff --git a/server/api/models/Task.js b/server/api/models/Task.js
+index fd47c30..54e9d7a 100755
+--- a/server/api/models/Task.js
++++ b/server/api/models/Task.js
+@@ -58,6 +58,23 @@
+  *           default: false
+  *           description: Whether the task is completed
+  *           example: false
++ *         startDate:
++ *           type: string
++ *           format: date-time
++ *           nullable: true
++ *           description: Start date of the task
++ *           example: 2024-01-01T00:00:00.000Z
++ *         dueDate:
++ *           type: string
++ *           format: date-time
++ *           nullable: true
++ *           description: Due date of the task
++ *           example: 2024-01-01T00:00:00.000Z
++ *         isDueCompleted:
++ *           type: boolean
++ *           nullable: true
++ *           description: Whether the due date is marked as completed
++ *           example: false
+  *         createdAt:
+  *           type: string
+  *           format: date-time
+@@ -91,6 +108,19 @@ module.exports = {
+       defaultsTo: false,
+       columnName: 'is_completed',
+     },
++    startDate: {
++      type: 'ref',
++      columnName: 'start_date',
++    },
++    dueDate: {
++      type: 'ref',
++      columnName: 'due_date',
++    },
++    isDueCompleted: {
++      type: 'boolean',
++      allowNull: true,
++      columnName: 'is_due_completed',
++    },
+ 
+     //  ╔═╗╔╦╗╔╗ ╔═╗╔╦╗╔═╗
+     //  ║╣ ║║║╠╩╗║╣  ║║╚═╗
+diff --git a/server/api/models/TaskList.js b/server/api/models/TaskList.js
+index 3784307..432d161 100644
+--- a/server/api/models/TaskList.js
++++ b/server/api/models/TaskList.js
+@@ -69,6 +69,11 @@
+  *           nullable: true
+  *           description: Whether the due date is marked as completed
+  *           example: false
++ *         assigneeUserId:
++ *           type: string
++ *           nullable: true
++ *           description: ID of the user assigned as the owner of this task list
++ *           example: "1357158568008091268"
+  *         createdAt:
+  *           type: string
+  *           format: date-time
+@@ -129,6 +134,10 @@ module.exports = {
+     //  ╠═╣╚═╗╚═╗║ ║║  ║╠═╣ ║ ║║ ║║║║╚═╗
+     //  ╩ ╩╚═╝╚═╝╚═╝╚═╝╩╩ ╩ ╩ ╩╚═╝╝╚╝╚═╝
+ 
++    assigneeUserId: {
++      model: 'User',
++      columnName: 'assignee_user_id',
++    },
+     cardId: {
+       model: 'Card',
+       required: true,
+diff --git a/server/db/migrations/20260811130000_add_dates_to_task.js b/server/db/migrations/20260811130000_add_dates_to_task.js
+new file mode 100644
+index 0000000..31fbca0
+--- /dev/null
++++ b/server/db/migrations/20260811130000_add_dates_to_task.js
+@@ -0,0 +1,18 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++module.exports.up = (knex) =>
++  knex.schema.alterTable('task', (table) => {
++    table.timestamp('start_date', true);
++    table.timestamp('due_date', true);
++    table.boolean('is_due_completed');
++  });
++
++module.exports.down = (knex) =>
++  knex.schema.alterTable('task', (table) => {
++    table.dropColumn('start_date');
++    table.dropColumn('due_date');
++    table.dropColumn('is_due_completed');
++  });
+diff --git a/server/db/migrations/20260811130001_add_assignee_to_task_list.js b/server/db/migrations/20260811130001_add_assignee_to_task_list.js
+new file mode 100644
+index 0000000..b2897bb
+--- /dev/null
++++ b/server/db/migrations/20260811130001_add_assignee_to_task_list.js
+@@ -0,0 +1,14 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++module.exports.up = (knex) =>
++  knex.schema.alterTable('task_list', (table) => {
++    table.bigInteger('assignee_user_id');
++  });
++
++module.exports.down = (knex) =>
++  knex.schema.alterTable('task_list', (table) => {
++    table.dropColumn('assignee_user_id');
++  });
