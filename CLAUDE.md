@@ -737,6 +737,81 @@ real `createTaskList`/`completeTask`/`deleteTaskList` entries with timestamps du
 session). Since the client was actively testing the feature live at the time, deliberately avoided
 adding more test data on top of that and left both fixes for them to confirm directly.
 
+## Board-level Gantt view (2026-08-11)
+
+Client asked for a standard horizontal Gantt chart covering every dated card/checklist on a
+board, opened via a new button next to Share, with 4 sub-tabs: Timeline (Gantt, grouped by card,
+default), Tasks (flat list grouped by card, includes undated items — a full audit), Team workload
+(same Gantt renderer, grouped by board member), Schedule (flat agenda list grouped by date).
+Confirmed with the client up front: click-a-bar-to-edit (reusing the existing Dates popup, no
+drag/resize on the chart itself — no Gantt library in this stack to lean on for that), auto-fit +
+scroll date range with a "today" marker instead of zoom controls, and Tasks tab shows undated
+items while Timeline/Team workload/Schedule only plot dated ones.
+
+**Pure client-side feature — no migrations, no server changes.** `Card.startDate/dueDate` and
+`TaskList.startDate/dueDate/isDueCompleted` (added in the checklists/dates overhaul above) were
+already sufficient; `Task` (checklist item) has no dates and was correctly left out of all 4
+views, even though it does carry a pre-existing `assigneeUserId` field — that field has no date to
+plot, so Team workload attribution is card-membership-only.
+
+- **New selector**, `client/src/selectors/gantt.js` (`selectGanttItemsForCurrentBoard`): the single
+  data source for all 4 tabs. Walks `Board.getCardsModelArray()` (already excludes archive/trash
+  lists — confirmed by reading the model, not assumed) once per board, returning each card with
+  its normalized dates, member IDs, and nested checklist array (also normalized — `Card` dates are
+  already `Date` instances via the API transform layer, `TaskList` dates are raw ISO strings, so
+  the selector converts both to `Date|null` up front so no tab component needs to care which model
+  a date came from).
+- **Entry point**: new `ModalTypes.BOARD_GANTT` + `entryActions.openBoardGanttModal()`, mounted
+  from `Board.jsx`'s existing modal-type switch (same pattern as `BOARD_SHARE`/`BOARD_ACTIVITIES`).
+  New `GanttButton` (`components/boards/GanttButton/`) sits next to `BoardMemberships` (the Share
+  button) in `BoardActions.jsx`, gated the same way (`!withContextTitle`, i.e. hidden on
+  archive/trash board contexts where a Gantt view wouldn't make sense).
+- **Modal shell**: `components/boards/GanttModal/GanttModal.jsx`, `useClosableModal()` +
+  `size="fullscreen"` (existing modals in this app use `size="small"`; Gantt needed the room), a
+  Semantic UI `<Tab>` with 4 panes using the exact `Menu.Item` + `render` shape already established
+  by `CardModal/Communication.jsx`'s Comments/Checklists/Actions tabs.
+- **Shared chart renderer**, `components/boards/GanttModal/GanttChart/` (`GanttChart.jsx` +
+  `Row.jsx`), used by both Timeline and Team workload. Callers pass a flat, pre-grouped `rows`
+  array (`{ key, label, isGroupHeader, isGroupBoundary, startDate, dueDate, cardId?, taskListId? }`)
+  rather than a nested groups structure — kept the renderer itself dumb about *why* rows are
+  grouped, so Team workload could reuse it unmodified just by building its rows differently
+  (member header → that member's dated cards → their dated checklists, using icon-prefixed labels
+  for the 3rd visual level instead of a 3rd Row state). Auto-fit range = padded min/max date across
+  all rows, min 14 days; day-scale header (month row + day row) computed via `date-fns` submodule
+  imports (`differenceInCalendarDays`, `addDays`, `format`, `startOfDay` — first direct component
+  use in this codebase; previously only `i18n.js` imported `date-fns` directly). Sticky
+  header+left-label column via nested CSS `position: sticky` inside one scrolling container (no
+  virtualization — acceptable at this board's real data volume, revisit only if a board turns out
+  to need it). Bar color reuses the Dates popup's existing blue-start/orange-due language
+  (`#2185d0`/`#e8632c`, gradient when both dates set).
+- **Click-to-edit**: each `Row` calls `usePopupInClosableContext(EditDueDateStep)` itself (has to
+  be a real per-row component instance for the hooks rule, not called inside the parent's `.map()`)
+  — clicking a bar opens the *existing* Dates popup, completely unmodified, targeting `cardId` or
+  `taskListId` exactly like every other place it's already wired in. Same pattern reused for the
+  non-chart Tasks/Schedule tabs' clickable rows. Edit affordance is gated on
+  `selectCurrentUserMembershipForCurrentBoard(...).role === EDITOR` (copied from
+  `TaskLists/Item.jsx`'s existing gate) — viewers see the same 4 tabs fully populated, just without
+  clickable bars/rows.
+- **Tasks tab** intentionally does *not* use `GanttChart` — it's a plain grouped list (card header
+  with list badge + date chips, checklist rows with the same `<Progress>`+`X/Y` rendering already
+  used on the Kanban card face) so it can show every card/checklist regardless of dates, which the
+  chart's auto-fit range can't represent.
+- **Schedule tab** flattens dated cards+checklists (keyed by due date, falling back to start date)
+  into day-grouped sections using the platform's `format:date` (`dd/MM/yyyy`) key for section
+  headers, reusing `DueDateChip` for the individual chips (that component's own internal date
+  format — `MMM d, y`-style — is pre-existing/unchanged, used the same way it already is in the
+  checklist tab and card sidebar).
+
+Patch: `0028-board-gantt-view.patch`. **Live-verified** via Puppeteer against
+bsymedia.duckdns.org's "Yapmaster Media" board (real production data, not seeded): Gantt button
+renders correctly next to Share; all 4 tabs render with real cards/checklists; Timeline/Team
+workload correctly filter to dated-only items with working bars; Team workload correctly shows
+per-member grouping including an "No scheduled items" empty state for members with nothing dated;
+Schedule correctly date-groups with `dd/MM/yyyy` section headers; clicking a Timeline bar opened
+the existing Dates popup pre-filled with that exact card's real stored dates, confirming the
+`cardId`/`taskListId` wiring is correct end-to-end. (Did not click Save during verification — no
+data was modified.)
+
 ## Taiga import (2026-08-07)
 
 Client is consolidating a second source into the same PLANKA instance: some of BSY Media's work

@@ -1,0 +1,1933 @@
+diff --git a/client/src/components/boards/Board/Board.jsx b/client/src/components/boards/Board/Board.jsx
+index 40a8a30..282d6ae 100644
+--- a/client/src/components/boards/Board/Board.jsx
++++ b/client/src/components/boards/Board/Board.jsx
+@@ -17,6 +17,7 @@ import CardModal from '../../cards/CardModal';
+ import BoardActivitiesModal from '../../activities/BoardActivitiesModal';
+ import ShareModal from '../../board-memberships/ShareModal';
+ import ArchivedListsModal from '../../lists/ArchivedListsModal';
++import GanttModal from '../GanttModal';
+ 
+ const Board = React.memo(() => {
+   const board = useSelector(selectors.selectCurrentBoard);
+@@ -57,6 +58,10 @@ const Board = React.memo(() => {
+       case ModalTypes.ARCHIVED_LISTS:
+         modalNode = <ArchivedListsModal />;
+ 
++        break;
++      case ModalTypes.BOARD_GANTT:
++        modalNode = <GanttModal />;
++
+         break;
+       default:
+     }
+diff --git a/client/src/components/boards/BoardActions/BoardActions.jsx b/client/src/components/boards/BoardActions/BoardActions.jsx
+index 34622d7..c549934 100644
+--- a/client/src/components/boards/BoardActions/BoardActions.jsx
++++ b/client/src/components/boards/BoardActions/BoardActions.jsx
+@@ -15,6 +15,7 @@ import { BoardContextIcons } from '../../../constants/Icons';
+ import Filters from './Filters';
+ import RightSide from './RightSide';
+ import BoardMemberships from '../../board-memberships/BoardMemberships';
++import GanttButton from '../GanttButton';
+ 
+ import styles from './BoardActions.module.scss';
+ 
+@@ -55,6 +56,11 @@ const BoardActions = React.memo(() => {
+             <BoardMemberships />
+           </div>
+         )}
++        {!withContextTitle && (
++          <div className={styles.action}>
++            <GanttButton />
++          </div>
++        )}
+         <div className={styles.action}>
+           <Filters />
+         </div>
+diff --git a/client/src/components/boards/GanttButton/GanttButton.jsx b/client/src/components/boards/GanttButton/GanttButton.jsx
+new file mode 100644
+index 0000000..23e6c82
+--- /dev/null
++++ b/client/src/components/boards/GanttButton/GanttButton.jsx
+@@ -0,0 +1,36 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useCallback } from 'react';
++import { useDispatch } from 'react-redux';
++import { useTranslation } from 'react-i18next';
++import { Button } from 'semantic-ui-react';
++
++import entryActions from '../../../entry-actions';
++
++import styles from './GanttButton.module.scss';
++
++// BSY Media: opens the board-wide Gantt view (Timeline / Tasks / Team
++// workload / Schedule), mirrors the Share button trigger next to it -
++// BoardMemberships/BoardMemberships.jsx.
++const GanttButton = React.memo(() => {
++  const dispatch = useDispatch();
++  const [t] = useTranslation();
++
++  const handleClick = useCallback(() => {
++    dispatch(entryActions.openBoardGanttModal());
++  }, [dispatch]);
++
++  return (
++    <Button
++      icon="chart bar"
++      content={t('action.gantt')}
++      className={styles.addButton}
++      onClick={handleClick}
++    />
++  );
++});
++
++export default GanttButton;
+diff --git a/client/src/components/boards/GanttButton/GanttButton.module.scss b/client/src/components/boards/GanttButton/GanttButton.module.scss
+new file mode 100644
+index 0000000..e6ec2c4
+--- /dev/null
++++ b/client/src/components/boards/GanttButton/GanttButton.module.scss
+@@ -0,0 +1,31 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .addButton {
++    align-items: center;
++    background: rgba(0, 0, 0, 0.24);
++    border-radius: 20px;
++    box-shadow: none;
++    color: #fff;
++    display: inline-flex;
++    gap: 8px;
++    height: 40px;
++    justify-content: center;
++    margin: 0;
++    padding: 0 16px;
++    transition: all 0.1s ease 0s;
++
++    &:hover {
++      background: rgba(0, 0, 0, 0.32);
++    }
++
++    :global(.icon) {
++      height: auto;
++      line-height: 1;
++      margin: 0;
++    }
++  }
++}
+diff --git a/client/src/components/boards/GanttButton/index.js b/client/src/components/boards/GanttButton/index.js
+new file mode 100644
+index 0000000..0080d8a
+--- /dev/null
++++ b/client/src/components/boards/GanttButton/index.js
+@@ -0,0 +1,8 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import GanttButton from './GanttButton';
++
++export default GanttButton;
+diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+new file mode 100644
+index 0000000..afad6ed
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+@@ -0,0 +1,168 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useMemo } from 'react';
++import PropTypes from 'prop-types';
++import addDays from 'date-fns/addDays';
++import differenceInCalendarDays from 'date-fns/differenceInCalendarDays';
++import format from 'date-fns/format';
++import startOfDay from 'date-fns/startOfDay';
++
++import Row from './Row';
++
++import styles from './GanttChart.module.scss';
++
++const DAY_WIDTH = 32;
++const LABEL_WIDTH = 260;
++const MIN_RANGE_DAYS = 14;
++
++// BSY Media: shared horizontal Gantt renderer used by both the Timeline tab
++// (grouped by card) and the Team workload tab (grouped by member) - see
++// GanttModal.jsx. Auto-fits its date range from the rows it's given rather
++// than exposing zoom controls, per the confirmed "auto-fit + scroll" design.
++const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
++  const range = useMemo(() => {
++    const dates = [];
++
++    rows.forEach((row) => {
++      if (row.startDate) {
++        dates.push(row.startDate);
++      }
++
++      if (row.dueDate) {
++        dates.push(row.dueDate);
++      }
++    });
++
++    if (dates.length === 0) {
++      return null;
++    }
++
++    const minDate = startOfDay(new Date(Math.min(...dates.map((date) => date.getTime()))));
++    const maxDate = startOfDay(new Date(Math.max(...dates.map((date) => date.getTime()))));
++
++    const start = addDays(minDate, -1);
++    let end = addDays(maxDate, 1);
++
++    if (differenceInCalendarDays(end, start) + 1 < MIN_RANGE_DAYS) {
++      end = addDays(start, MIN_RANGE_DAYS - 1);
++    }
++
++    const totalDays = differenceInCalendarDays(end, start) + 1;
++
++    const dayCells = [];
++    for (let i = 0; i < totalDays; i += 1) {
++      dayCells.push(addDays(start, i));
++    }
++
++    const monthSegments = [];
++    dayCells.forEach((date) => {
++      const monthKey = format(date, 'yyyy-MM');
++      const lastSegment = monthSegments[monthSegments.length - 1];
++
++      if (lastSegment && lastSegment.key === monthKey) {
++        lastSegment.days += 1;
++      } else {
++        monthSegments.push({ key: monthKey, label: format(date, 'MMMM yyyy'), days: 1 });
++      }
++    });
++
++    const today = startOfDay(new Date());
++    const todayOffset =
++      today >= start && today <= end ? differenceInCalendarDays(today, start) : null;
++
++    return {
++      start,
++      totalDays,
++      dayCells,
++      monthSegments,
++      todayOffset,
++    };
++  }, [rows]);
++
++  if (!range) {
++    return <div className={styles.empty}>{emptyMessage}</div>;
++  }
++
++  const chartWidth = range.totalDays * DAY_WIDTH;
++
++  return (
++    <div className={styles.wrapper}>
++      <div className={styles.scroller}>
++        <div className={styles.inner} style={{ width: LABEL_WIDTH + chartWidth }}>
++          <div className={styles.header}>
++            <div className={styles.headerLabel} style={{ width: LABEL_WIDTH }} />
++            <div className={styles.headerTrack} style={{ width: chartWidth }}>
++              <div className={styles.monthRow}>
++                {range.monthSegments.map((segment) => (
++                  <div
++                    key={segment.key}
++                    className={styles.monthCell}
++                    style={{ width: segment.days * DAY_WIDTH }}
++                  >
++                    {segment.label}
++                  </div>
++                ))}
++              </div>
++              <div className={styles.dayRow}>
++                {range.dayCells.map((date) => (
++                  <div
++                    key={date.toISOString()}
++                    className={styles.dayCell}
++                    style={{ width: DAY_WIDTH }}
++                  >
++                    {format(date, 'd')}
++                  </div>
++                ))}
++              </div>
++            </div>
++          </div>
++          <div className={styles.body}>
++            {range.todayOffset !== null && (
++              <div
++                className={styles.todayLine}
++                style={{ left: LABEL_WIDTH + range.todayOffset * DAY_WIDTH + DAY_WIDTH / 2 }}
++              />
++            )}
++            {rows.map((row) => (
++              <Row
++                key={row.key}
++                label={row.label}
++                isGroupHeader={row.isGroupHeader}
++                isGroupBoundary={row.isGroupBoundary}
++                startDate={row.startDate}
++                dueDate={row.dueDate}
++                cardId={row.cardId}
++                taskListId={row.taskListId}
++                rangeStart={range.start}
++                dayWidth={DAY_WIDTH}
++                canEdit={canEdit}
++              />
++            ))}
++          </div>
++        </div>
++      </div>
++    </div>
++  );
++});
++
++GanttChart.propTypes = {
++  rows: PropTypes.arrayOf(
++    PropTypes.shape({
++      key: PropTypes.string.isRequired,
++      label: PropTypes.node.isRequired,
++      isGroupHeader: PropTypes.bool.isRequired,
++      isGroupBoundary: PropTypes.bool.isRequired,
++      startDate: PropTypes.instanceOf(Date),
++      dueDate: PropTypes.instanceOf(Date),
++      cardId: PropTypes.string,
++      taskListId: PropTypes.string,
++    }),
++  ).isRequired,
++  canEdit: PropTypes.bool.isRequired,
++  emptyMessage: PropTypes.string.isRequired,
++};
++
++export default GanttChart;
+diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
+new file mode 100644
+index 0000000..069111a
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
+@@ -0,0 +1,91 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .empty {
++    color: rgba(9, 30, 66, 0.5);
++    padding: 40px 0;
++    text-align: center;
++  }
++
++  .wrapper {
++    display: flex;
++    flex-direction: column;
++    height: 100%;
++  }
++
++  .scroller {
++    flex: 1 1 auto;
++    min-height: 0;
++    overflow: auto;
++  }
++
++  .inner {
++    position: relative;
++  }
++
++  .header {
++    background: #fff;
++    display: flex;
++    position: sticky;
++    top: 0;
++    z-index: 3;
++  }
++
++  .headerLabel {
++    background: #fff;
++    flex: 0 0 auto;
++    left: 0;
++    position: sticky;
++    z-index: 4;
++  }
++
++  .headerTrack {
++    flex: 0 0 auto;
++  }
++
++  .monthRow {
++    display: flex;
++  }
++
++  .monthCell {
++    border-bottom: 1px solid rgba(9, 30, 66, 0.13);
++    box-sizing: border-box;
++    color: #17394d;
++    font-size: 12px;
++    font-weight: bold;
++    overflow: hidden;
++    padding: 4px 8px;
++    text-overflow: ellipsis;
++    white-space: nowrap;
++  }
++
++  .dayRow {
++    display: flex;
++  }
++
++  .dayCell {
++    border-bottom: 1px solid rgba(9, 30, 66, 0.13);
++    box-sizing: border-box;
++    color: rgba(9, 30, 66, 0.6);
++    flex: 0 0 auto;
++    font-size: 11px;
++    padding: 4px 0;
++    text-align: center;
++  }
++
++  .body {
++    position: relative;
++  }
++
++  .todayLine {
++    background: #e0002b;
++    bottom: 0;
++    position: absolute;
++    top: 0;
++    width: 2px;
++    z-index: 1;
++  }
++}
+diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.jsx b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
+new file mode 100644
+index 0000000..865abd3
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
+@@ -0,0 +1,115 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useMemo } from 'react';
++import PropTypes from 'prop-types';
++import classNames from 'classnames';
++import differenceInCalendarDays from 'date-fns/differenceInCalendarDays';
++
++import { usePopupInClosableContext } from '../../../../hooks';
++import EditDueDateStep from '../../../cards/EditDueDateStep';
++
++import styles from './Row.module.scss';
++
++// BSY Media: one bar/label row of the Gantt chart. Bar geometry is computed
++// from the shared rangeStart + dayWidth passed down by GanttChart so every
++// row lines up under the same day-scale header. Clicking a bar reuses the
++// existing Dates popup (EditDueDateStep) unmodified - no drag/resize on the
++// chart itself, per the confirmed interaction model.
++const Row = React.memo(
++  ({
++    label,
++    isGroupHeader,
++    isGroupBoundary,
++    startDate,
++    dueDate,
++    cardId,
++    taskListId,
++    rangeStart,
++    dayWidth,
++    canEdit,
++  }) => {
++    const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
++
++    const bar = useMemo(() => {
++      if (!startDate && !dueDate) {
++        return null;
++      }
++
++      const anchorDate = startDate || dueDate;
++      const left = differenceInCalendarDays(anchorDate, rangeStart) * dayWidth;
++
++      if (startDate && dueDate) {
++        const width = (differenceInCalendarDays(dueDate, startDate) + 1) * dayWidth;
++
++        return {
++          left,
++          width: Math.max(width, dayWidth),
++          background: 'linear-gradient(90deg, #2185d0, #e8632c)',
++        };
++      }
++
++      return {
++        left,
++        width: dayWidth,
++        background: startDate ? '#2185d0' : '#e8632c',
++      };
++    }, [startDate, dueDate, rangeStart, dayWidth]);
++
++    const barStyle = bar && {
++      left: bar.left,
++      width: bar.width,
++      background: bar.background,
++    };
++
++    const isClickable = !!bar && canEdit && !!(cardId || taskListId);
++
++    return (
++      <div
++        className={classNames(
++          styles.row,
++          isGroupHeader && styles.rowGroupHeader,
++          isGroupBoundary && styles.rowGroupBoundary,
++        )}
++      >
++        <div className={classNames(styles.label, !isGroupHeader && styles.labelIndented)}>
++          {label}
++        </div>
++        <div className={styles.track}>
++          {bar &&
++            (isClickable ? (
++              <EditDatesPopup cardId={cardId} taskListId={taskListId}>
++                <button type="button" className={styles.barButton} style={barStyle} />
++              </EditDatesPopup>
++            ) : (
++              <div className={styles.bar} style={barStyle} />
++            ))}
++        </div>
++      </div>
++    );
++  },
++);
++
++Row.propTypes = {
++  label: PropTypes.node.isRequired,
++  isGroupHeader: PropTypes.bool.isRequired,
++  isGroupBoundary: PropTypes.bool.isRequired,
++  startDate: PropTypes.instanceOf(Date),
++  dueDate: PropTypes.instanceOf(Date),
++  cardId: PropTypes.string,
++  taskListId: PropTypes.string,
++  rangeStart: PropTypes.instanceOf(Date).isRequired,
++  dayWidth: PropTypes.number.isRequired,
++  canEdit: PropTypes.bool.isRequired,
++};
++
++Row.defaultProps = {
++  startDate: null,
++  dueDate: null,
++  cardId: undefined,
++  taskListId: undefined,
++};
++
++export default Row;
+diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
+new file mode 100644
+index 0000000..35b077e
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
+@@ -0,0 +1,71 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .row {
++    display: flex;
++    height: 34px;
++  }
++
++  .rowGroupBoundary {
++    border-top: 1px solid rgba(9, 30, 66, 0.13);
++  }
++
++  .label {
++    align-items: center;
++    background: #fff;
++    box-sizing: border-box;
++    color: #17394d;
++    display: flex;
++    flex: 0 0 260px;
++    font-size: 13px;
++    left: 0;
++    overflow: hidden;
++    padding: 0 12px;
++    position: sticky;
++    text-overflow: ellipsis;
++    white-space: nowrap;
++    width: 260px;
++    z-index: 2;
++  }
++
++  .rowGroupHeader .label {
++    font-weight: bold;
++  }
++
++  .labelIndented {
++    font-weight: normal;
++    padding-left: 28px;
++  }
++
++  .track {
++    flex: 0 0 auto;
++    position: relative;
++  }
++
++  .bar,
++  .barButton {
++    border-radius: 6px;
++    box-sizing: border-box;
++    height: 20px;
++    margin: 0;
++    padding: 0;
++    position: absolute;
++    top: 7px;
++  }
++
++  .barButton {
++    border: none;
++    cursor: pointer;
++
++    &:hover {
++      filter: brightness(1.1);
++    }
++
++    &:focus {
++      outline: 2px solid rgba(33, 133, 208, 0.5);
++    }
++  }
++}
+diff --git a/client/src/components/boards/GanttModal/GanttChart/index.js b/client/src/components/boards/GanttModal/GanttChart/index.js
+new file mode 100644
+index 0000000..00b7df6
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/GanttChart/index.js
+@@ -0,0 +1,8 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import GanttChart from './GanttChart';
++
++export default GanttChart;
+diff --git a/client/src/components/boards/GanttModal/GanttModal.jsx b/client/src/components/boards/GanttModal/GanttModal.jsx
+new file mode 100644
+index 0000000..96efd53
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/GanttModal.jsx
+@@ -0,0 +1,101 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useCallback } from 'react';
++import { useDispatch, useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
++import { Menu, Tab } from 'semantic-ui-react';
++
++import selectors from '../../../selectors';
++import entryActions from '../../../entry-actions';
++import { useClosableModal } from '../../../hooks';
++import Timeline from './Timeline';
++import Tasks from './Tasks';
++import TeamWorkload from './TeamWorkload';
++import Schedule from './Schedule';
++
++import styles from './GanttModal.module.scss';
++
++// BSY Media: board-wide Gantt view, opened via GanttButton next to Share -
++// same modal-type-driven mount pattern as ShareModal/BoardActivitiesModal
++// (see Board.jsx), just fullscreen since it needs room for a wide chart.
++const GanttModal = React.memo(() => {
++  const board = useSelector(selectors.selectCurrentBoard);
++
++  const dispatch = useDispatch();
++  const [t] = useTranslation();
++
++  const handleClose = useCallback(() => {
++    dispatch(entryActions.closeModal());
++  }, [dispatch]);
++
++  const [ClosableModal] = useClosableModal();
++
++  const panes = [
++    {
++      menuItem: (
++        <Menu.Item key="timeline" className={styles.menuItem}>
++          {t('common.timeline', {
++            context: 'title',
++          })}
++        </Menu.Item>
++      ),
++      render: () => <Timeline />,
++    },
++    {
++      menuItem: (
++        <Menu.Item key="tasks" className={styles.menuItem}>
++          {t('common.tasks', {
++            context: 'title',
++          })}
++        </Menu.Item>
++      ),
++      render: () => <Tasks />,
++    },
++    {
++      menuItem: (
++        <Menu.Item key="teamWorkload" className={styles.menuItem}>
++          {t('common.teamWorkload', {
++            context: 'title',
++          })}
++        </Menu.Item>
++      ),
++      render: () => <TeamWorkload />,
++    },
++    {
++      menuItem: (
++        <Menu.Item key="schedule" className={styles.menuItem}>
++          {t('common.schedule', {
++            context: 'title',
++          })}
++        </Menu.Item>
++      ),
++      render: () => <Schedule />,
++    },
++  ];
++
++  return (
++    <ClosableModal closeIcon size="fullscreen" centered={false} onClose={handleClose}>
++      <ClosableModal.Header>
++        {t('common.gantt', {
++          context: 'title',
++        })}{' '}
++        &mdash; {board.name}
++      </ClosableModal.Header>
++      <ClosableModal.Content className={styles.wrapper}>
++        <Tab
++          menu={{
++            secondary: true,
++            pointing: true,
++          }}
++          panes={panes}
++          className={styles.tab}
++        />
++      </ClosableModal.Content>
++    </ClosableModal>
++  );
++});
++
++export default GanttModal;
+diff --git a/client/src/components/boards/GanttModal/GanttModal.module.scss b/client/src/components/boards/GanttModal/GanttModal.module.scss
+new file mode 100644
+index 0000000..4321304
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/GanttModal.module.scss
+@@ -0,0 +1,32 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .wrapper {
++    display: flex;
++    flex-direction: column;
++    height: calc(100vh - 120px);
++    overflow: hidden;
++  }
++
++  .tab {
++    display: flex;
++    flex: 1 1 auto;
++    flex-direction: column;
++    min-height: 0;
++
++    :global(.tab) {
++      display: flex;
++      flex: 1 1 auto;
++      flex-direction: column;
++      min-height: 0;
++      overflow: auto;
++    }
++  }
++
++  .menuItem {
++    font-weight: bold;
++  }
++}
+diff --git a/client/src/components/boards/GanttModal/Schedule/Schedule.jsx b/client/src/components/boards/GanttModal/Schedule/Schedule.jsx
+new file mode 100644
+index 0000000..c3d3387
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/Schedule/Schedule.jsx
+@@ -0,0 +1,187 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useMemo } from 'react';
++import PropTypes from 'prop-types';
++import { useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
++import { Icon } from 'semantic-ui-react';
++import startOfDay from 'date-fns/startOfDay';
++
++import selectors from '../../../../selectors';
++import { usePopupInClosableContext } from '../../../../hooks';
++import { BoardMembershipRoles } from '../../../../constants/Enums';
++import EditDueDateStep from '../../../cards/EditDueDateStep';
++import DueDateChip from '../../../cards/DueDateChip';
++import UserAvatar from '../../../users/UserAvatar';
++
++import styles from './Schedule.module.scss';
++
++const ScheduleEntry = React.memo(({ entry, canEdit }) => {
++  const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
++
++  const content = (
++    <div className={styles.entry}>
++      <Icon
++        name={entry.type === 'card' ? 'file outline' : 'check square outline'}
++        className={styles.entryIcon}
++      />
++      <span className={styles.entryName}>
++        {entry.name}
++        {entry.type === 'taskList' && (
++          <span className={styles.entryCardName}> · {entry.cardName}</span>
++        )}
++      </span>
++      <span className={styles.dates}>
++        {entry.startDate && (
++          <DueDateChip size="tiny" value={entry.startDate} isCompleted={false} withStatus={false} />
++        )}
++        {entry.dueDate && (
++          <DueDateChip
++            size="tiny"
++            withStatusIcon
++            value={entry.dueDate}
++            isCompleted={entry.isDueCompleted}
++            withStatus
++          />
++        )}
++      </span>
++      {entry.type === 'card' && entry.userIds.length > 0 && (
++        <span className={styles.avatars}>
++          {entry.userIds.map((userId) => (
++            <UserAvatar key={userId} id={userId} size="tiny" />
++          ))}
++        </span>
++      )}
++    </div>
++  );
++
++  if (!canEdit) {
++    return content;
++  }
++
++  return (
++    <EditDatesPopup
++      cardId={entry.type === 'card' ? entry.cardId : undefined}
++      taskListId={entry.type === 'taskList' ? entry.taskListId : undefined}
++    >
++      <button type="button" className={styles.entryButton}>
++        {content}
++      </button>
++    </EditDatesPopup>
++  );
++});
++
++ScheduleEntry.propTypes = {
++  entry: PropTypes.shape({
++    key: PropTypes.string.isRequired,
++    type: PropTypes.oneOf(['card', 'taskList']).isRequired,
++    name: PropTypes.string.isRequired,
++    cardName: PropTypes.string,
++    startDate: PropTypes.instanceOf(Date),
++    dueDate: PropTypes.instanceOf(Date),
++    isDueCompleted: PropTypes.bool.isRequired,
++    cardId: PropTypes.string,
++    taskListId: PropTypes.string,
++    userIds: PropTypes.arrayOf(PropTypes.string),
++  }).isRequired,
++  canEdit: PropTypes.bool.isRequired,
++};
++
++// BSY Media: agenda-style view, every dated card/checklist flattened and
++// grouped by day (due date, falling back to start date) instead of by
++// card/member - complements Timeline for "what's happening when".
++const Schedule = React.memo(() => {
++  const items = useSelector(selectors.selectGanttItemsForCurrentBoard);
++
++  const canEdit = useSelector((state) => {
++    const boardMembership = selectors.selectCurrentUserMembershipForCurrentBoard(state);
++    return !!boardMembership && boardMembership.role === BoardMembershipRoles.EDITOR;
++  });
++
++  const [t] = useTranslation();
++
++  const sections = useMemo(() => {
++    const entries = [];
++
++    items.forEach((item) => {
++      const cardDate = item.dueDate || item.startDate;
++
++      if (cardDate) {
++        entries.push({
++          key: `card:${item.cardId}`,
++          date: cardDate,
++          type: 'card',
++          name: item.cardName,
++          startDate: item.startDate,
++          dueDate: item.dueDate,
++          isDueCompleted: item.isDueCompleted,
++          cardId: item.cardId,
++          userIds: item.userIds,
++        });
++      }
++
++      item.taskLists.forEach((taskList) => {
++        const taskListDate = taskList.dueDate || taskList.startDate;
++
++        if (taskListDate) {
++          entries.push({
++            key: `taskList:${taskList.id}`,
++            date: taskListDate,
++            type: 'taskList',
++            name: taskList.name,
++            cardName: item.cardName,
++            startDate: taskList.startDate,
++            dueDate: taskList.dueDate,
++            isDueCompleted: taskList.isDueCompleted,
++            taskListId: taskList.id,
++            userIds: [],
++          });
++        }
++      });
++    });
++
++    entries.sort((a, b) => a.date.getTime() - b.date.getTime());
++
++    const groups = [];
++
++    entries.forEach((entry) => {
++      const dayKey = startOfDay(entry.date).toISOString();
++      const lastGroup = groups[groups.length - 1];
++
++      if (lastGroup && lastGroup.key === dayKey) {
++        lastGroup.entries.push(entry);
++      } else {
++        groups.push({ key: dayKey, date: entry.date, entries: [entry] });
++      }
++    });
++
++    return groups;
++  }, [items]);
++
++  if (sections.length === 0) {
++    return <div className={styles.empty}>{t('common.noDatedCardsOrChecklistsYet')}</div>;
++  }
++
++  return (
++    <div className={styles.wrapper}>
++      {sections.map((section) => (
++        <div key={section.key} className={styles.section}>
++          <div className={styles.sectionHeader}>
++            {t('format:date', {
++              postProcess: 'formatDate',
++              value: section.date,
++            })}
++          </div>
++          {section.entries.map((entry) => (
++            <ScheduleEntry key={entry.key} entry={entry} canEdit={canEdit} />
++          ))}
++        </div>
++      ))}
++    </div>
++  );
++});
++
++export default Schedule;
+diff --git a/client/src/components/boards/GanttModal/Schedule/Schedule.module.scss b/client/src/components/boards/GanttModal/Schedule/Schedule.module.scss
+new file mode 100644
+index 0000000..967d93a
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/Schedule/Schedule.module.scss
+@@ -0,0 +1,75 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .wrapper {
++    padding: 8px 4px;
++  }
++
++  .empty {
++    color: rgba(9, 30, 66, 0.5);
++    padding: 40px 0;
++    text-align: center;
++  }
++
++  .section {
++    padding: 6px 0;
++  }
++
++  .sectionHeader {
++    color: #17394d;
++    font-size: 13px;
++    font-weight: bold;
++    padding: 6px 8px;
++  }
++
++  .entryButton {
++    background: none;
++    border: none;
++    cursor: pointer;
++    display: block;
++    padding: 0;
++    text-align: left;
++    width: 100%;
++
++    &:hover {
++      background: rgba(9, 30, 66, 0.04);
++    }
++  }
++
++  .entry {
++    align-items: center;
++    display: flex;
++    flex-wrap: wrap;
++    gap: 8px;
++    padding: 6px 8px 6px 24px;
++  }
++
++  .entryIcon {
++    color: rgba(9, 30, 66, 0.4);
++  }
++
++  .entryName {
++    font-size: 13px;
++  }
++
++  .entryCardName {
++    color: rgba(9, 30, 66, 0.5);
++    font-size: 12px;
++  }
++
++  .dates {
++    align-items: center;
++    display: flex;
++    gap: 6px;
++  }
++
++  .avatars {
++    align-items: center;
++    display: flex;
++    gap: 4px;
++    margin-left: auto;
++  }
++}
+diff --git a/client/src/components/boards/GanttModal/Schedule/index.js b/client/src/components/boards/GanttModal/Schedule/index.js
+new file mode 100644
+index 0000000..07148f1
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/Schedule/index.js
+@@ -0,0 +1,8 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import Schedule from './Schedule';
++
++export default Schedule;
+diff --git a/client/src/components/boards/GanttModal/Tasks/Tasks.jsx b/client/src/components/boards/GanttModal/Tasks/Tasks.jsx
+new file mode 100644
+index 0000000..4e51db7
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/Tasks/Tasks.jsx
+@@ -0,0 +1,191 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React from 'react';
++import PropTypes from 'prop-types';
++import { useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
++import { Icon, Progress } from 'semantic-ui-react';
++
++import selectors from '../../../../selectors';
++import { usePopupInClosableContext } from '../../../../hooks';
++import { BoardMembershipRoles } from '../../../../constants/Enums';
++import EditDueDateStep from '../../../cards/EditDueDateStep';
++import DueDateChip from '../../../cards/DueDateChip';
++
++import styles from './Tasks.module.scss';
++
++const ChecklistRow = React.memo(({ taskList, canEdit }) => {
++  const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
++  const [t] = useTranslation();
++
++  const hasDates = !!(taskList.startDate || taskList.dueDate);
++
++  const content = (
++    <div className={styles.checklistRow}>
++      <Icon name="check square outline" className={styles.checklistIcon} />
++      <span className={styles.checklistName}>{taskList.name}</span>
++      {taskList.tasksTotal > 0 && (
++        <span className={styles.progressWrapper}>
++          <Progress
++            autoSuccess
++            value={taskList.tasksCompletedCount}
++            total={taskList.tasksTotal}
++            color="blue"
++            size="tiny"
++            className={styles.progress}
++          />
++          <span className={styles.progressCount}>
++            {taskList.tasksCompletedCount}/{taskList.tasksTotal}
++          </span>
++        </span>
++      )}
++      {hasDates ? (
++        <span className={styles.dates}>
++          {taskList.startDate && (
++            <DueDateChip
++              size="tiny"
++              value={taskList.startDate}
++              isCompleted={false}
++              withStatus={false}
++            />
++          )}
++          {taskList.dueDate && (
++            <DueDateChip
++              size="tiny"
++              withStatusIcon
++              value={taskList.dueDate}
++              isCompleted={taskList.isDueCompleted}
++              withStatus
++            />
++          )}
++        </span>
++      ) : (
++        <span className={styles.noDate}>{t('common.noDateSet')}</span>
++      )}
++    </div>
++  );
++
++  if (!canEdit) {
++    return content;
++  }
++
++  return (
++    <EditDatesPopup taskListId={taskList.id}>
++      <button type="button" className={styles.rowButton}>
++        {content}
++      </button>
++    </EditDatesPopup>
++  );
++});
++
++ChecklistRow.propTypes = {
++  taskList: PropTypes.shape({
++    id: PropTypes.string.isRequired,
++    name: PropTypes.string.isRequired,
++    startDate: PropTypes.instanceOf(Date),
++    dueDate: PropTypes.instanceOf(Date),
++    isDueCompleted: PropTypes.bool.isRequired,
++    tasksTotal: PropTypes.number.isRequired,
++    tasksCompletedCount: PropTypes.number.isRequired,
++  }).isRequired,
++  canEdit: PropTypes.bool.isRequired,
++};
++
++const CardGroup = React.memo(({ item, canEdit }) => {
++  const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
++
++  const hasDates = !!(item.startDate || item.dueDate);
++
++  const header = (
++    <div className={styles.cardHeader}>
++      <span className={styles.cardName}>{item.cardName}</span>
++      {item.listName && (
++        <span className={styles.listBadge}>
++          <Icon name="columns" />
++          {item.listName}
++        </span>
++      )}
++      {hasDates && (
++        <span className={styles.dates}>
++          {item.startDate && (
++            <DueDateChip size="tiny" value={item.startDate} isCompleted={false} withStatus={false} />
++          )}
++          {item.dueDate && (
++            <DueDateChip
++              size="tiny"
++              withStatusIcon
++              value={item.dueDate}
++              isCompleted={item.isDueCompleted}
++              withStatus
++            />
++          )}
++        </span>
++      )}
++    </div>
++  );
++
++  return (
++    <div className={styles.card}>
++      {canEdit ? (
++        <EditDatesPopup cardId={item.cardId}>
++          <button type="button" className={styles.cardHeaderButton}>
++            {header}
++          </button>
++        </EditDatesPopup>
++      ) : (
++        header
++      )}
++      {item.taskLists.length > 0 && (
++        <div className={styles.checklists}>
++          {item.taskLists.map((taskList) => (
++            <ChecklistRow key={taskList.id} taskList={taskList} canEdit={canEdit} />
++          ))}
++        </div>
++      )}
++    </div>
++  );
++});
++
++CardGroup.propTypes = {
++  item: PropTypes.shape({
++    cardId: PropTypes.string.isRequired,
++    cardName: PropTypes.string.isRequired,
++    listName: PropTypes.string,
++    startDate: PropTypes.instanceOf(Date),
++    dueDate: PropTypes.instanceOf(Date),
++    isDueCompleted: PropTypes.bool.isRequired,
++    taskLists: PropTypes.array.isRequired, // eslint-disable-line react/forbid-prop-types
++  }).isRequired,
++  canEdit: PropTypes.bool.isRequired,
++};
++
++// BSY Media: full audit view - unlike Timeline/Schedule, lists every card
++// (and every checklist on it) regardless of whether dates are set, so it
++// doubles as "what checklists exist on this board at all".
++const Tasks = React.memo(() => {
++  const items = useSelector(selectors.selectGanttItemsForCurrentBoard);
++
++  const canEdit = useSelector((state) => {
++    const boardMembership = selectors.selectCurrentUserMembershipForCurrentBoard(state);
++    return !!boardMembership && boardMembership.role === BoardMembershipRoles.EDITOR;
++  });
++
++  const [t] = useTranslation();
++
++  if (items.length === 0) {
++    return <div className={styles.empty}>{t('common.noCardsOnThisBoardYet')}</div>;
++  }
++
++  return (
++    <div className={styles.wrapper}>
++      {items.map((item) => (
++        <CardGroup key={item.cardId} item={item} canEdit={canEdit} />
++      ))}
++    </div>
++  );
++});
++
++export default Tasks;
+diff --git a/client/src/components/boards/GanttModal/Tasks/Tasks.module.scss b/client/src/components/boards/GanttModal/Tasks/Tasks.module.scss
+new file mode 100644
+index 0000000..6236cb5
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/Tasks/Tasks.module.scss
+@@ -0,0 +1,126 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .wrapper {
++    padding: 8px 4px;
++  }
++
++  .empty {
++    color: rgba(9, 30, 66, 0.5);
++    padding: 40px 0;
++    text-align: center;
++  }
++
++  .card {
++    border-bottom: 1px solid rgba(9, 30, 66, 0.13);
++    padding: 10px 0;
++  }
++
++  .cardHeaderButton {
++    background: none;
++    border: none;
++    cursor: pointer;
++    display: block;
++    padding: 0;
++    text-align: left;
++    width: 100%;
++
++    &:hover {
++      background: rgba(9, 30, 66, 0.04);
++    }
++  }
++
++  .cardHeader {
++    align-items: center;
++    display: flex;
++    flex-wrap: wrap;
++    gap: 8px;
++    padding: 4px 8px;
++  }
++
++  .cardName {
++    color: #17394d;
++    font-size: 15px;
++    font-weight: bold;
++  }
++
++  .listBadge {
++    color: rgba(9, 30, 66, 0.6);
++    font-size: 12px;
++
++    :global(.icon) {
++      margin-right: 4px;
++    }
++  }
++
++  .checklists {
++    display: flex;
++    flex-direction: column;
++    padding-left: 20px;
++  }
++
++  .rowButton {
++    background: none;
++    border: none;
++    cursor: pointer;
++    display: block;
++    padding: 0;
++    text-align: left;
++    width: 100%;
++
++    &:hover {
++      background: rgba(9, 30, 66, 0.04);
++    }
++  }
++
++  .checklistRow {
++    align-items: center;
++    display: flex;
++    flex-wrap: wrap;
++    gap: 8px;
++    padding: 6px 8px;
++  }
++
++  .checklistIcon {
++    color: rgba(9, 30, 66, 0.4);
++  }
++
++  .checklistName {
++    flex: 0 0 auto;
++    font-size: 13px;
++  }
++
++  .progressWrapper {
++    align-items: center;
++    display: flex;
++    gap: 6px;
++    width: 120px;
++  }
++
++  .progress {
++    flex: 1 1 auto;
++    margin: 0 !important;
++  }
++
++  .progressCount {
++    color: rgba(9, 30, 66, 0.6);
++    font-size: 11px;
++    white-space: nowrap;
++  }
++
++  .dates {
++    align-items: center;
++    display: flex;
++    gap: 6px;
++    margin-left: auto;
++  }
++
++  .noDate {
++    color: rgba(9, 30, 66, 0.4);
++    font-size: 12px;
++    margin-left: auto;
++  }
++}
+diff --git a/client/src/components/boards/GanttModal/Tasks/index.js b/client/src/components/boards/GanttModal/Tasks/index.js
+new file mode 100644
+index 0000000..57cc702
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/Tasks/index.js
+@@ -0,0 +1,8 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import Tasks from './Tasks';
++
++export default Tasks;
+diff --git a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
+new file mode 100644
+index 0000000..35a9025
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
+@@ -0,0 +1,130 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useMemo } from 'react';
++import { useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
++import { Icon } from 'semantic-ui-react';
++
++import selectors from '../../../../selectors';
++import { BoardMembershipRoles } from '../../../../constants/Enums';
++import UserAvatar from '../../../users/UserAvatar';
++import GanttChart from '../GanttChart';
++
++import styles from './TeamWorkload.module.scss';
++
++// BSY Media: same GanttChart renderer as Timeline, grouped by board member
++// instead of by card - each member's dated cards and dated checklists are
++// nested under their name. Attribution is card-membership only (checklist
++// items do have an assigneeUserId field, but no dates to plot, so they're
++// intentionally not used here).
++const TeamWorkload = React.memo(() => {
++  const items = useSelector(selectors.selectGanttItemsForCurrentBoard);
++  const memberships = useSelector(selectors.selectMembershipsForCurrentBoard);
++
++  const canEdit = useSelector((state) => {
++    const boardMembership = selectors.selectCurrentUserMembershipForCurrentBoard(state);
++    return !!boardMembership && boardMembership.role === BoardMembershipRoles.EDITOR;
++  });
++
++  const [t] = useTranslation();
++
++  const rows = useMemo(() => {
++    const result = [];
++
++    memberships.forEach((membership) => {
++      const { userId } = membership;
++
++      result.push({
++        key: `member:${userId}`,
++        label: (
++          <span className={styles.member}>
++            <UserAvatar id={userId} size="tiny" />
++            <span className={styles.memberName}>{membership.user.name}</span>
++          </span>
++        ),
++        isGroupHeader: true,
++        isGroupBoundary: result.length > 0,
++        startDate: null,
++        dueDate: null,
++      });
++
++      let memberRowsTotal = 0;
++
++      items
++        .filter((item) => item.userIds.includes(userId))
++        .forEach((item) => {
++          const datedTaskLists = item.taskLists.filter(
++            (taskList) => taskList.startDate || taskList.dueDate,
++          );
++
++          const cardHasDates = !!(item.startDate || item.dueDate);
++
++          if (!cardHasDates && datedTaskLists.length === 0) {
++            return;
++          }
++
++          result.push({
++            key: `${userId}:card:${item.cardId}`,
++            label: (
++              <span className={styles.itemLabel}>
++                <Icon name="file outline" className={styles.itemIcon} />
++                {item.cardName}
++              </span>
++            ),
++            isGroupHeader: false,
++            isGroupBoundary: false,
++            startDate: item.startDate,
++            dueDate: item.dueDate,
++            cardId: item.cardId,
++          });
++          memberRowsTotal += 1;
++
++          datedTaskLists.forEach((taskList) => {
++            result.push({
++              key: `${userId}:taskList:${taskList.id}`,
++              label: (
++                <span className={styles.itemLabelChecklist}>
++                  <Icon name="check square outline" className={styles.itemIcon} />
++                  {taskList.name}
++                </span>
++              ),
++              isGroupHeader: false,
++              isGroupBoundary: false,
++              startDate: taskList.startDate,
++              dueDate: taskList.dueDate,
++              taskListId: taskList.id,
++            });
++            memberRowsTotal += 1;
++          });
++        });
++
++      if (memberRowsTotal === 0) {
++        result.push({
++          key: `${userId}:empty`,
++          label: <span className={styles.emptyLabel}>{t('common.noScheduledItems')}</span>,
++          isGroupHeader: false,
++          isGroupBoundary: false,
++          startDate: null,
++          dueDate: null,
++        });
++      }
++    });
++
++    return result;
++  }, [items, memberships, t]);
++
++  return (
++    <div className={styles.wrapper}>
++      <GanttChart
++        rows={rows}
++        canEdit={canEdit}
++        emptyMessage={t('common.noDatedCardsOrChecklistsYet')}
++      />
++    </div>
++  );
++});
++
++export default TeamWorkload;
+diff --git a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.module.scss b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.module.scss
+new file mode 100644
+index 0000000..462adc4
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.module.scss
+@@ -0,0 +1,48 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .wrapper {
++    height: 100%;
++  }
++
++  .member {
++    align-items: center;
++    display: flex;
++    gap: 8px;
++  }
++
++  .memberName {
++    overflow: hidden;
++    text-overflow: ellipsis;
++  }
++
++  .itemLabel,
++  .itemLabelChecklist {
++    align-items: center;
++    display: flex;
++    gap: 6px;
++    overflow: hidden;
++    text-overflow: ellipsis;
++    white-space: nowrap;
++  }
++
++  .itemLabelChecklist {
++    color: rgba(9, 30, 66, 0.7);
++    font-size: 12px;
++    padding-left: 16px;
++  }
++
++  .itemIcon {
++    color: rgba(9, 30, 66, 0.4);
++    flex: 0 0 auto;
++  }
++
++  .emptyLabel {
++    color: rgba(9, 30, 66, 0.4);
++    font-size: 12px;
++    font-style: italic;
++  }
++}
+diff --git a/client/src/components/boards/GanttModal/TeamWorkload/index.js b/client/src/components/boards/GanttModal/TeamWorkload/index.js
+new file mode 100644
+index 0000000..3a6e472
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/TeamWorkload/index.js
+@@ -0,0 +1,8 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import TeamWorkload from './TeamWorkload';
++
++export default TeamWorkload;
+diff --git a/client/src/components/boards/GanttModal/Timeline/Timeline.jsx b/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
+new file mode 100644
+index 0000000..2e82dc8
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
+@@ -0,0 +1,81 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useMemo } from 'react';
++import { useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
++
++import selectors from '../../../../selectors';
++import { BoardMembershipRoles } from '../../../../constants/Enums';
++import GanttChart from '../GanttChart';
++
++import styles from './Timeline.module.scss';
++
++// BSY Media: default Gantt sub-view - one group per card, its dated
++// checklists nested underneath so "which card has what deadlines" reads at
++// a glance. Cards with only dated checklists (no card-level dates) still
++// get a plain header row for grouping context.
++const Timeline = React.memo(() => {
++  const items = useSelector(selectors.selectGanttItemsForCurrentBoard);
++
++  const canEdit = useSelector((state) => {
++    const boardMembership = selectors.selectCurrentUserMembershipForCurrentBoard(state);
++    return !!boardMembership && boardMembership.role === BoardMembershipRoles.EDITOR;
++  });
++
++  const [t] = useTranslation();
++
++  const rows = useMemo(() => {
++    const result = [];
++
++    items.forEach((item) => {
++      const datedTaskLists = item.taskLists.filter(
++        (taskList) => taskList.startDate || taskList.dueDate,
++      );
++
++      const cardHasDates = !!(item.startDate || item.dueDate);
++
++      if (!cardHasDates && datedTaskLists.length === 0) {
++        return;
++      }
++
++      result.push({
++        key: `card:${item.cardId}`,
++        label: item.cardName,
++        isGroupHeader: true,
++        isGroupBoundary: result.length > 0,
++        startDate: item.startDate,
++        dueDate: item.dueDate,
++        cardId: item.cardId,
++      });
++
++      datedTaskLists.forEach((taskList) => {
++        result.push({
++          key: `taskList:${taskList.id}`,
++          label: taskList.name,
++          isGroupHeader: false,
++          isGroupBoundary: false,
++          startDate: taskList.startDate,
++          dueDate: taskList.dueDate,
++          taskListId: taskList.id,
++        });
++      });
++    });
++
++    return result;
++  }, [items]);
++
++  return (
++    <div className={styles.wrapper}>
++      <GanttChart
++        rows={rows}
++        canEdit={canEdit}
++        emptyMessage={t('common.noDatedCardsOrChecklistsYet')}
++      />
++    </div>
++  );
++});
++
++export default Timeline;
+diff --git a/client/src/components/boards/GanttModal/Timeline/Timeline.module.scss b/client/src/components/boards/GanttModal/Timeline/Timeline.module.scss
+new file mode 100644
+index 0000000..035acdc
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/Timeline/Timeline.module.scss
+@@ -0,0 +1,10 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .wrapper {
++    height: 100%;
++  }
++}
+diff --git a/client/src/components/boards/GanttModal/Timeline/index.js b/client/src/components/boards/GanttModal/Timeline/index.js
+new file mode 100644
+index 0000000..66b6745
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/Timeline/index.js
+@@ -0,0 +1,8 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import Timeline from './Timeline';
++
++export default Timeline;
+diff --git a/client/src/components/boards/GanttModal/index.js b/client/src/components/boards/GanttModal/index.js
+new file mode 100644
+index 0000000..e8d85c0
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/index.js
+@@ -0,0 +1,8 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import GanttModal from './GanttModal';
++
++export default GanttModal;
+diff --git a/client/src/constants/ModalTypes.js b/client/src/constants/ModalTypes.js
+index 461b574..758f46b 100755
+--- a/client/src/constants/ModalTypes.js
++++ b/client/src/constants/ModalTypes.js
+@@ -13,6 +13,7 @@ const BOARD_SETTINGS = 'BOARD_SETTINGS';
+ const BOARD_ACTIVITIES = 'BOARD_ACTIVITIES';
+ const BOARD_SHARE = 'BOARD_SHARE';
+ const ARCHIVED_LISTS = 'ARCHIVED_LISTS';
++const BOARD_GANTT = 'BOARD_GANTT';
+ 
+ export default {
+   ADMINISTRATION,
+@@ -25,4 +26,5 @@ export default {
+   BOARD_ACTIVITIES,
+   BOARD_SHARE,
+   ARCHIVED_LISTS,
++  BOARD_GANTT,
+ };
+diff --git a/client/src/entry-actions/modals.js b/client/src/entry-actions/modals.js
+index f373b35..0f7f473 100755
+--- a/client/src/entry-actions/modals.js
++++ b/client/src/entry-actions/modals.js
+@@ -82,6 +82,13 @@ const openArchivedListsModal = () => ({
+   },
+ });
+ 
++const openBoardGanttModal = () => ({
++  type: EntryActionTypes.MODAL_OPEN,
++  payload: {
++    type: ModalTypes.BOARD_GANTT,
++  },
++});
++
+ const closeModal = () => ({
+   type: EntryActionTypes.MODAL_CLOSE,
+   payload: {},
+@@ -98,5 +105,6 @@ export default {
+   openBoardActivitiesModal,
+   openBoardShareModal,
+   openArchivedListsModal,
++  openBoardGanttModal,
+   closeModal,
+ };
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 68c9388..58ef33d 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -224,6 +224,7 @@ export default {
+       fromTrello: 'From Trello',
+       fullKeyIsHiddenForSecurityReasons:
+         'The full key is hidden for security reasons. Regenerate it to create a new one.',
++      gantt: 'Gantt',
+       general: 'General',
+       gradients: 'Gradients',
+       grid: 'Grid',
+@@ -268,9 +269,13 @@ export default {
+       noArchivedLists: 'No archived lists.',
+       noBoards: 'No boards',
+       noCardsFound: 'No cards found.',
++      noCardsOnThisBoardYet: 'No cards on this board yet',
+       noConnectionToServer: 'No connection to server',
++      noDatedCardsOrChecklistsYet: 'No dated cards or checklists yet',
++      noDateSet: 'No date set',
+       noLists: 'No lists',
+       noProjects: 'No projects',
++      noScheduledItems: 'No scheduled items',
+       noUnreadNotifications: 'No unread notifications.',
+       notifications: 'Notifications',
+       oldestFirst: 'Oldest first',
+@@ -300,6 +305,7 @@ export default {
+       removeMember_title: 'Remove Member',
+       role: 'Role',
+       saveThisKeyItWillNotBeShownAgain: 'Save this key — it will not be shown again!',
++      schedule: 'Schedule',
+       searchCards: 'Search cards...',
+       searchCustomFieldGroups: 'Search custom field groups...',
+       searchCustomFields: 'Search custom fields...',
+@@ -337,12 +343,15 @@ export default {
+       taskAssignmentAndProjectCompletion: 'Task assignment and project completion.',
+       taskListActions_title: 'Task List Actions',
+       taskList_title: 'Task List',
++      tasks: 'Tasks',
+       team: 'Team',
++      teamWorkload: 'Team Workload',
+       termsOfService_title: 'Terms of Service',
+       testLog_title: 'Test Log',
+       thereIsNoPreviewAvailableForThisAttachment:
+         'There is no preview available for this attachment.',
+       time: 'Time',
++      timeline: 'Timeline',
+       title: 'Title',
+       trash: 'Trash',
+       trashHasBeenSuccessfullyEmptied: 'Trash has been successfully emptied.',
+@@ -500,6 +509,7 @@ export default {
+       editUsername_title: 'Edit Username',
+       emptyTrash: 'Empty trash',
+       emptyTrash_title: 'Empty Trash',
++      gantt: 'Gantt',
+       import: 'Import',
+       join: 'Join',
+       leave: 'Leave',
+diff --git a/client/src/selectors/gantt.js b/client/src/selectors/gantt.js
+new file mode 100644
+index 0000000..2c7826c
+--- /dev/null
++++ b/client/src/selectors/gantt.js
+@@ -0,0 +1,74 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import { createSelector } from 'redux-orm';
++
++import orm from '../orm';
++import { selectPath } from './router';
++
++const toDateOrNull = (value) => {
++  if (!value) {
++    return null;
++  }
++
++  return value instanceof Date ? value : new Date(value);
++};
++
++// BSY Media: single source of truth for the board Gantt view (Timeline /
++// Tasks / Team workload / Schedule tabs) - walks every active card on the
++// board once and normalizes card + checklist dates into Date instances
++// (Card dates are already Date objects via the API transform layer,
++// TaskList dates are raw ISO strings - see EditDueDateStep.jsx) so none of
++// the 4 tab components need to care which model they came from.
++export const selectGanttItemsForCurrentBoard = createSelector(
++  orm,
++  (state) => selectPath(state).boardId,
++  ({ Board }, id) => {
++    if (!id) {
++      return [];
++    }
++
++    const boardModel = Board.withId(id);
++
++    if (!boardModel) {
++      return [];
++    }
++
++    return boardModel.getCardsModelArray().map((cardModel) => {
++      const taskLists = cardModel
++        .getTaskListsQuerySet()
++        .toModelArray()
++        .map((taskListModel) => {
++          const taskRefs = taskListModel.getTasksQuerySet().toRefArray();
++
++          return {
++            id: taskListModel.id,
++            name: taskListModel.name,
++            startDate: toDateOrNull(taskListModel.startDate),
++            dueDate: toDateOrNull(taskListModel.dueDate),
++            isDueCompleted: !!taskListModel.isDueCompleted,
++            tasksTotal: taskRefs.length,
++            tasksCompletedCount: taskRefs.filter((task) => task.isCompleted).length,
++          };
++        });
++
++      return {
++        cardId: cardModel.id,
++        cardName: cardModel.name,
++        listId: cardModel.listId,
++        listName: cardModel.list ? cardModel.list.name : null,
++        startDate: toDateOrNull(cardModel.startDate),
++        dueDate: toDateOrNull(cardModel.dueDate),
++        isDueCompleted: !!cardModel.isDueCompleted,
++        userIds: cardModel.users.toRefArray().map((user) => user.id),
++        taskLists,
++      };
++    });
++  },
++);
++
++export default {
++  selectGanttItemsForCurrentBoard,
++};
+diff --git a/client/src/selectors/index.js b/client/src/selectors/index.js
+index 82dd0d7..4089ae7 100755
+--- a/client/src/selectors/index.js
++++ b/client/src/selectors/index.js
+@@ -29,6 +29,7 @@ import comments from './comments';
+ import activities from './activities';
+ import notifications from './notifications';
+ import notificationServices from './notification-services';
++import gantt from './gantt';
+ 
+ export default {
+   ...router,
+@@ -57,4 +58,5 @@ export default {
+   ...activities,
+   ...notifications,
+   ...notificationServices,
++  ...gantt,
+ };
