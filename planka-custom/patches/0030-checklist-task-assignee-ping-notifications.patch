@@ -1,0 +1,207 @@
+diff --git a/client/src/components/notifications/NotificationsStep/Item.jsx b/client/src/components/notifications/NotificationsStep/Item.jsx
+index 781e923..dfad9ba 100644
+--- a/client/src/components/notifications/NotificationsStep/Item.jsx
++++ b/client/src/components/notifications/NotificationsStep/Item.jsx
+@@ -122,6 +122,51 @@ const Item = React.memo(({ id, onClose }) => {
+       );
+ 
+       break;
++    case NotificationTypes.ASSIGN_TASK_LIST: {
++      const { taskList } = notification.data;
++
++      contentNode = (
++        <Trans
++          i18nKey="common.userAssignedYouToTaskList"
++          values={{
++            user: creatorUserName,
++            taskList: taskList.name,
++            card: cardName,
++          }}
++        >
++          <span className={styles.author}>{creatorUserName}</span>
++          {` assigned you to checklist «${taskList.name}» on `}
++          <Link to={Paths.CARDS.replace(':id', notification.cardId)} onClick={onClose}>
++            {cardName}
++          </Link>
++        </Trans>
++      );
++
++      break;
++    }
++    case NotificationTypes.ASSIGN_TASK: {
++      const { task, taskList } = notification.data;
++
++      contentNode = (
++        <Trans
++          i18nKey="common.userAssignedYouToTask"
++          values={{
++            user: creatorUserName,
++            task: task.name,
++            taskList: taskList.name,
++            card: cardName,
++          }}
++        >
++          <span className={styles.author}>{creatorUserName}</span>
++          {` assigned you to sub-task «${task.name}» in checklist «${taskList.name}» on `}
++          <Link to={Paths.CARDS.replace(':id', notification.cardId)} onClick={onClose}>
++            {cardName}
++          </Link>
++        </Trans>
++      );
++
++      break;
++    }
+     case NotificationTypes.MENTION_IN_COMMENT: {
+       const commentText = truncate(mentionMarkupToText(notification.data.text));
+ 
+diff --git a/client/src/constants/Enums.js b/client/src/constants/Enums.js
+index 5cf2d76..412ba43 100755
+--- a/client/src/constants/Enums.js
++++ b/client/src/constants/Enums.js
+@@ -113,6 +113,8 @@ export const NotificationTypes = {
+   COMMENT_CARD: 'commentCard',
+   ADD_MEMBER_TO_CARD: 'addMemberToCard',
+   MENTION_IN_COMMENT: 'mentionInComment',
++  ASSIGN_TASK_LIST: 'assignTaskList',
++  ASSIGN_TASK: 'assignTask',
+ };
+ 
+ export const NotificationServiceFormats = {
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 58ef33d..227ec83 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -375,6 +375,10 @@ export default {
+       userAddedUserToCard: '<0>{{actorUser}}</0> added {{addedUser}} to <4>{{card}}</4>',
+       userAddedUserToThisCard: '<0>{{actorUser}}</0> added {{addedUser}} to this card',
+       userAddedYouToCard: '<0>{{user}}</0> added you to <2>{{card}}</2>',
++      userAssignedYouToTask:
++        '<0>{{user}}</0> assigned you to sub-task «{{task}}» in checklist «{{taskList}}» on <2>{{card}}</2>',
++      userAssignedYouToTaskList:
++        '<0>{{user}}</0> assigned you to checklist «{{taskList}}» on <2>{{card}}</2>',
+       userCompletedTaskOnCard: '<0>{{user}}</0> completed {{task}} on <4>{{card}}</4>',
+       userCompletedTaskOnThisCard: '<0>{{user}}</0> completed {{task}} on this card',
+       userDeletedChecklistFromThisCard:
+diff --git a/server/api/helpers/task-lists/update-one.js b/server/api/helpers/task-lists/update-one.js
+index 08bcaad..c357eef 100644
+--- a/server/api/helpers/task-lists/update-one.js
++++ b/server/api/helpers/task-lists/update-one.js
+@@ -148,6 +148,29 @@ module.exports = {
+           list: inputs.list,
+         });
+       }
++
++      // BSY Media: ping the new checklist owner. Only fires on a genuine new
++      // assignment (not on unassign, not on a no-op resubmit) - the
++      // PERSONAL_NOTIFIABLE_TYPES self-skip in actions/create-one.js already
++      // keeps this from pinging the actor if they assign themselves.
++      if (taskList.assigneeUserId && taskList.assigneeUserId !== inputs.record.assigneeUserId) {
++        await sails.helpers.actions.createOne.with({
++          webhooks,
++          values: {
++            type: Action.Types.ASSIGN_TASK_LIST,
++            data: {
++              user: { id: taskList.assigneeUserId },
++              card: _.pick(inputs.card, ['name']),
++              taskList: _.pick(taskList, ['id', 'name']),
++            },
++            user: inputs.actorUser,
++            card: inputs.card,
++          },
++          project: inputs.project,
++          board: inputs.board,
++          list: inputs.list,
++        });
++      }
+     }
+ 
+     return taskList;
+diff --git a/server/api/helpers/tasks/update-one.js b/server/api/helpers/tasks/update-one.js
+index 00ae6a3..fa2336c 100644
+--- a/server/api/helpers/tasks/update-one.js
++++ b/server/api/helpers/tasks/update-one.js
+@@ -153,6 +153,30 @@ module.exports = {
+           list: inputs.list,
+         });
+       }
++
++      // BSY Media: ping the new sub-task assignee. Only fires on a genuine
++      // new assignment (not on unassign, not on a no-op resubmit) - the
++      // PERSONAL_NOTIFIABLE_TYPES self-skip in actions/create-one.js already
++      // keeps this from pinging the actor if they assign themselves.
++      if (task.assigneeUserId && task.assigneeUserId !== inputs.record.assigneeUserId) {
++        await sails.helpers.actions.createOne.with({
++          webhooks,
++          values: {
++            type: Action.Types.ASSIGN_TASK,
++            data: {
++              user: { id: task.assigneeUserId },
++              card: _.pick(inputs.card, ['name']),
++              taskList: _.pick(taskList, ['id', 'name']),
++              task: _.pick(task, ['id', 'name']),
++            },
++            user: inputs.actorUser,
++            card: inputs.card,
++          },
++          project: inputs.project,
++          board: inputs.board,
++          list: inputs.list,
++        });
++      }
+     }
+ 
+     return task;
+diff --git a/server/api/models/Action.js b/server/api/models/Action.js
+index c3c2d08..9db2808 100755
+--- a/server/api/models/Action.js
++++ b/server/api/models/Action.js
+@@ -85,11 +85,24 @@ const Types = {
+   DELETE_TASK: 'deleteTask',
+   SET_CARD_START_DATE: 'setCardStartDate',
+   SET_CARD_DUE_DATE: 'setCardDueDate',
++  // BSY Media: ping notifications when a checklist owner or sub-task
++  // assignee is set - task-lists/update-one.js, tasks/update-one.js.
++  ASSIGN_TASK_LIST: 'assignTaskList',
++  ASSIGN_TASK: 'assignTask',
+ };
+ 
+-const INTERNAL_NOTIFIABLE_TYPES = [Types.MOVE_CARD, Types.ADD_MEMBER_TO_CARD];
++const INTERNAL_NOTIFIABLE_TYPES = [
++  Types.MOVE_CARD,
++  Types.ADD_MEMBER_TO_CARD,
++  Types.ASSIGN_TASK_LIST,
++  Types.ASSIGN_TASK,
++];
+ const EXTERNAL_NOTIFIABLE_TYPES = [Types.CREATE_CARD, Types.MOVE_CARD];
+-const PERSONAL_NOTIFIABLE_TYPES = [Types.ADD_MEMBER_TO_CARD];
++const PERSONAL_NOTIFIABLE_TYPES = [
++  Types.ADD_MEMBER_TO_CARD,
++  Types.ASSIGN_TASK_LIST,
++  Types.ASSIGN_TASK,
++];
+ 
+ module.exports = {
+   Types,
+diff --git a/server/api/models/Notification.js b/server/api/models/Notification.js
+index 2db4367..0da872c 100755
+--- a/server/api/models/Notification.js
++++ b/server/api/models/Notification.js
+@@ -63,7 +63,7 @@
+  *           example: "1357158568008091270"
+  *         type:
+  *           type: string
+- *           enum: [moveCard, commentCard, addMemberToCard, mentionInComment]
++ *           enum: [moveCard, commentCard, addMemberToCard, mentionInComment, assignTaskList, assignTask]
+  *           description: Type of the notification
+  *           example: commentCard
+  *         data:
+@@ -94,6 +94,9 @@ const Types = {
+   COMMENT_CARD: 'commentCard',
+   ADD_MEMBER_TO_CARD: 'addMemberToCard',
+   MENTION_IN_COMMENT: 'mentionInComment',
++  // BSY Media: ping notifications for checklist owner / sub-task assignee
++  ASSIGN_TASK_LIST: 'assignTaskList',
++  ASSIGN_TASK: 'assignTask',
+ };
+ 
+ module.exports = {

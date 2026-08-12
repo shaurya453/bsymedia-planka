@@ -891,6 +891,75 @@ opens the Dates popup pre-filled with its real stored dates. Sandbox project (in
 test card/checklist/task) deleted after verification — no trace left on the live boards, and
 production card/project counts were confirmed unchanged before and after.
 
+## Timeline tab data bugs + Tier 1 fixes (2026-08-12)
+
+**First thing found, unrelated to the two reported bugs**: the container serving production at the
+time (built 2026-08-11 19:30:22) predated the sub-task/assignee patch's commit (19:35:28) by 5
+minutes — the "live-verified" claims for that patch were checked against a build that didn't
+actually contain it. This session's rebuild (below) is the first time it's genuinely been live.
+
+**Bug 1 ("no bars draw") — diagnosed as a default-viewport bug, not a data bug.** Traced the full
+path (`card`/`task_list` tables → `boards/show.js`'s plain `.find()` → live API response, checked
+directly with `curl` against a real admin token → redux-orm models → `selectors/gantt.js` →
+`GanttChart.jsx`) and dates are intact at every hop — confirmed by diffing the live API payload
+against direct Postgres queries on the real "Yapmaster Media" board, byte-for-byte matching. The
+actual defect: `GanttChart.jsx` auto-fits its day-scale header to the full min→max date span across
+every row, then leaves the scroll container at `scrollLeft: 0` (oldest date) with no scroll-to-today
+— on real data (dated items spanning 2025-01-30 → 2026-08-14) that's an 18,308px-wide chart in a
+1,763px viewport, so a user opening the tab lands on Jan 2025 where almost nothing is dated, and
+every real bar is scrolled far off-screen to the right. Confirmed by scrolling that same container
+programmatically in a live headless-browser session — bars render exactly where the DB says they
+should, just off the default viewport. Fixed with a `useEffect` in `GanttChart.jsx` that scrolls to
+today (clamped into range, offset ~25% from the left edge) whenever the computed range changes.
+
+**Bug 2 ("every card shows as a row") — real, but the intended fix needed a client decision
+first.** Actual live row count on a real board was 34 (not literally 187/"every card" — the
+existing filter already excluded undated cards), but the hierarchy was Card (bar) → Checklist (bar)
+→ checklist-item (bar), all three levels mixed together, putting a bar on every dated *card*, which
+the client didn't want. Client's brief said rows should be "the checklist items inside each card"
+(Planka's `Task` model), but Tier 3 of the same brief talks about ordering by "the card's
+checklists" and per-"main task" color — language that fits `TaskList` (Planka's "checklist"), not
+the leaf item. Real data made this a genuine fork, not a coin flip: on the reference board only 3
+`TaskList`s exist (1 dated) vs. 3 `Task`s (0 dated) — picking the leaf-item reading would have taken
+Timeline to zero visible bars. Asked the client directly; confirmed **rows = `TaskList` /
+checklist**. `Timeline.jsx` rewritten: no card-level bars (cards get a plain bar-less header row,
+only when they have ≥1 dated checklist underneath), no checklist-item-level rows at all. Undated
+checklists are hidden from Timeline entirely (not a muted placeholder) — consistent with the
+pre-existing, client-approved design where the Tasks tab is the exhaustive undated-items audit and
+Timeline stays purely-dated.
+
+**Tier 1 also delivered**: today-marker code already existed (`todayOffset`/`.todayLine`) from the
+original Gantt patch but was equally invisible behind the same off-screen-by-default bug above, so
+fixing the scroll position surfaces it for free. Added inline bar labels (`Row.jsx`) — wide bars
+(≥70px) get the row's name printed inside in white; narrow ones get it printed just to the right in
+dark text, since a 1-day bar has no room for its own label. Left-column titles now wrap two lines
+(`-webkit-line-clamp: 2`) instead of end-truncating — the client's own card titles are long
+with the distinguishing part at the end, which end-truncation was hiding — plus a native `title`
+tooltip with the full text as a hover backup. Row height bumped 34px → 42px to fit two lines
+without cramming. `GanttChart.jsx`/`Row.jsx`/`Row.module.scss` are shared with the Team workload
+tab (per the original architecture, "kept the renderer itself dumb about *why* rows are grouped")
+— all of the above therefore also improved Team workload for free; Team workload's own row
+hierarchy (member → card → checklist) was not touched, only visually verified unbroken. Tasks and
+Schedule tabs use neither shared component and were not touched.
+
+Patch: `planka-custom/patches/0031-timeline-tab-fixes.patch`. **Note on patch numbering**: found an
+untracked, uncommitted `0030-checklist-task-assignee-ping-notifications.patch` already sitting in
+the patches directory (unrelated in-progress work, not documented anywhere yet, not mine) — set it
+aside during this session's build so it wouldn't get shipped as an untested side effect of this
+rebuild, then restored it byte-for-byte afterward, untouched. This session's own patch is numbered
+`0031` to avoid the collision; `0030` still needs to land under its own patch (and its own
+CLAUDE.md entry) whenever that other work is finished.
+
+**Deployed and live-verified 2026-08-12** via a real headless-browser session against
+`bsymedia.duckdns.org`'s live "Yapmaster Media" board (real production data): Timeline now opens
+already scrolled to today, shows exactly the 1 real dated checklist on this board as a labeled
+gradient bar under its card's plain header row, red today-line visible and correctly positioned;
+Team workload/Tasks/Schedule screenshotted afterward and confirmed unaffected. **Not yet done**:
+Tier 2 (zoom control, weekend/month shading, row density) and Tier 3 (checklist-order sequencing,
+per-task color palette) — paused here per the brief, pending the client confirming bars render
+correctly before continuing. This session's changes are deployed but **not committed to git** —
+`planka-custom/patches/0031-...patch` and this CLAUDE.md section are working-tree changes only.
+
 ## Taiga import (2026-08-07)
 
 Client is consolidating a second source into the same PLANKA instance: some of BSY Media's work
@@ -1107,3 +1176,52 @@ Confirmed via live read of `LICENSE.md` and `LICENSES/PLANKA License Guide EN.md
 self-hosting for ~100 employees of one organization, on that organization's own server, with no
 resale/third-party hosting, falls under the free Fair Use License — explicitly named as an
 allowed example ("internally within your own organization"). No seat cap in the license text.
+
+## Ping notifications for checklist owner / sub-task assignee (2026-08-12)
+
+Client wants a real notification (not just a visual avatar) when a user is tagged/assigned on a
+checklist or sub-task. Both `TaskList.assigneeUserId` and `Task.assigneeUserId` already existed
+(added for the Gantt view) but were purely cosmetic — setting them never notified anyone.
+
+Verified against the live deployment (not assumed from upstream docs) that PLANKA already has a
+complete personal-notification pipeline, just never wired up for these two fields: `Action.js`'s
+`PERSONAL_NOTIFIABLE_TYPES` list turns any action type into a directed, self-skip-aware
+notification the instant it's created via `sails.helpers.actions.createOne` — this is exactly how
+`addMemberToCard` already works. Added two new types, `ASSIGN_TASK_LIST`/`ASSIGN_TASK`, to that
+list (and to `Notification.js`'s own separate `Types` enum, which must mirror it — `action.type`
+is passed straight through as `notification.type`). Wired a side-effect block into
+`task-lists/update-one.js` and `tasks/update-one.js`, right next to the existing name/date/
+completion Action-logging blocks, that fires only when `assigneeUserId` changes to a new non-null
+value (`taskList.assigneeUserId !== inputs.record.assigneeUserId`) — so unassigning, no-op
+resaves, and self-assignment (via the existing `PERSONAL_NOTIFIABLE_TYPES` self-skip) all
+correctly produce zero notifications. Client-side: two new `case`s in
+`NotificationsStep/Item.jsx`'s switch, two new i18n keys, two new `NotificationTypes` enum
+entries — everything else (socket delivery, the bell badge, the redux-orm model) is already fully
+generic over notification type.
+
+**Descoped, confirmed with the client**: card-description `@mentions`. Comments use a dedicated
+`react-mentions` input with built-in autocomplete; the description field uses
+`@gravity-ui/markdown-editor`, which has no mention-extension support at all (checked their docs/
+GitHub — nothing to hook into). Real mention support there would mean custom ProseMirror/
+CodeMirror engineering, a separate and substantially larger effort. Can be scoped on its own later
+if wanted.
+
+**Concurrent-session note**: found an untracked `0030-...patch` already sitting in the patches
+directory from a different, still-running session's Timeline-tab-fixes work — that session
+deliberately set it aside during its own build/deploy so it wouldn't ship untested, then restored
+it byte-for-byte and numbered its own patch `0031` to avoid the collision (see their note under
+"Timeline tab data bugs" above). Both patches ended up in the same rebuild since a `--no-cache`
+build was needed anyway (a plain `docker compose build` had silently served a stale cached layer
+that omitted patch changes — worth remembering: **always rebuild with `--no-cache` after adding a
+new patch file**, don't trust a cache-hit build to notice a new file in `patches/`). Verified via
+`docker exec ... grep` that the running container's `Action.js`/`update-one.js` files actually
+contain the new code before trusting any live test.
+
+Patch: `planka-custom/patches/0030-checklist-task-assignee-ping-notifications.patch`. **Deployed
+and live-verified 2026-08-12** via direct Postgres inspection (both notification rows created with
+correct `type`/`data`, confirmed no ping on no-op resave/self-assign/unassign) plus a real
+headless-browser session logged in as a throwaway second user, showing the notification bell with
+the correct "assigned you to checklist «X»" / "...sub-task «Y» in checklist «X»" text and working
+card links. All verification used an isolated sandbox project + throwaway user created and fully
+deleted via the API afterward — confirmed zero trace left in `project`/`user_account`/
+`notification` tables.
