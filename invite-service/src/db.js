@@ -35,6 +35,21 @@ async function ensureSchema(pool) {
       used_at TIMESTAMPTZ
     );
     CREATE INDEX IF NOT EXISTS idx_invites_token_hash ON invites(token_hash);
+
+    -- BSY Media: per-checklist (Planka TaskList) Gantt bar color, chosen by
+    -- the team on the Timeline tab's Tier 3 color picker. Kept here rather
+    -- than in Planka's own schema, same rationale as everything else in
+    -- planka_ops - a PLANKA version upgrade must never be able to wipe or
+    -- break this. Shared team-wide (not per-user), one row per checklist.
+    CREATE TABLE IF NOT EXISTS gantt_task_list_colors (
+      task_list_id TEXT PRIMARY KEY,
+      board_id TEXT NOT NULL,
+      color TEXT NOT NULL,
+      updated_by_email TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_gantt_task_list_colors_board_id
+      ON gantt_task_list_colors(board_id);
   `);
 }
 

@@ -134,6 +134,20 @@ async function main() {
     });
   }
 
+  // BSY Media: extracts PLANKA's own `httpOnlyToken` cookie from the raw
+  // inbound request (no cookie-parser dependency needed for one cookie) so
+  // it can be handed to planka.js and forwarded on OUR outbound call to
+  // PLANKA - required for any real browser-logged-in session, see the long
+  // comment on planka.js's `request()`. `path: baseUrlPath || '/'` on that
+  // cookie means it does reach these routes (same domain), so this is
+  // always readable when present, not something the client has to pass
+  // explicitly.
+  function extractHttpOnlyToken(req) {
+    const cookieHeader = req.headers.cookie || '';
+    const match = cookieHeader.match(/(?:^|;\s*)httpOnlyToken=([^;]+)/);
+    return match ? match[1] : undefined;
+  }
+
   // --- JSON invite API (Bearer-token auth via the caller's own PLANKA
   // access token, read directly by the PLANKA React client's Share modal -
   // no invite-service login of any kind needed) ---
@@ -141,6 +155,7 @@ async function main() {
   app.post('/api/send', express.json(), async (req, res) => {
     const authHeader = req.headers.authorization || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
+    const httpOnlyToken = extractHttpOnlyToken(req);
 
     if (!token) {
       return res.status(401).json({ error: 'Missing bearer token.' });
@@ -154,7 +169,7 @@ async function main() {
 
     let me;
     try {
-      me = await planka.getMe(token);
+      me = await planka.getMe(token, httpOnlyToken);
     } catch (error) {
       // A user reported this exact "log into PLANKA again" message
       // persisting even after a real re-login - root-caused by reading the
@@ -180,7 +195,7 @@ async function main() {
     }
 
     try {
-      const authContext = await planka.getBoardAuthContext(boardId, token);
+      const authContext = await planka.getBoardAuthContext(boardId, token, httpOnlyToken);
 
       if (!authContext) {
         return res.status(404).json({ error: 'That board no longer exists.' });
@@ -207,6 +222,131 @@ async function main() {
     } catch (error) {
       console.error('POST /api/send: could not complete invite:', error);
       return res.status(500).json({ error: `Could not send invite: ${error.message}` });
+    }
+  });
+
+  // --- Gantt Timeline per-checklist color API (Bearer-token auth, same
+  // pattern as /api/send above) - the color a team picks for a checklist
+  // (Planka TaskList) bar on the Timeline tab, shared board-wide rather
+  // than per-browser so everyone reads the same "orange = Video Editing"
+  // legend. Stored in planka_ops, never Planka's own schema. ---
+
+  // Shared by both gantt-colors routes below - verifies the token the same
+  // way /api/send does (only blame "your session" for a real 401, not a
+  // network hiccup reaching PLANKA), and looks up the caller's own board
+  // membership role (if any) via /api/projects, which scopes
+  // included.boardMemberships to the caller already - no extra API call.
+  async function requireBoardAccess(req, res, boardId) {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
+    const httpOnlyToken = extractHttpOnlyToken(req);
+
+    if (!token) {
+      res.status(401).json({ error: 'Missing bearer token.' });
+      return null;
+    }
+
+    let me;
+    try {
+      me = await planka.getMe(token, httpOnlyToken);
+    } catch (error) {
+      if (error instanceof planka.PlankaApiError && error.status === 401) {
+        res.status(401).json({ error: 'Invalid or expired session - log into PLANKA again.' });
+        return null;
+      }
+
+      console.error('gantt-colors: could not verify session:', error);
+      res.status(502).json({
+        error: 'Could not reach PLANKA to verify your session - try again in a moment.',
+      });
+      return null;
+    }
+
+    const authContext = await planka.getBoardAuthContext(boardId, token, httpOnlyToken);
+    if (!authContext) {
+      res.status(404).json({ error: 'That board no longer exists.' });
+      return null;
+    }
+
+    return { me, token, authContext };
+  }
+
+  function isBoardEditor(me, authContext) {
+    const { project, projectManagers, boardMemberships } = authContext;
+
+    const membership = boardMemberships.find((m) => m.boardId === authContext.board.id);
+    const isEditorMember = !!membership && membership.role === 'editor';
+    const isManager = projectManagers.some(
+      (pm) => pm.userId === me.id && pm.projectId === project.id,
+    );
+    const isAdminBypass = me.role === 'admin' && !project.ownerProjectManagerId;
+
+    return isEditorMember || isManager || isAdminBypass;
+  }
+
+  app.get('/api/gantt-colors', async (req, res) => {
+    const { boardId } = req.query;
+    if (!boardId) {
+      return res.status(400).json({ error: 'boardId is required.' });
+    }
+
+    const auth = await requireBoardAccess(req, res, boardId);
+    if (!auth) return undefined;
+
+    try {
+      const { rows } = await pool.query(
+        'SELECT task_list_id, color FROM gantt_task_list_colors WHERE board_id = $1',
+        [boardId],
+      );
+
+      const colors = {};
+      rows.forEach((row) => {
+        colors[row.task_list_id] = row.color;
+      });
+
+      return res.json({ colors });
+    } catch (error) {
+      console.error('GET /api/gantt-colors:', error);
+      return res.status(500).json({ error: 'Could not load checklist colors.' });
+    }
+  });
+
+  app.post('/api/gantt-colors', express.json(), async (req, res) => {
+    const { boardId, taskListId, color } = req.body || {};
+
+    if (!boardId || !taskListId) {
+      return res.status(400).json({ error: 'boardId and taskListId are required.' });
+    }
+    if (color !== null && !/^#[0-9a-fA-F]{6}$/.test(color || '')) {
+      return res.status(400).json({ error: 'color must be a #rrggbb hex value, or null to clear.' });
+    }
+
+    const auth = await requireBoardAccess(req, res, boardId);
+    if (!auth) return undefined;
+
+    if (!isBoardEditor(auth.me, auth.authContext)) {
+      return res.status(403).json({ error: 'Not enough rights.' });
+    }
+
+    try {
+      if (color === null) {
+        await pool.query('DELETE FROM gantt_task_list_colors WHERE task_list_id = $1', [
+          taskListId,
+        ]);
+      } else {
+        await pool.query(
+          `INSERT INTO gantt_task_list_colors (task_list_id, board_id, color, updated_by_email, updated_at)
+           VALUES ($1, $2, $3, $4, now())
+           ON CONFLICT (task_list_id)
+           DO UPDATE SET color = $3, board_id = $2, updated_by_email = $4, updated_at = now()`,
+          [taskListId, boardId, color, auth.me.email],
+        );
+      }
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error('POST /api/gantt-colors:', error);
+      return res.status(500).json({ error: 'Could not save checklist color.' });
     }
   });
 

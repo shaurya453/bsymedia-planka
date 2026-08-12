@@ -1010,8 +1010,74 @@ correctly auto-fit to the board's full ~16-month real date spread with a working
 still-visible/clickable minimum-width bars. Rebuilt with `docker compose build --no-cache`
 throughout, per the cache gotcha noted above/in the ping-notifications section, and reconfirmed
 via screenshot (not just a successful build log) that the deployed container actually served the
-new zoom control before calling this done. **Not yet done**: Tier 3 (checklist-order sequencing
-from the card's checklists, user-chosen per-checklist color persisted outside Planka's schema).
+new zoom control before calling this done.
+
+## Timeline tab Tier 3 — checklist sequencing + per-checklist color (2026-08-12)
+
+- **Sequence order**: turned out to already be correct, nothing to build. `Card.getTaskListsQuerySet()`
+  (the source `selectGanttItemsForCurrentBoard` walks) already sorts by `position` - the same field
+  the checklist drag-and-drop in the card modal itself uses - and `Timeline.jsx`'s row-building loop
+  just preserves that array order. Confirmed against real data, not just the code: the one card with
+  two checklists has "Scriptwriting" at `position 65536` and "Video Editing" at `position 131072`,
+  matching the order shown in the card. Documented in `Timeline.jsx` itself so it doesn't look like
+  an oversight later.
+- **Per-checklist color, shared team-wide (client's explicit choice over a per-browser/localStorage
+  option)**: new `gantt_task_list_colors` table in `planka_ops` (never Planka's own schema - same
+  rule as everything else there), one row per `TaskList` id, holding a `#rrggbb` hex value.
+  - **Two new invite-service routes**, `GET`/`POST /api/gantt-colors`, same Bearer-token-via-the-
+    caller's-own-PLANKA-access-token pattern as the existing `/api/send` (Share modal invite), which
+    they sit next to in `index.js`. `planka.getBoardAuthContext` extended to also return
+    `boardMemberships` (PLANKA's `/api/projects` already scopes `included.boardMemberships` to the
+    *caller's own* memberships per its controller source - confirmed by reading it - so a plain
+    editor/viewer's role is findable with zero extra API calls). Write access requires board-editor
+    role OR project-manager-of-that-project OR the existing admin-bypass-except-personal-projects
+    rule (`isBoardEditor()`, mirrors `/api/send`'s existing authorization exactly rather than
+    inventing a fourth rule); read access only requires the board to be visible to the caller at all.
+  - **Real bug found and fixed while building this, not specific to the new feature**: a
+    real-browser-logged-in admin's token was silently rejected (401, "invalid or expired session")
+    by both new routes even though the identical token worked fine for every call PLANKA's own React
+    client made in that same tab - confirmed by reproducing with a live Puppeteer session, then
+    isolating it down to a raw internal `wget`/`fetch` call from inside the invite-service container.
+    Root cause, found by reading `server/api/hooks/current-user/index.js`: PLANKA's own client always
+    logs in with `withHttpOnlyToken=true` (`client/src/api/access-tokens.js`), which binds that
+    session to a second, `httpOnly` `httpOnlyToken` cookie that the server requires to *also* match
+    on every subsequent API call - the bearer JWT alone isn't sufficient once a session has one. A
+    token minted directly via a raw `POST /api/access-tokens` (no `withHttpOnlyToken`, e.g. every
+    manual `curl` test run during this session) never has this binding, which is exactly why manual
+    curl-based testing kept "working" and masked the gap. **This equally affects the already-shipped
+    `/api/send` route** (same auth pattern, same missing cookie forward) - likely silently broken for
+    any admin using a normal logged-in browser tab to invite by email, not just this new feature.
+    Fixed in both places: `extractHttpOnlyToken()` reads the cookie off the *inbound* request
+    (`path: baseUrlPath || '/'` on that cookie means it does reach invite-service's routes too, same
+    domain), `planka.js`'s `request()`/`getMe()`/`getBoardAuthContext()` now accept and forward it as
+    a `Cookie:` header on invite-service's *outbound* call to PLANKA. No cookie-parser dependency
+    added - one cookie, parsed with a one-line regex. Verified the fix directly: the exact
+    browser-extracted token that produced a 401 before now returns 200 from both routes, still using
+    the identical token string.
+  - **Client**: `ColorPickerStep.jsx` (new, mirrors `lists/List/EditColorStep.jsx`'s Popup.Header/
+    Content + swatch-grid + clear-button shape, but selects a raw hex value against a standalone
+    10-color palette - `constants/GanttTaskListColors.js` - rather than one of Planka's own named
+    `ListColors`, since this state lives in invite-service/planka_ops, not a Planka record).
+    `Timeline.jsx` fetches the board's colors once on mount/board-change and passes a `color`
+    per-row plus an `onColorChange` callback down through `GanttChart.jsx` to `Row.jsx` - both left
+    otherwise untouched for Team workload, which never passes `onColorChange` and so never renders
+    the picker or applies a custom color, exactly as scoped ("Timeline tab only"). `Row.jsx`: a
+    chosen color replaces the default blue-start/orange-due gradient entirely (a manual stage color
+    and a date-semantic gradient don't mix); a small color dot sits next to the checklist's label -
+    clickable (opens the picker) for editors, a plain read-only dot for viewers once a color is
+    actually set, so the whole team reads one consistent legend without offering viewers a control
+    they can't use.
+
+Patch: `planka-custom/patches/0033-timeline-tier3-checklist-color.patch` (client) +
+`invite-service/src/{db,index,planka}.js` (server, not part of the patch pipeline - invite-service
+builds from its own real source tree, not a clone+patch flow). **Deployed and live-verified
+2026-08-12**: real end-to-end round trip against the live board via a Puppeteer session - opened the
+picker on the real "Scriptwriting" checklist, picked a color, watched the bar and label-dot update
+immediately, confirmed the row in `planka_ops.gantt_task_list_colors` directly, then loaded the
+Timeline tab in a **completely fresh** browser session (new login, no client-side state carried
+over) and confirmed the color was still there. Test color cleared back to unset afterward via the
+same API (`color: null`) so the client's own real choice isn't pre-empted by test data - confirmed
+the table is empty again before finishing.
 
 ## Taiga import (2026-08-07)
 

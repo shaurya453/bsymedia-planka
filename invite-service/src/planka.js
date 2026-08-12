@@ -8,9 +8,30 @@ class PlankaApiError extends Error {
   }
 }
 
-async function request(path, { method = 'GET', token, body } = {}) {
+// BSY Media: PLANKA's own client always logs in with `withHttpOnlyToken=true`
+// (client/src/api/access-tokens.js), which makes the server bind that
+// session to a second, httpOnly `httpOnlyToken` cookie
+// (server/api/hooks/current-user/index.js: `if (session.httpOnlyToken &&
+// httpOnlyToken !== session.httpOnlyToken) return null`) - the bearer JWT
+// alone is then NOT enough to authenticate as that user; the matching
+// cookie value has to ride along too. Found the hard way: a real
+// browser-logged-in admin's token, forwarded here as a bearer header with
+// no cookie, was silently rejected by PLANKA (401, generic "access token
+// invalid" - looks exactly like a bad/expired token, not a missing-cookie
+// one) even though the identical token worked fine for every call PLANKA's
+// own React client made in the same browser tab. A token minted directly
+// via a raw `POST /api/access-tokens` (no `withHttpOnlyToken`) has no such
+// cookie requirement, which is why that always "worked" in manual testing
+// and masked the gap. httpOnlyToken's cookie path is
+// `sails.config.custom.baseUrlPath || '/'`, i.e. the whole domain for this
+// single-app deployment, so it does reach invite-service's own routes too
+// (same site, `SameSite=Strict` doesn't block a same-origin fetch) -
+// callers just need to read it off the *inbound* request and hand it back
+// here to forward on the *outbound* one.
+async function request(path, { method = 'GET', token, httpOnlyToken, body } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
+  if (httpOnlyToken) headers.Cookie = `httpOnlyToken=${httpOnlyToken}`;
 
   const res = await fetch(`${PLANKA_URL}${path}`, {
     method,
@@ -49,8 +70,8 @@ async function login(email, password) {
   return data.item;
 }
 
-async function getMe(token) {
-  const data = await request('/api/users/me', { token });
+async function getMe(token, httpOnlyToken) {
+  const data = await request('/api/users/me', { token, httpOnlyToken });
   return data.item;
 }
 
@@ -75,15 +96,20 @@ async function createBoardMembership(boardId, userId, role, adminToken) {
   });
 }
 
-// Returns { board, project, projectManagers } for one board id, fetched
-// with the CALLER's own token (not the service account) - used to
-// authorize board-scoped actions (e.g. the JSON invite-send route) without
-// a second API round-trip or the service account being involved at all.
-// `projectManagers` is every manager of `project`, for a caller-is-manager
-// check; `project.ownerProjectManagerId` mirrors the admin-bypass-except-
-// personal-projects rule already used elsewhere in this PLANKA deployment.
-async function getBoardAuthContext(boardId, token) {
-  const data = await request('/api/projects', { token });
+// Returns { board, project, projectManagers, boardMemberships } for one
+// board id, fetched with the CALLER's own token (not the service account) -
+// used to authorize board-scoped actions (e.g. the JSON invite-send and
+// gantt-colors routes) without a second API round-trip or the service
+// account being involved at all. `projectManagers` is every manager of
+// `project`, for a caller-is-manager check; `project.ownerProjectManagerId`
+// mirrors the admin-bypass-except-personal-projects rule already used
+// elsewhere in this PLANKA deployment. `boardMemberships` is PLANKA's own
+// `/api/projects` response scoped to the CALLER's memberships only (per its
+// controller: `BoardMembership.qm.getByUserId(currentUser.id)`) - so a
+// plain editor/viewer (no manager rights) is still findable in it without a
+// second `/api/boards/:id` call.
+async function getBoardAuthContext(boardId, token, httpOnlyToken) {
+  const data = await request('/api/projects', { token, httpOnlyToken });
   const boardsByProject = data.included && data.included.boards ? data.included.boards : [];
   const board = boardsByProject.find((b) => b.id === boardId);
 
@@ -91,8 +117,9 @@ async function getBoardAuthContext(boardId, token) {
 
   const project = (data.items || []).find((p) => p.id === board.projectId);
   const projectManagers = (data.included && data.included.projectManagers) || [];
+  const boardMemberships = (data.included && data.included.boardMemberships) || [];
 
-  return { board, project, projectManagers };
+  return { board, project, projectManagers, boardMemberships };
 }
 
 module.exports = {

@@ -1,0 +1,510 @@
+diff --git a/client/src/components/boards/GanttModal/GanttChart/ColorPickerStep.jsx b/client/src/components/boards/GanttModal/GanttChart/ColorPickerStep.jsx
+new file mode 100644
+index 0000000..f3ac9f4
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/GanttChart/ColorPickerStep.jsx
+@@ -0,0 +1,78 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useCallback } from 'react';
++import PropTypes from 'prop-types';
++import classNames from 'classnames';
++import { Button } from 'semantic-ui-react';
++import { useTranslation } from 'react-i18next';
++import { Popup } from '../../../../lib/custom-ui';
++
++import GANTT_TASK_LIST_COLORS from '../../../../constants/GanttTaskListColors';
++
++import styles from './ColorPickerStep.module.scss';
++
++// BSY Media: Tier 3 per-checklist color picker for the Timeline tab -
++// mirrors lists/List/EditColorStep.jsx's shape (a Popup.Header/Content pair
++// with a swatch grid + a clear button) but selects a raw hex value instead
++// of one of Planka's own named ListColors, since the choice here is saved
++// to invite-service/planka_ops, not to a Planka record.
++const ColorPickerStep = React.memo(({ color, onSelect, onClear, onClose }) => {
++  const [t] = useTranslation();
++
++  const handleSelectClick = useCallback(
++    (_, { value }) => {
++      onSelect(value);
++      onClose();
++    },
++    [onSelect, onClose],
++  );
++
++  const handleClearClick = useCallback(() => {
++    onClear();
++    onClose();
++  }, [onClear, onClose]);
++
++  return (
++    <>
++      <Popup.Header>{t('common.checklistColor', { context: 'title' })}</Popup.Header>
++      <Popup.Content>
++        <div className={styles.swatches}>
++          {GANTT_TASK_LIST_COLORS.map((swatch) => (
++            <Button
++              key={swatch}
++              type="button"
++              value={swatch}
++              className={classNames(styles.swatch, swatch === color && styles.swatchActive)}
++              style={{ background: swatch }}
++              onClick={handleSelectClick}
++            />
++          ))}
++        </div>
++        {color && (
++          <Button
++            fluid
++            content={t('action.removeColor')}
++            className={styles.clearButton}
++            onClick={handleClearClick}
++          />
++        )}
++      </Popup.Content>
++    </>
++  );
++});
++
++ColorPickerStep.propTypes = {
++  color: PropTypes.string,
++  onSelect: PropTypes.func.isRequired,
++  onClear: PropTypes.func.isRequired,
++  onClose: PropTypes.func.isRequired,
++};
++
++ColorPickerStep.defaultProps = {
++  color: null,
++};
++
++export default ColorPickerStep;
+diff --git a/client/src/components/boards/GanttModal/GanttChart/ColorPickerStep.module.scss b/client/src/components/boards/GanttModal/GanttChart/ColorPickerStep.module.scss
+new file mode 100644
+index 0000000..b1e917f
+--- /dev/null
++++ b/client/src/components/boards/GanttModal/GanttChart/ColorPickerStep.module.scss
+@@ -0,0 +1,46 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .swatches {
++    display: flex;
++    flex-wrap: wrap;
++    gap: 6px;
++  }
++
++  .swatch {
++    border-radius: 50%;
++    box-shadow: inset 0 0 0 1px rgba(9, 30, 66, 0.13) !important;
++    height: 28px;
++    margin: 0 !important;
++    padding: 0 !important;
++    position: relative;
++    width: 28px;
++
++    &:hover {
++      opacity: 0.85;
++    }
++  }
++
++  .swatchActive {
++    box-shadow: inset 0 0 0 2px #fff, 0 0 0 2px #17394d !important;
++  }
++
++  .clearButton {
++    background: transparent;
++    box-shadow: none;
++    color: #6b808c;
++    font-weight: normal;
++    margin-top: 10px;
++    padding: 6px 11px;
++    text-align: left;
++    text-decoration: underline;
++    transition: background 0.3s ease;
++
++    &:hover {
++      background: #e9e9e9;
++    }
++  }
++}
+diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+index 9db97bc..ce20b1d 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
++++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+@@ -35,7 +35,7 @@ const SCALE_KEYS = Object.keys(SCALES);
+ // BSY Media: shared horizontal Gantt renderer used by both the Timeline tab
+ // (grouped by card) and the Team workload tab (grouped by member) - see
+ // GanttModal.jsx.
+-const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
++const GanttChart = React.memo(({ rows, canEdit, emptyMessage, onColorChange }) => {
+   const scrollerRef = useRef(null);
+   const [scaleKey, setScaleKey] = useState('day');
+   const { dayWidth, minRangeDays } = SCALES[scaleKey];
+@@ -262,6 +262,8 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+                 rangeStart={range.start}
+                 dayWidth={dayWidth}
+                 canEdit={canEdit}
++                color={row.color}
++                onColorChange={onColorChange}
+               />
+             ))}
+           </div>
+@@ -283,10 +285,16 @@ GanttChart.propTypes = {
+       cardId: PropTypes.string,
+       taskListId: PropTypes.string,
+       taskId: PropTypes.string,
++      color: PropTypes.string,
+     }),
+   ).isRequired,
+   canEdit: PropTypes.bool.isRequired,
+   emptyMessage: PropTypes.string.isRequired,
++  onColorChange: PropTypes.func,
++};
++
++GanttChart.defaultProps = {
++  onColorChange: undefined,
+ };
+ 
+ export default GanttChart;
+diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.jsx b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
+index f5bebf8..7d9fdbc 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/Row.jsx
++++ b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
+@@ -3,13 +3,14 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useMemo } from 'react';
++import React, { useCallback, useMemo } from 'react';
+ import PropTypes from 'prop-types';
+ import classNames from 'classnames';
+ import differenceInCalendarDays from 'date-fns/differenceInCalendarDays';
+ 
+ import { usePopupInClosableContext } from '../../../../hooks';
+ import EditDueDateStep from '../../../cards/EditDueDateStep';
++import ColorPickerStep from './ColorPickerStep';
+ 
+ import styles from './Row.module.scss';
+ 
+@@ -36,8 +37,11 @@ const Row = React.memo(
+     rangeStart,
+     dayWidth,
+     canEdit,
++    color,
++    onColorChange,
+   }) => {
+     const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
++    const EditColorPopup = usePopupInClosableContext(ColorPickerStep);
+ 
+     const bar = useMemo(() => {
+       if (!startDate && !dueDate) {
+@@ -47,6 +51,17 @@ const Row = React.memo(
+       const anchorDate = startDate || dueDate;
+       const left = differenceInCalendarDays(anchorDate, rangeStart) * dayWidth;
+ 
++      // A manually-chosen checklist color (Tier 3) is a stage identifier,
++      // not a start/due indicator - it replaces the default blue-start/
++      // orange-due language entirely rather than blending with it.
++      if (color) {
++        const width = startDate && dueDate
++          ? (differenceInCalendarDays(dueDate, startDate) + 1) * dayWidth
++          : dayWidth;
++
++        return { left, width: Math.max(width, MIN_BAR_WIDTH), background: color };
++      }
++
+       if (startDate && dueDate) {
+         const width = (differenceInCalendarDays(dueDate, startDate) + 1) * dayWidth;
+ 
+@@ -62,7 +77,20 @@ const Row = React.memo(
+         width: Math.max(dayWidth, MIN_BAR_WIDTH),
+         background: startDate ? '#2185d0' : '#e8632c',
+       };
+-    }, [startDate, dueDate, rangeStart, dayWidth]);
++    }, [startDate, dueDate, rangeStart, dayWidth, color]);
++
++    const handleColorSelect = useCallback(
++      (newColor) => {
++        if (onColorChange && taskListId) {
++          onColorChange(taskListId, newColor);
++        }
++      },
++      [onColorChange, taskListId],
++    );
++
++    const handleColorClear = useCallback(() => {
++      handleColorSelect(null);
++    }, [handleColorSelect]);
+ 
+     const barStyle = bar && {
+       left: bar.left,
+@@ -85,6 +113,16 @@ const Row = React.memo(
+       <span className={styles.barLabel}>{barLabelText}</span>
+     ) : null;
+ 
++    // BSY Media: Tier 3 color picker - only offered where the caller (the
++    // Timeline tab) passes onColorChange, and only for checklist rows
++    // (taskListId), never card header rows or Team workload (which never
++    // passes this prop, so its own rows are untouched). Editors get a
++    // clickable swatch (even with no color chosen yet, as an affordance);
++    // viewers see a plain dot only once a color has actually been set, so
++    // the whole team reads the same choice without being offered a control
++    // they can't use.
++    const showColorControl = !!onColorChange && !!taskListId && !isGroupHeader;
++
+     return (
+       <div
+         className={classNames(
+@@ -98,6 +136,18 @@ const Row = React.memo(
+           title={typeof label === 'string' ? label : undefined}
+         >
+           <span className={styles.labelText}>{label}</span>
++          {showColorControl &&
++            (canEdit ? (
++              <EditColorPopup color={color} onSelect={handleColorSelect} onClear={handleColorClear}>
++                <button
++                  type="button"
++                  className={styles.colorSwatch}
++                  style={{ background: color || undefined }}
++                />
++              </EditColorPopup>
++            ) : (
++              color && <span className={styles.colorSwatch} style={{ background: color }} />
++            ))}
+         </div>
+         <div className={styles.track}>
+           {bar &&
+@@ -138,6 +188,8 @@ Row.propTypes = {
+   rangeStart: PropTypes.instanceOf(Date).isRequired,
+   dayWidth: PropTypes.number.isRequired,
+   canEdit: PropTypes.bool.isRequired,
++  color: PropTypes.string,
++  onColorChange: PropTypes.func,
+ };
+ 
+ Row.defaultProps = {
+@@ -146,6 +198,8 @@ Row.defaultProps = {
+   cardId: undefined,
+   taskListId: undefined,
+   taskId: undefined,
++  color: null,
++  onColorChange: undefined,
+ };
+ 
+ export default Row;
+diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
+index 3f8ce21..eb8dc15 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
++++ b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
+@@ -43,7 +43,9 @@
+     -webkit-box-orient: vertical;
+     -webkit-line-clamp: 2;
+     display: -webkit-box;
++    flex: 1 1 auto;
+     line-height: 13px;
++    min-width: 0;
+     overflow: hidden;
+     word-break: break-word;
+   }
+@@ -57,6 +59,28 @@
+     padding-left: 28px;
+   }
+ 
++  // Tier 3 per-checklist color dot/button - see Row.jsx.
++  .colorSwatch {
++    background-color: #dfe1e6;
++    border: none;
++    border-radius: 50%;
++    box-shadow: inset 0 0 0 1px rgba(9, 30, 66, 0.25);
++    cursor: pointer;
++    flex: 0 0 auto;
++    height: 12px;
++    margin: 0 0 0 6px;
++    padding: 0;
++    width: 12px;
++
++    &:hover {
++      box-shadow: inset 0 0 0 1px rgba(9, 30, 66, 0.4);
++    }
++  }
++
++  span.colorSwatch {
++    cursor: default;
++  }
++
+   .track {
+     flex: 0 0 auto;
+     position: relative;
+diff --git a/client/src/components/boards/GanttModal/Timeline/Timeline.jsx b/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
+index d8149cd..ce1ad1f 100644
+--- a/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
++++ b/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
+@@ -3,16 +3,40 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useMemo } from 'react';
++import React, { useCallback, useEffect, useMemo, useState } from 'react';
+ import { useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+ 
+ import selectors from '../../../../selectors';
+ import { BoardMembershipRoles } from '../../../../constants/Enums';
++import { getAccessToken } from '../../../../utils/access-token-storage';
+ import GanttChart from '../GanttChart';
+ 
+ import styles from './Timeline.module.scss';
+ 
++// BSY Media: Tier 3 per-checklist bar color, shared board-wide (not a
++// per-browser preference) - persisted via invite-service's own JSON API
++// (same-origin, Bearer-authenticated with this user's own PLANKA access
++// token, identical pattern to the Share modal's InviteByEmail.jsx) against
++// a table in planka_ops, never Planka's own schema.
++const fetchColors = (boardId) =>
++  fetch(`/invite/api/gantt-colors?boardId=${boardId}`, {
++    headers: { Authorization: `Bearer ${getAccessToken()}` },
++  })
++    .then((response) => response.json().then((body) => ({ ok: response.ok, body })))
++    .then(({ ok, body }) => (ok ? body.colors : {}))
++    .catch(() => ({}));
++
++const saveColor = (boardId, taskListId, color) =>
++  fetch('/invite/api/gantt-colors', {
++    method: 'POST',
++    headers: {
++      'Content-Type': 'application/json',
++      Authorization: `Bearer ${getAccessToken()}`,
++    },
++    body: JSON.stringify({ boardId, taskListId, color }),
++  }).catch(() => {});
++
+ // BSY Media: rows are checklists (Planka's TaskList - the client calls
+ // these "tasks"), not cards and not individual checklist items. A card
+ // never gets its own bar here; it only gets a plain (bar-less) header row
+@@ -24,6 +48,7 @@ import styles from './Timeline.module.scss';
+ // individual checklist-item dates are deliberately not plotted here.
+ const Timeline = React.memo(() => {
+   const items = useSelector(selectors.selectGanttItemsForCurrentBoard);
++  const boardId = useSelector((state) => selectors.selectCurrentBoard(state).id);
+ 
+   const canEdit = useSelector((state) => {
+     const boardMembership = selectors.selectCurrentUserMembershipForCurrentBoard(state);
+@@ -32,6 +57,47 @@ const Timeline = React.memo(() => {
+ 
+   const [t] = useTranslation();
+ 
++  // Sequence order (Tier 3): rows already follow each card's own checklist
++  // order for free - Card.getTaskListsQuerySet() (feeding
++  // selectGanttItemsForCurrentBoard) already sorts by `position`, the same
++  // field the checklist drag-and-drop in the card modal uses, and this
++  // loop below preserves that array order as-is. Confirmed against real
++  // data, not just the code: on the one card with two checklists,
++  // "Scriptwriting" (position 65536) sorts before "Video Editing"
++  // (position 131072), matching the order shown in the card itself.
++  const [colors, setColors] = useState({});
++
++  useEffect(() => {
++    let isCancelled = false;
++
++    fetchColors(boardId).then((fetchedColors) => {
++      if (!isCancelled) {
++        setColors(fetchedColors || {});
++      }
++    });
++
++    return () => {
++      isCancelled = true;
++    };
++  }, [boardId]);
++
++  const handleColorChange = useCallback(
++    (taskListId, color) => {
++      setColors((current) => {
++        const next = { ...current };
++        if (color) {
++          next[taskListId] = color;
++        } else {
++          delete next[taskListId];
++        }
++        return next;
++      });
++
++      saveColor(boardId, taskListId, color);
++    },
++    [boardId],
++  );
++
+   const rows = useMemo(() => {
+     const result = [];
+ 
+@@ -62,12 +128,13 @@ const Timeline = React.memo(() => {
+           startDate: taskList.startDate,
+           dueDate: taskList.dueDate,
+           taskListId: taskList.id,
++          color: colors[taskList.id] || null,
+         });
+       });
+     });
+ 
+     return result;
+-  }, [items]);
++  }, [items, colors]);
+ 
+   return (
+     <div className={styles.wrapper}>
+@@ -75,6 +142,7 @@ const Timeline = React.memo(() => {
+         rows={rows}
+         canEdit={canEdit}
+         emptyMessage={t('common.noDatedCardsOrChecklistsYet')}
++        onColorChange={handleColorChange}
+       />
+     </div>
+   );
+diff --git a/client/src/constants/GanttTaskListColors.js b/client/src/constants/GanttTaskListColors.js
+new file mode 100644
+index 0000000..e4d5a4e
+--- /dev/null
++++ b/client/src/constants/GanttTaskListColors.js
+@@ -0,0 +1,23 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++// BSY Media: palette for the Timeline tab's per-checklist color picker
++// (Tier 3). Standalone hex values rather than Planka's own named
++// ListColors/LabelColors - those map to SCSS background-* utility classes
++// designed for solid chips, not the inline `style={{ background }}` a Gantt
++// bar needs, and this is BSY-Media-specific state stored outside Planka's
++// schema anyway (see invite-service's gantt_task_list_colors table).
++export default [
++  '#c9372c',
++  '#e56910',
++  '#e2b203',
++  '#4bce97',
++  '#0c66e4',
++  '#6e5dc6',
++  '#cd519d',
++  '#8590a2',
++  '#227d51',
++  '#5e4db2',
++];
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 227ec83..84c1eca 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -125,6 +125,7 @@ export default {
+       cardsOnThisListAreCompleteAndReadyToBeArchived:
+         'Cards on this list are complete and ready to be archived.',
+       cardsOnThisListAreReadyToBeWorkedOn: 'Cards on this list are ready to be worked on.',
++      checklistColor_title: 'Checklist Color',
+       checklists: 'Checklists',
+       clickHereOrRefreshPageToUpdate: '<0>Click here</0> or refresh the page to update.',
+       clientHostnameInEhlo: 'Client hostname in EHLO',
