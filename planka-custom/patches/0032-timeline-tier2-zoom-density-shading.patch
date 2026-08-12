@@ -1,0 +1,414 @@
+diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+index e47aa3b..9db97bc 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
++++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+@@ -3,27 +3,42 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useEffect, useMemo, useRef } from 'react';
++import React, { useEffect, useMemo, useRef, useState } from 'react';
+ import PropTypes from 'prop-types';
++import { Button } from 'semantic-ui-react';
+ import addDays from 'date-fns/addDays';
+ import differenceInCalendarDays from 'date-fns/differenceInCalendarDays';
+ import format from 'date-fns/format';
++import isWeekend from 'date-fns/isWeekend';
+ import startOfDay from 'date-fns/startOfDay';
++import startOfWeek from 'date-fns/startOfWeek';
+ 
+ import Row from './Row';
+ 
+ import styles from './GanttChart.module.scss';
+ 
+-const DAY_WIDTH = 32;
+ const LABEL_WIDTH = 260;
+-const MIN_RANGE_DAYS = 14;
++
++// BSY Media: three zoom presets - pixels-per-day plus a minimum auto-fit
++// span sized for that zoom - so the same auto-fit chart works for "this
++// week" (Day), "this quarter" (Week) and "this year" (Month) without
++// forcing the user to scroll a 500+ day wide grid just to see a handful of
++// bars at Day scale on a board with a wide date spread.
++const SCALES = {
++  day: { label: 'Day', dayWidth: 32, minRangeDays: 14 },
++  week: { label: 'Week', dayWidth: 10, minRangeDays: 12 * 7 },
++  month: { label: 'Month', dayWidth: 3, minRangeDays: 365 },
++};
++
++const SCALE_KEYS = Object.keys(SCALES);
+ 
+ // BSY Media: shared horizontal Gantt renderer used by both the Timeline tab
+ // (grouped by card) and the Team workload tab (grouped by member) - see
+-// GanttModal.jsx. Auto-fits its date range from the rows it's given rather
+-// than exposing zoom controls, per the confirmed "auto-fit + scroll" design.
++// GanttModal.jsx.
+ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+   const scrollerRef = useRef(null);
++  const [scaleKey, setScaleKey] = useState('day');
++  const { dayWidth, minRangeDays } = SCALES[scaleKey];
+ 
+   const range = useMemo(() => {
+     const dates = [];
+@@ -48,8 +63,8 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+     const start = addDays(minDate, -1);
+     let end = addDays(maxDate, 1);
+ 
+-    if (differenceInCalendarDays(end, start) + 1 < MIN_RANGE_DAYS) {
+-      end = addDays(start, MIN_RANGE_DAYS - 1);
++    if (differenceInCalendarDays(end, start) + 1 < minRangeDays) {
++      end = addDays(start, minRangeDays - 1);
+     }
+ 
+     const totalDays = differenceInCalendarDays(end, start) + 1;
+@@ -60,17 +75,42 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+     }
+ 
+     const monthSegments = [];
+-    dayCells.forEach((date) => {
++    const weekSegments = [];
++    const weekendOffsets = [];
++
++    dayCells.forEach((date, index) => {
+       const monthKey = format(date, 'yyyy-MM');
+-      const lastSegment = monthSegments[monthSegments.length - 1];
++      const lastMonthSegment = monthSegments[monthSegments.length - 1];
+ 
+-      if (lastSegment && lastSegment.key === monthKey) {
+-        lastSegment.days += 1;
++      if (lastMonthSegment && lastMonthSegment.key === monthKey) {
++        lastMonthSegment.days += 1;
+       } else {
+-        monthSegments.push({ key: monthKey, label: format(date, 'MMMM yyyy'), days: 1 });
++        monthSegments.push({
++          key: monthKey,
++          label: format(date, 'MMMM yyyy'),
++          dayOffset: index,
++          days: 1,
++        });
++      }
++
++      const weekKey = format(startOfWeek(date), 'yyyy-MM-dd');
++      const lastWeekSegment = weekSegments[weekSegments.length - 1];
++
++      if (lastWeekSegment && lastWeekSegment.key === weekKey) {
++        lastWeekSegment.days += 1;
++      } else {
++        weekSegments.push({ key: weekKey, label: format(date, 'MMM d'), days: 1 });
++      }
++
++      if (isWeekend(date)) {
++        weekendOffsets.push(index);
+       }
+     });
+ 
++    // Alternate a faint shade on every other month so a long row is easier
++    // to track across without counting grid lines back to a date header.
++    const monthShadeSegments = monthSegments.filter((_segment, index) => index % 2 === 1);
++
+     const today = startOfDay(new Date());
+     const todayOffset =
+       today >= start && today <= end ? differenceInCalendarDays(today, start) : null;
+@@ -80,18 +120,20 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+       totalDays,
+       dayCells,
+       monthSegments,
++      weekSegments,
++      weekendOffsets,
++      monthShadeSegments,
+       todayOffset,
+     };
+-  }, [rows]);
++  }, [rows, minRangeDays]);
+ 
+-  // BSY Media: the chart auto-fits its day-scale to the full min/max date
+-  // span across every row, which on real data can run well over a year
+-  // wide - left un-scrolled, that renders as a wall of empty grid with the
+-  // handful of actual bars scrolled far off to the right, indistinguishable
++  // BSY Media: at Day scale, a wide board date-spread means the chart can
++  // render 500+ days wide - left un-scrolled, that's a wall of empty grid
++  // with the actual bars scrolled far off to the right, indistinguishable
+   // from bars not rendering at all. Land on "today" (clamped into range,
+   // offset a bit from the left edge) instead of the range's start so the
+   // bars that matter right now are on screen without the user having to
+-  // know to scroll.
++  // know to scroll, at any zoom level.
+   useEffect(() => {
+     if (!range || !scrollerRef.current) {
+       return;
+@@ -105,17 +147,38 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+         ? 0
+         : Math.min(differenceInCalendarDays(today, range.start), range.totalDays - 1);
+ 
+-    scroller.scrollLeft = Math.max(0, dayOffset * DAY_WIDTH - scroller.clientWidth * 0.25);
+-  }, [range]);
++    scroller.scrollLeft = Math.max(0, dayOffset * dayWidth - scroller.clientWidth * 0.25);
++  }, [range, dayWidth]);
++
++  const scaleControl = (
++    <Button.Group size="tiny" className={styles.scaleControl}>
++      {SCALE_KEYS.map((key) => (
++        <Button
++          key={key}
++          type="button"
++          active={key === scaleKey}
++          onClick={() => setScaleKey(key)}
++        >
++          {SCALES[key].label}
++        </Button>
++      ))}
++    </Button.Group>
++  );
+ 
+   if (!range) {
+-    return <div className={styles.empty}>{emptyMessage}</div>;
++    return (
++      <div className={styles.wrapper}>
++        <div className={styles.toolbar}>{scaleControl}</div>
++        <div className={styles.empty}>{emptyMessage}</div>
++      </div>
++    );
+   }
+ 
+-  const chartWidth = range.totalDays * DAY_WIDTH;
++  const chartWidth = range.totalDays * dayWidth;
+ 
+   return (
+     <div className={styles.wrapper}>
++      <div className={styles.toolbar}>{scaleControl}</div>
+       <div className={styles.scroller} ref={scrollerRef}>
+         <div className={styles.inner} style={{ width: LABEL_WIDTH + chartWidth }}>
+           <div className={styles.header}>
+@@ -126,30 +189,63 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+                   <div
+                     key={segment.key}
+                     className={styles.monthCell}
+-                    style={{ width: segment.days * DAY_WIDTH }}
++                    style={{ width: segment.days * dayWidth }}
+                   >
+                     {segment.label}
+                   </div>
+                 ))}
+               </div>
+-              <div className={styles.dayRow}>
+-                {range.dayCells.map((date) => (
+-                  <div
+-                    key={date.toISOString()}
+-                    className={styles.dayCell}
+-                    style={{ width: DAY_WIDTH }}
+-                  >
+-                    {format(date, 'd')}
+-                  </div>
+-                ))}
+-              </div>
++              {scaleKey === 'day' && (
++                <div className={styles.dayRow}>
++                  {range.dayCells.map((date) => (
++                    <div
++                      key={date.toISOString()}
++                      className={styles.dayCell}
++                      style={{ width: dayWidth }}
++                    >
++                      {format(date, 'd')}
++                    </div>
++                  ))}
++                </div>
++              )}
++              {scaleKey === 'week' && (
++                <div className={styles.dayRow}>
++                  {range.weekSegments.map((segment) => (
++                    <div
++                      key={segment.key}
++                      className={styles.dayCell}
++                      style={{ width: segment.days * dayWidth }}
++                    >
++                      {segment.label}
++                    </div>
++                  ))}
++                </div>
++              )}
+             </div>
+           </div>
+           <div className={styles.body}>
++            {range.monthShadeSegments.map((segment) => (
++              <div
++                key={segment.key}
++                className={styles.monthShade}
++                style={{
++                  left: LABEL_WIDTH + segment.dayOffset * dayWidth,
++                  width: segment.days * dayWidth,
++                }}
++              />
++            ))}
++            {scaleKey !== 'month' &&
++              range.weekendOffsets.map((offset) => (
++                <div
++                  key={offset}
++                  className={styles.weekendShade}
++                  style={{ left: LABEL_WIDTH + offset * dayWidth, width: dayWidth }}
++                />
++              ))}
+             {range.todayOffset !== null && (
+               <div
+                 className={styles.todayLine}
+-                style={{ left: LABEL_WIDTH + range.todayOffset * DAY_WIDTH + DAY_WIDTH / 2 }}
++                style={{ left: LABEL_WIDTH + range.todayOffset * dayWidth + dayWidth / 2 }}
+               />
+             )}
+             {rows.map((row) => (
+@@ -164,7 +260,7 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+                 taskListId={row.taskListId}
+                 taskId={row.taskId}
+                 rangeStart={range.start}
+-                dayWidth={DAY_WIDTH}
++                dayWidth={dayWidth}
+                 canEdit={canEdit}
+               />
+             ))}
+diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
+index 069111a..ad91ac0 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
++++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
+@@ -16,6 +16,18 @@
+     height: 100%;
+   }
+ 
++  .toolbar {
++    align-items: center;
++    display: flex;
++    flex: 0 0 auto;
++    justify-content: flex-end;
++    padding: 0 0 8px;
++  }
++
++  .scaleControl {
++    box-shadow: none !important;
++  }
++
+   .scroller {
+     flex: 1 1 auto;
+     min-height: 0;
+@@ -80,12 +92,32 @@
+     position: relative;
+   }
+ 
++  // Faint alternating month bands and weekend columns, so a long row can be
++  // tracked across to the right date without counting grid lines back to
++  // the header. Sit behind row content (see Row.module.scss's .row z-index)
++  // but above the todayLine so the "today" marker still reads clearly.
++  .monthShade {
++    background: rgba(9, 30, 66, 0.03);
++    bottom: 0;
++    position: absolute;
++    top: 0;
++    z-index: 0;
++  }
++
++  .weekendShade {
++    background: rgba(9, 30, 66, 0.05);
++    bottom: 0;
++    position: absolute;
++    top: 0;
++    z-index: 0;
++  }
++
+   .todayLine {
+     background: #e0002b;
+     bottom: 0;
+     position: absolute;
+     top: 0;
+     width: 2px;
+-    z-index: 1;
++    z-index: 2;
+   }
+ }
+diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.jsx b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
+index 4f92fca..f5bebf8 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/Row.jsx
++++ b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
+@@ -13,6 +13,11 @@ import EditDueDateStep from '../../../cards/EditDueDateStep';
+ 
+ import styles from './Row.module.scss';
+ 
++// A bar needs to stay visible/clickable even at Month zoom, where dayWidth
++// shrinks to a few px and a multi-day bar would otherwise round down to a
++// sliver.
++const MIN_BAR_WIDTH = 6;
++
+ // BSY Media: one bar/label row of the Gantt chart. Bar geometry is computed
+ // from the shared rangeStart + dayWidth passed down by GanttChart so every
+ // row lines up under the same day-scale header. Clicking a bar reuses the
+@@ -47,14 +52,14 @@ const Row = React.memo(
+ 
+         return {
+           left,
+-          width: Math.max(width, dayWidth),
++          width: Math.max(width, MIN_BAR_WIDTH),
+           background: 'linear-gradient(90deg, #2185d0, #e8632c)',
+         };
+       }
+ 
+       return {
+         left,
+-        width: dayWidth,
++        width: Math.max(dayWidth, MIN_BAR_WIDTH),
+         background: startDate ? '#2185d0' : '#e8632c',
+       };
+     }, [startDate, dueDate, rangeStart, dayWidth]);
+diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
+index 0384e71..3f8ce21 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
++++ b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
+@@ -4,9 +4,15 @@
+  */
+ 
+ :global(#app) {
++  // position: relative + z-index lifts row content (label + bars) above the
++  // month/weekend background shading painted into .body in GanttChart -
++  // those are position: absolute siblings and would otherwise paint over
++  // static-flow content regardless of DOM order.
+   .row {
+     display: flex;
+-    height: 42px;
++    height: 36px;
++    position: relative;
++    z-index: 1;
+   }
+ 
+   .rowGroupBoundary {
+@@ -20,7 +26,7 @@
+     color: #17394d;
+     display: flex;
+     flex: 0 0 260px;
+-    font-size: 13px;
++    font-size: 12px;
+     left: 0;
+     overflow: hidden;
+     padding: 0 12px;
+@@ -37,7 +43,7 @@
+     -webkit-box-orient: vertical;
+     -webkit-line-clamp: 2;
+     display: -webkit-box;
+-    line-height: 15px;
++    line-height: 13px;
+     overflow: hidden;
+     word-break: break-word;
+   }
+@@ -67,7 +73,7 @@
+     overflow: hidden;
+     padding: 0;
+     position: absolute;
+-    top: 11px;
++    top: 8px;
+   }
+ 
+   .barButton {
+@@ -102,7 +108,7 @@
+     line-height: 20px;
+     pointer-events: none;
+     position: absolute;
+-    top: 11px;
++    top: 8px;
+     white-space: nowrap;
+   }
+ }

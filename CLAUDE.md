@@ -954,11 +954,64 @@ CLAUDE.md entry) whenever that other work is finished.
 `bsymedia.duckdns.org`'s live "Yapmaster Media" board (real production data): Timeline now opens
 already scrolled to today, shows exactly the 1 real dated checklist on this board as a labeled
 gradient bar under its card's plain header row, red today-line visible and correctly positioned;
-Team workload/Tasks/Schedule screenshotted afterward and confirmed unaffected. **Not yet done**:
-Tier 2 (zoom control, weekend/month shading, row density) and Tier 3 (checklist-order sequencing,
-per-task color palette) — paused here per the brief, pending the client confirming bars render
-correctly before continuing. This session's changes are deployed but **not committed to git** —
-`planka-custom/patches/0031-...patch` and this CLAUDE.md section are working-tree changes only.
+Team workload/Tasks/Schedule screenshotted afterward and confirmed unaffected. Client confirmed
+bars render correctly; Tier 2 followed in the same session (see below).
+
+## Timeline tab Tier 2 — zoom, density, shading (2026-08-12)
+
+Built on the Tier 1 patch above, same session. New workspace baseline included patches through
+`0031` (i.e. also picked up the concurrent ping-notifications session's `0030`, which had landed
+in the meantime — see that section's own "concurrent-session note" for the cache gotcha hit
+rebuilding this).
+
+- **Zoom control (Day/Week/Month)**: `GanttChart.jsx` previously hardcoded one `DAY_WIDTH=32`
+  pixels-per-day constant; replaced with a `SCALES` map (`day: 32px/14-day min span`, `week:
+  10px/12-week min span`, `month: 3px/365-day min span`) selected via a `Button.Group` in a new
+  toolbar row, local `useState`, defaulting to Day. The min-range-days now scales with zoom so
+  Week/Month don't auto-fit down to a useless few-week span when the board's real date spread is
+  narrow. Header sub-row swaps: Day shows per-day numbers (unchanged), Week shows per-ISO-week
+  segments (`startOfWeek`-keyed), Month shows no sub-row at all (month row only). The month-band
+  computation, weekend-offset list, and today-offset are all still derived once in the same
+  `range` `useMemo`, now keyed off the active scale's `minRangeDays` alongside `rows`.
+  Auto-scroll-to-today (from Tier 1) now uses the active scale's `dayWidth`, so it still lands
+  correctly at every zoom level - verified live at all three.
+- **Minimum bar width decoupled from zoom**: at Month scale `dayWidth` drops to 3px, which would
+  round a short multi-day bar down to a sliver. `Row.jsx`'s bar-width floor changed from `dayWidth`
+  itself to a fixed `MIN_BAR_WIDTH = 6`, so short bars stay visible/clickable at every zoom level
+  instead of only at Day scale.
+- **Weekend + alternating-month shading**: two new absolutely-positioned layers in `.body`
+  (`GanttChart.module.scss`'s `.weekendShade`/`.monthShade`), computed once per `range` (weekend
+  day offsets; every other month segment). Weekend shading is skipped at Month scale (individual
+  days aren't resolvable at 3px anyway). **Real stacking-context bug caught before shipping**:
+  position-absolute shading siblings in `.body` paint above statically-positioned row content
+  regardless of DOM order per CSS spec, which would have buried every bar under an opaque shading
+  layer - confirmed by reasoning through the same mechanism already visible in the pre-existing
+  `.todayLine` (which *does* intentionally paint over bars, crossing them, in the Tier 1
+  screenshots). Fixed by giving `Row.module.scss`'s `.row` its own stacking context
+  (`position: relative; z-index: 1`), with shading at `z-index: 0` and the today-line kept at
+  `z-index: 2` so it still crosses bars on purpose. Live-verified after the fact - shading renders
+  behind bars/labels correctly, not on top.
+- **Tighter row density**: row height 42px → 36px (the height Tier 1 had bumped to for its 2-line
+  label wrap), label font-size 13px → 12px, `.labelText` line-height tightened to 13px - two lines
+  still fit cleanly, just in less vertical space. Bar/bar-label vertical offsets recalculated to
+  stay centered in the shorter row (`top: 11px` → `8px` for a 20px-tall bar in a 36px row).
+- **Sticky headers - confirmed, not changed**: both the top date header (`position: sticky; top:
+  0`) and the left label column (`position: sticky; left: 0`) already existed from the original
+  Gantt patch and were never broken by Tier 1/2's other edits. Explicitly re-verified this session
+  by scripting a live scroll (`scrollTop`/`scrollLeft` both nonzero simultaneously) and
+  screenshotting mid-scroll: header stayed pinned to the top and row labels stayed pinned to the
+  left, both at once, confirmed visually rather than just re-reading the CSS.
+
+Patch: `planka-custom/patches/0032-timeline-tier2-zoom-density-shading.patch`. **Deployed and
+live-verified 2026-08-12** via a real headless-browser session against the live "Yapmaster Media"
+board's Team workload tab (richer real dataset than Timeline's single dated checklist) at all
+three zoom levels, plus the Timeline tab itself at Day scale - Month scale in particular
+correctly auto-fit to the board's full ~16-month real date spread with a working today-line and
+still-visible/clickable minimum-width bars. Rebuilt with `docker compose build --no-cache`
+throughout, per the cache gotcha noted above/in the ping-notifications section, and reconfirmed
+via screenshot (not just a successful build log) that the deployed container actually served the
+new zoom control before calling this done. **Not yet done**: Tier 3 (checklist-order sequencing
+from the card's checklists, user-chosen per-checklist color persisted outside Planka's schema).
 
 ## Taiga import (2026-08-07)
 

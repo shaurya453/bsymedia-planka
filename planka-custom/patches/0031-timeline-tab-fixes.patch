@@ -1,0 +1,284 @@
+diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+index d69e37d..e47aa3b 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
++++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+@@ -3,7 +3,7 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useMemo } from 'react';
++import React, { useEffect, useMemo, useRef } from 'react';
+ import PropTypes from 'prop-types';
+ import addDays from 'date-fns/addDays';
+ import differenceInCalendarDays from 'date-fns/differenceInCalendarDays';
+@@ -23,6 +23,8 @@ const MIN_RANGE_DAYS = 14;
+ // GanttModal.jsx. Auto-fits its date range from the rows it's given rather
+ // than exposing zoom controls, per the confirmed "auto-fit + scroll" design.
+ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
++  const scrollerRef = useRef(null);
++
+   const range = useMemo(() => {
+     const dates = [];
+ 
+@@ -82,6 +84,30 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+     };
+   }, [rows]);
+ 
++  // BSY Media: the chart auto-fits its day-scale to the full min/max date
++  // span across every row, which on real data can run well over a year
++  // wide - left un-scrolled, that renders as a wall of empty grid with the
++  // handful of actual bars scrolled far off to the right, indistinguishable
++  // from bars not rendering at all. Land on "today" (clamped into range,
++  // offset a bit from the left edge) instead of the range's start so the
++  // bars that matter right now are on screen without the user having to
++  // know to scroll.
++  useEffect(() => {
++    if (!range || !scrollerRef.current) {
++      return;
++    }
++
++    const scroller = scrollerRef.current;
++    const today = startOfDay(new Date());
++
++    const dayOffset =
++      today <= range.start
++        ? 0
++        : Math.min(differenceInCalendarDays(today, range.start), range.totalDays - 1);
++
++    scroller.scrollLeft = Math.max(0, dayOffset * DAY_WIDTH - scroller.clientWidth * 0.25);
++  }, [range]);
++
+   if (!range) {
+     return <div className={styles.empty}>{emptyMessage}</div>;
+   }
+@@ -90,7 +116,7 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+ 
+   return (
+     <div className={styles.wrapper}>
+-      <div className={styles.scroller}>
++      <div className={styles.scroller} ref={scrollerRef}>
+         <div className={styles.inner} style={{ width: LABEL_WIDTH + chartWidth }}>
+           <div className={styles.header}>
+             <div className={styles.headerLabel} style={{ width: LABEL_WIDTH }} />
+diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.jsx b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
+index a05672e..4f92fca 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/Row.jsx
++++ b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
+@@ -67,6 +67,19 @@ const Row = React.memo(
+ 
+     const isClickable = !!bar && canEdit && !!(cardId || taskListId || taskId);
+ 
++    // BSY Media: a bar should be identifiable without tracing back to the
++    // left column, so the row's own label is drawn on/next to its bar too.
++    // Wide-enough bars get the label inside them (white, truncated); narrow
++    // ones (e.g. a single day) get it printed just to the right instead,
++    // since the bar itself has no room for it.
++    const barLabelText = typeof label === 'string' ? label : null;
++    const barLabelInside = !!bar && barLabelText && bar.width >= 70;
++    const barLabelOutside = !!bar && barLabelText && !barLabelInside;
++
++    const barContent = barLabelInside ? (
++      <span className={styles.barLabel}>{barLabelText}</span>
++    ) : null;
++
+     return (
+       <div
+         className={classNames(
+@@ -75,18 +88,33 @@ const Row = React.memo(
+           isGroupBoundary && styles.rowGroupBoundary,
+         )}
+       >
+-        <div className={classNames(styles.label, !isGroupHeader && styles.labelIndented)}>
+-          {label}
++        <div
++          className={classNames(styles.label, !isGroupHeader && styles.labelIndented)}
++          title={typeof label === 'string' ? label : undefined}
++        >
++          <span className={styles.labelText}>{label}</span>
+         </div>
+         <div className={styles.track}>
+           {bar &&
+             (isClickable ? (
+               <EditDatesPopup cardId={cardId} taskListId={taskListId} taskId={taskId}>
+-                <button type="button" className={styles.barButton} style={barStyle} />
++                <button type="button" className={styles.barButton} style={barStyle}>
++                  {barContent}
++                </button>
+               </EditDatesPopup>
+             ) : (
+-              <div className={styles.bar} style={barStyle} />
++              <div className={styles.bar} style={barStyle}>
++                {barContent}
++              </div>
+             ))}
++          {barLabelOutside && (
++            <span
++              className={styles.barLabelOutside}
++              style={{ left: bar.left + bar.width + 6 }}
++            >
++              {barLabelText}
++            </span>
++          )}
+         </div>
+       </div>
+     );
+diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
+index 35b077e..0384e71 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
++++ b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
+@@ -6,7 +6,7 @@
+ :global(#app) {
+   .row {
+     display: flex;
+-    height: 34px;
++    height: 42px;
+   }
+ 
+   .rowGroupBoundary {
+@@ -25,12 +25,23 @@
+     overflow: hidden;
+     padding: 0 12px;
+     position: sticky;
+-    text-overflow: ellipsis;
+-    white-space: nowrap;
+     width: 260px;
+     z-index: 2;
+   }
+ 
++  // Long client card/checklist titles have their distinguishing part at
++  // the end, so end-truncation to one line hides exactly the part that
++  // matters - wrap to two lines instead, with the full title still
++  // available via the native title-attribute tooltip on .label.
++  .labelText {
++    -webkit-box-orient: vertical;
++    -webkit-line-clamp: 2;
++    display: -webkit-box;
++    line-height: 15px;
++    overflow: hidden;
++    word-break: break-word;
++  }
++
+   .rowGroupHeader .label {
+     font-weight: bold;
+   }
+@@ -47,13 +58,16 @@
+ 
+   .bar,
+   .barButton {
++    align-items: center;
+     border-radius: 6px;
+     box-sizing: border-box;
++    display: flex;
+     height: 20px;
+     margin: 0;
++    overflow: hidden;
+     padding: 0;
+     position: absolute;
+-    top: 7px;
++    top: 11px;
+   }
+ 
+   .barButton {
+@@ -68,4 +82,27 @@
+       outline: 2px solid rgba(33, 133, 208, 0.5);
+     }
+   }
++
++  // Bars are labeled with their own row's name so a bar is identifiable
++  // without tracing back to the left column - see Row.jsx.
++  .barLabel {
++    color: #fff;
++    font-size: 11px;
++    font-weight: bold;
++    overflow: hidden;
++    padding: 0 8px;
++    text-overflow: ellipsis;
++    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
++    white-space: nowrap;
++  }
++
++  .barLabelOutside {
++    color: #17394d;
++    font-size: 11px;
++    line-height: 20px;
++    pointer-events: none;
++    position: absolute;
++    top: 11px;
++    white-space: nowrap;
++  }
+ }
+diff --git a/client/src/components/boards/GanttModal/Timeline/Timeline.jsx b/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
+index 5fe592f..d8149cd 100644
+--- a/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
++++ b/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
+@@ -13,10 +13,15 @@ import GanttChart from '../GanttChart';
+ 
+ import styles from './Timeline.module.scss';
+ 
+-// BSY Media: default Gantt sub-view - one group per card, its dated
+-// checklists nested underneath so "which card has what deadlines" reads at
+-// a glance. Cards with only dated checklists (no card-level dates) still
+-// get a plain header row for grouping context.
++// BSY Media: rows are checklists (Planka's TaskList - the client calls
++// these "tasks"), not cards and not individual checklist items. A card
++// never gets its own bar here; it only gets a plain (bar-less) header row
++// for grouping context, and only when it has at least one dated checklist
++// underneath it. Checklists with no dates of their own are left out of
++// this dated Gantt view entirely (hidden, not a blank/broken-looking row)
++// - the Tasks tab is the exhaustive audit that already covers undated
++// items, so Timeline stays a purely dated view. Card-level dates and
++// individual checklist-item dates are deliberately not plotted here.
+ const Timeline = React.memo(() => {
+   const items = useSelector(selectors.selectGanttItemsForCurrentBoard);
+ 
+@@ -31,17 +36,11 @@ const Timeline = React.memo(() => {
+     const result = [];
+ 
+     items.forEach((item) => {
+-      // A checklist is worth a row here if it has its own dates, or if it
+-      // has no dates of its own but contains at least one dated item
+-      // (item.taskLists' `tasks` array is already pre-filtered to dated
+-      // ones by the selector) - either way it still needs plotting.
+       const datedTaskLists = item.taskLists.filter(
+-        (taskList) => taskList.startDate || taskList.dueDate || taskList.tasks.length > 0,
++        (taskList) => taskList.startDate || taskList.dueDate,
+       );
+ 
+-      const cardHasDates = !!(item.startDate || item.dueDate);
+-
+-      if (!cardHasDates && datedTaskLists.length === 0) {
++      if (datedTaskLists.length === 0) {
+         return;
+       }
+ 
+@@ -50,9 +49,8 @@ const Timeline = React.memo(() => {
+         label: item.cardName,
+         isGroupHeader: true,
+         isGroupBoundary: result.length > 0,
+-        startDate: item.startDate,
+-        dueDate: item.dueDate,
+-        cardId: item.cardId,
++        startDate: null,
++        dueDate: null,
+       });
+ 
+       datedTaskLists.forEach((taskList) => {
+@@ -65,18 +63,6 @@ const Timeline = React.memo(() => {
+           dueDate: taskList.dueDate,
+           taskListId: taskList.id,
+         });
+-
+-        taskList.tasks.forEach((task) => {
+-          result.push({
+-            key: `task:${task.id}`,
+-            label: <span style={{ paddingLeft: 16 }}>{task.name}</span>,
+-            isGroupHeader: false,
+-            isGroupBoundary: false,
+-            startDate: task.startDate,
+-            dueDate: task.dueDate,
+-            taskId: task.id,
+-          });
+-        });
+       });
+     });
+ 
