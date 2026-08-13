@@ -1610,3 +1610,61 @@ board's existing "Scriptwriting"/"Video Editing" checklists, which already carry
 assignees/colors from prior sessions) and the Gantt Timeline tab — both rendered correctly
 alongside the new status icon with no visual or functional breakage, and zero rows were touched in
 the unrelated `planka_ops.gantt_task_list_colors` table.
+
+### Redesign: cycling label chip instead of a popup, black/yellow/green palette (2026-08-13)
+
+Client feedback on the first cut, same day: the checklist-header control should be a clickable
+**label**, not a dot, and shouldn't open a menu at all — clicking it should directly **cycle**
+through states (default "Not Set" → To Do → In Progress → Completed → back to Not Set), with a
+small delete icon conjoined to the label as a shortcut straight back to Not Set from any state.
+Colors: Not Set grey (default/unset), To Do black, In Progress yellow, Completed green — and the
+**opposite** swap on the card face: no text there, just a small colored dot next to the progress
+bar (the reverse of what the header now does).
+
+- **`SelectStatusStep.jsx`/`.module.scss` deleted outright** (dead code once the popup approach
+  was dropped, not kept around commented-out) — `CardModal/TaskLists/Item.jsx`'s status control is
+  now self-contained: `handleStatusClick` advances a `STATUS_CYCLE = [null, todo, inProgress,
+  completed]` array by index and wraps with `%`; `handleStatusDeleteClick` sets `status: null`
+  directly, `event.stopPropagation()`'d so it doesn't also trigger the label's own cycle-click
+  (they're conjoined in the same `.statusChip` flex wrapper).
+- **Header padding switched from discrete step classes to a computed inline style.** The prior
+  `.two`/`.three`/`.four`/`.five` fixed-30px-per-icon system (removed) assumed every action is a
+  fixed-width 28px icon button; the status chip is now variable-width text, so
+  `Item.jsx` computes `actionsWidth = (showStatusChip ? STATUS_CHIP_WIDTH : 0) + iconCount *
+  ICON_WIDTH` and applies it directly via `style={{ paddingRight }}`, keeping the other icons
+  (assignee/dates/pencil/hide-toggle) on the original 30px-per-icon budget.
+- **Editors always see the chip, including at "Not Set"** — needed as the click target to start
+  the cycle from scratch; non-editors only see it (read-only, no button/delete icon) once a real
+  status is set, same visibility rule the assignee avatar already used. `common.taskListStatus_
+  notSet` replaces the old `common.taskListStatus_title` popup-header key (no popup left to title).
+- **Card face reverted to a dot** (`Card/TaskList/TaskList.jsx`/`.module.scss`): the `.nameRow`
+  wrapper added for the text badge was removed, `.name` restored to its original single-element
+  layout, and a `.statusDot` span (10px circle) now sits at the start of `.progressRow`, colored
+  the same way the header chip is, with a `title` tooltip carrying the status text for anyone who
+  wants it without opening the card.
+- **Palette** (`constants/TaskListStatusColors.js`): client's literal choice, not derived from the
+  app's existing color language this time - `todo: '#000000'` (black), `inProgress: '#e2b203'`
+  (yellow/gold), `completed: '#4bce97'` (green, unchanged from the first cut), plus two new
+  standalone exports (`TASK_LIST_STATUS_NOT_SET_COLOR: '#dfe1e6'` grey and matching text-color
+  constants) for the "Not Set" default, which isn't a stored enum value so it can't live in the
+  same status-keyed map as the other three.
+- **Server unchanged** — this was purely a client-side UI/UX revision; the `status` column, API
+  validation, notification fan-out, and Activity-tab logging from the same day's earlier session
+  all carried over as-is (still `null`/`todo`/`inProgress`/`completed`, still routed through
+  `Action.INTERNAL_NOTIFIABLE_TYPES`).
+- **Kanban card-face dot given a thin white outline** (same-day follow-up ask, right after the
+  redesign): `box-shadow` extended from just the existing subtle inset border to also include a
+  `0 0 0 1.5px #fff` outer ring, so the dot (especially the pure-black "To Do" state) stays legible
+  against colored/dark board backgrounds instead of blending in.
+
+Patch: `planka-custom/patches/0035-checklist-status-field.patch` (rewritten in place - this
+superseded the popup-based first cut before it was ever used in production, so no migration/data
+concern, just a client bundle rebuild). **Deployed and live-verified 2026-08-13** via a headless
+browser: clicking the label cycles Not Set → To Do → In Progress → Completed → Not Set with zero
+popups at any step (explicitly checked `document.querySelector('.ui.popup')` after every click);
+the delete icon jumps directly from a mid-cycle state (tested from "In Progress") straight back to
+Not Set without visiting To Do/Completed first; label colors match the black/yellow/green/grey spec
+with readable text on each; sub-task rows still show no status control at all. Regression-checked
+again against the real "Yapmaster Media" board's existing checklists (now correctly showing grey
+"NOT SET" chips, since their status has never been touched) and the Gantt Timeline tab, both
+unaffected. Sandbox project/board fully deleted afterward, confirmed via direct Postgres count.

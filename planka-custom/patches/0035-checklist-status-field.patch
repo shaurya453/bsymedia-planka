@@ -46,7 +46,7 @@ index 3bd55cd..c48629e 100755
        contentNode = (
          <Trans
 diff --git a/client/src/components/cards/Card/TaskList/TaskList.jsx b/client/src/components/cards/Card/TaskList/TaskList.jsx
-index 1a11dcc..9baaee8 100644
+index 1a11dcc..a6da0ab 100644
 --- a/client/src/components/cards/Card/TaskList/TaskList.jsx
 +++ b/client/src/components/cards/Card/TaskList/TaskList.jsx
 @@ -7,10 +7,12 @@ import React, { useCallback, useMemo } from 'react';
@@ -71,72 +71,59 @@ index 1a11dcc..9baaee8 100644
    const defaultIsOpened = useSelector(
      (state) => selectors.selectCurrentBoard(state).expandTaskListsByDefault,
    );
-@@ -61,7 +65,17 @@ const TaskList = React.memo(({ id }) => {
- 
-   return (
-     <>
--      <div className={styles.name}>{taskLists.name}</div>
-+      <div className={styles.nameRow}>
-+        <div className={styles.name}>{taskLists.name}</div>
-+        {taskLists.status && (
-+          <span
-+            className={styles.statusBadge}
-+            style={{ background: TaskListStatusColors[taskLists.status] }}
-+          >
-+            {t(`common.taskListStatus_${taskLists.status}`)}
-+          </span>
-+        )}
-+      </div>
+@@ -65,6 +69,13 @@ const TaskList = React.memo(({ id }) => {
        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events,
                                     jsx-a11y/no-static-element-interactions */}
        <div className={styles.progressRow} onClick={handleToggleClick}>
++        {taskLists.status && (
++          <span
++            className={styles.statusDot}
++            style={{ background: TaskListStatusColors[taskLists.status] }}
++            title={t(`common.taskListStatus_${taskLists.status}`)}
++          />
++        )}
+         <span className={styles.progressWrapper}>
+           <Progress
+             autoSuccess
 diff --git a/client/src/components/cards/Card/TaskList/TaskList.module.scss b/client/src/components/cards/Card/TaskList/TaskList.module.scss
-index 7c2856c..3415ba9 100644
+index 7c2856c..0c61a36 100644
 --- a/client/src/components/cards/Card/TaskList/TaskList.module.scss
 +++ b/client/src/components/cards/Card/TaskList/TaskList.module.scss
-@@ -35,17 +35,38 @@
-     padding: 0 6px 6px;
+@@ -51,6 +51,7 @@
    }
  
-+  .nameRow {
+   .progressRow {
 +    align-items: center;
-+    display: flex;
-+    gap: 6px;
-+    margin: 0 -8px -2px;
-+    padding: 0 8px;
-+  }
-+
-   .name {
-     color: #6b808c;
-+    flex: 1 1 auto;
-     font-size: 12px;
-     font-weight: bold;
--    margin: 0 -8px -2px;
-+    min-width: 0;
-     overflow: hidden;
--    padding: 0 8px;
-     text-overflow: ellipsis;
-     white-space: nowrap;
+     display: flex;
+     gap: 8px;
+     justify-content: space-between;
+@@ -58,6 +59,24 @@
+     padding: 0px 8px 8px;
    }
  
-+  // BSY Media: manual checklist status badge, shown next to the checklist
-+  // name whenever a status is set (todo/inProgress/completed).
-+  .statusBadge {
-+    border-radius: 3px;
-+    color: #fff;
++  // BSY Media: manual checklist status indicator - a small colored dot next
++  // to the progress bar, shown whenever a status is set (todo/inProgress/
++  // completed); intentionally just a dot here, not text, per the card face
++  // being a compact at-a-glance view (the full label lives in the checklist
++  // header inside the card modal).
++  .statusDot {
++    border-radius: 50%;
++    // Thin white outline so the dot stays legible against any card/board
++    // background (colored backgrounds, dark mode) - inset ring kept for
++    // subtle definition on plain light backgrounds too.
++    box-shadow:
++      inset 0 0 0 1px rgba(9, 30, 66, 0.13),
++      0 0 0 1.5px #fff;
 +    flex: none;
-+    font-size: 10px;
-+    font-weight: bold;
-+    line-height: 14px;
-+    padding: 0 6px;
-+    text-transform: uppercase;
++    height: 10px;
++    width: 10px;
 +  }
 +
-   .progress {
-     margin: 0;
-   }
+   .progressWrapper {
+     padding: 3px 0;
+     width: 100%;
 diff --git a/client/src/components/cards/CardModal/TaskLists/Item.jsx b/client/src/components/cards/CardModal/TaskLists/Item.jsx
-index 32d619f..a85d000 100644
+index 32d619f..8c94a1e 100644
 --- a/client/src/components/cards/CardModal/TaskLists/Item.jsx
 +++ b/client/src/components/cards/CardModal/TaskLists/Item.jsx
 @@ -8,6 +8,7 @@ import ReactDOM from 'react-dom';
@@ -147,17 +134,47 @@ index 32d619f..a85d000 100644
  import { Draggable } from 'react-beautiful-dnd';
  import { Button, Icon } from 'semantic-ui-react';
  import { useToggle } from '../../../../lib/hooks';
-@@ -16,7 +17,9 @@ import selectors from '../../../../selectors';
+@@ -15,7 +16,12 @@ import { useToggle } from '../../../../lib/hooks';
+ import selectors from '../../../../selectors';
  import entryActions from '../../../../entry-actions';
  import { usePopupInClosableContext } from '../../../../hooks';
- import { BoardMembershipRoles } from '../../../../constants/Enums';
-+import TaskListStatusColors from '../../../../constants/TaskListStatusColors';
+-import { BoardMembershipRoles } from '../../../../constants/Enums';
++import { BoardMembershipRoles, TaskListStatuses } from '../../../../constants/Enums';
++import TaskListStatusColors, {
++  TaskListStatusTextColors,
++  TASK_LIST_STATUS_NOT_SET_COLOR,
++  TASK_LIST_STATUS_NOT_SET_TEXT_COLOR,
++} from '../../../../constants/TaskListStatusColors';
  import EditStep from './EditStep';
-+import SelectStatusStep from './SelectStatusStep';
  import TaskList from '../../../task-lists/TaskList';
  import SelectAssigneeStep from '../../../task-lists/TaskList/Task/SelectAssigneeStep';
- import DueDateChip from '../../DueDateChip';
-@@ -37,6 +40,8 @@ const Item = React.memo(({ id, index }) => {
+@@ -25,6 +31,25 @@ import UserAvatar from '../../../users/UserAvatar';
+ 
+ import styles from './Item.module.scss';
+ 
++// BSY Media: manual checklist status cycle - clicking the label steps
++// through null (Not Set) -> To Do -> In Progress -> Completed -> back to
++// Not Set, wrapping around. The small delete icon is a shortcut back to
++// Not Set from any state, without cycling through the others first.
++const STATUS_CYCLE = [
++  null,
++  TaskListStatuses.TODO,
++  TaskListStatuses.IN_PROGRESS,
++  TaskListStatuses.COMPLETED,
++];
++
++// Reserved header padding, in px - matches the existing 30px-per-icon
++// increment for the fixed-width icon buttons (assignee/dates/pencil/hide
++// toggle); the status chip is variable-width text rather than a fixed
++// icon, so it gets its own generous fixed reservation instead of being
++// counted as one more icon step.
++const ICON_WIDTH = 30;
++const STATUS_CHIP_WIDTH = 118;
++
+ const Item = React.memo(({ id, index }) => {
+   const selectTaskListById = useMemo(() => selectors.makeSelectTaskListById(), []);
+ 
+@@ -37,6 +62,8 @@ const Item = React.memo(({ id, index }) => {
  
    const dispatch = useDispatch();
  
@@ -166,283 +183,198 @@ index 32d619f..a85d000 100644
    const [isCompletedVisible, toggleCompletedVisible] = useToggle();
  
    const handleToggleCompletedVisibleClick = useCallback(() => {
-@@ -54,18 +59,33 @@ const Item = React.memo(({ id, index }) => {
+@@ -54,18 +81,38 @@ const Item = React.memo(({ id, index }) => {
      dispatch(entryActions.updateTaskList(taskList.id, { assigneeUserId: null }));
    }, [taskList.id, dispatch]);
  
-+  const handleStatusSelect = useCallback(
-+    (status) => {
-+      dispatch(entryActions.updateTaskList(taskList.id, { status }));
++  const handleStatusClick = useCallback(() => {
++    const nextIndex = (STATUS_CYCLE.indexOf(taskList.status) + 1) % STATUS_CYCLE.length;
++    dispatch(entryActions.updateTaskList(taskList.id, { status: STATUS_CYCLE[nextIndex] }));
++  }, [taskList.id, taskList.status, dispatch]);
++
++  const handleStatusDeleteClick = useCallback(
++    (event) => {
++      event.stopPropagation();
++      dispatch(entryActions.updateTaskList(taskList.id, { status: null }));
 +    },
 +    [taskList.id, dispatch],
 +  );
 +
-+  const handleStatusClear = useCallback(() => {
-+    dispatch(entryActions.updateTaskList(taskList.id, { status: null }));
-+  }, [taskList.id, dispatch]);
-+
    const EditPopup = usePopupInClosableContext(EditStep);
    const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
    const SelectAssigneePopup = usePopupInClosableContext(SelectAssigneeStep);
--
+ 
 -  // BSY Media: canEdit shows three always-visible icons (assignee + dates +
 -  // pencil); a non-editor still sees a plain assignee avatar if one is set.
 -  // The hide-completed toggle is a fourth, hover-only one, shown to everyone
 -  // (not gated by canEdit) whenever the checklist has it enabled - header
 -  // padding needs to account for however many are actually visible.
 -  const withActions = taskList.hideCompletedTasks || canEdit || !!taskList.assigneeUserId;
-+  const SelectStatusPopup = usePopupInClosableContext(SelectStatusStep);
-+
-+  // BSY Media: canEdit shows four always-visible icons (status + assignee +
-+  // dates + pencil); a non-editor still sees a plain status dot/assignee
-+  // avatar for whichever of those are actually set. The hide-completed
-+  // toggle is a fifth, hover-only one, shown to everyone (not gated by
-+  // canEdit) whenever the checklist has it enabled - header padding needs
-+  // to account for however many are actually visible.
-+  const withActions =
-+    taskList.hideCompletedTasks || canEdit || !!taskList.assigneeUserId || !!taskList.status;
-   const visibleActionsCount =
+-  const visibleActionsCount =
 -    (taskList.hideCompletedTasks ? 1 : 0) + (canEdit ? 3 : Number(!!taskList.assigneeUserId));
++  // BSY Media: canEdit always shows the status chip (including its default
++  // "Not Set" state, so there's something to click to start the cycle),
++  // plus assignee + dates + pencil; a non-editor only sees the status chip
++  // when a real status is set, same rule the assignee avatar already
++  // follows. The hide-completed toggle is a separate, hover-only icon,
++  // shown to everyone whenever the checklist has it enabled. Header padding
++  // is computed directly in px rather than via discrete step classes, since
++  // the status chip is variable-width text, not a fixed-size icon button.
++  const showStatusChip = canEdit || !!taskList.status;
++  const iconCount =
 +    (taskList.hideCompletedTasks ? 1 : 0) +
-+    (canEdit ? 4 : Number(!!taskList.assigneeUserId) + Number(!!taskList.status));
++    (canEdit ? 2 : 0) + // dates + pencil, editor-only
++    Number(canEdit || !!taskList.assigneeUserId); // assignee
++  const withActions = showStatusChip || iconCount > 0;
++  const actionsWidth = (showStatusChip ? STATUS_CHIP_WIDTH : 0) + iconCount * ICON_WIDTH;
  
    return (
      <Draggable
-@@ -91,6 +111,7 @@ const Item = React.memo(({ id, index }) => {
-                     visibleActionsCount === 2 && styles.two,
-                     visibleActionsCount === 3 && styles.three,
-                     visibleActionsCount === 4 && styles.four,
-+                    visibleActionsCount === 5 && styles.five,
+@@ -88,10 +135,8 @@ const Item = React.memo(({ id, index }) => {
+                   className={classNames(
+                     styles.moduleHeader,
+                     withActions && styles.moduleHeaderWithActions,
+-                    visibleActionsCount === 2 && styles.two,
+-                    visibleActionsCount === 3 && styles.three,
+-                    visibleActionsCount === 4 && styles.four,
                    )}
++                  style={withActions ? { paddingRight: Math.max(32, actionsWidth) } : undefined}
                  >
                    {taskList.isPersisted && withActions && (
-@@ -107,6 +128,35 @@ const Item = React.memo(({ id, index }) => {
+                     <div className={classNames(styles.actions)}>
+@@ -107,6 +152,45 @@ const Item = React.memo(({ id, index }) => {
                            />
                          </Button>
                        )}
-+                      {canEdit ? (
-+                        <SelectStatusPopup
-+                          status={taskList.status}
-+                          onSelect={handleStatusSelect}
-+                          onClear={handleStatusClear}
++                      {showStatusChip && (
++                        <span
++                          className={styles.statusChip}
++                          style={{
++                            background: taskList.status
++                              ? TaskListStatusColors[taskList.status]
++                              : TASK_LIST_STATUS_NOT_SET_COLOR,
++                            color: taskList.status
++                              ? TaskListStatusTextColors[taskList.status]
++                              : TASK_LIST_STATUS_NOT_SET_TEXT_COLOR,
++                          }}
 +                        >
-+                          <Button className={styles.editButton}>
-+                            <span
-+                              className={classNames(
-+                                styles.statusDot,
-+                                !taskList.status && styles.statusDotEmpty,
-+                              )}
-+                              style={
-+                                taskList.status
-+                                  ? { background: TaskListStatusColors[taskList.status] }
-+                                  : undefined
-+                              }
-+                            />
-+                          </Button>
-+                        </SelectStatusPopup>
-+                      ) : (
-+                        taskList.status && (
-+                          <span
-+                            className={styles.statusDot}
-+                            style={{ background: TaskListStatusColors[taskList.status] }}
-+                            title={t(`common.taskListStatus_${taskList.status}`)}
-+                          />
-+                        )
++                          {canEdit ? (
++                            <button
++                              type="button"
++                              className={styles.statusChipLabel}
++                              onClick={handleStatusClick}
++                            >
++                              {taskList.status
++                                ? t(`common.taskListStatus_${taskList.status}`)
++                                : t('common.taskListStatus_notSet')}
++                            </button>
++                          ) : (
++                            <span className={styles.statusChipLabel}>
++                              {t(`common.taskListStatus_${taskList.status}`)}
++                            </span>
++                          )}
++                          {canEdit && taskList.status && (
++                            <button
++                              type="button"
++                              className={styles.statusChipDelete}
++                              onClick={handleStatusDeleteClick}
++                              aria-label={t('action.removeStatus')}
++                            >
++                              <Icon fitted name="delete" size="small" />
++                            </button>
++                          )}
++                        </span>
 +                      )}
                        {canEdit ? (
                          <SelectAssigneePopup
                            currentUserId={taskList.assigneeUserId}
 diff --git a/client/src/components/cards/CardModal/TaskLists/Item.module.scss b/client/src/components/cards/CardModal/TaskLists/Item.module.scss
-index 56a20af..42c7143 100644
+index 56a20af..028b7f9 100644
 --- a/client/src/components/cards/CardModal/TaskLists/Item.module.scss
 +++ b/client/src/components/cards/CardModal/TaskLists/Item.module.scss
-@@ -16,6 +16,22 @@
+@@ -16,6 +16,53 @@
      padding: 2px;
    }
  
-+  // BSY Media: checklist status dot (editor button icon, and the read-only
-+  // marker shown to viewers once a status is set).
-+  .statusDot {
-+    border-radius: 50%;
-+    box-shadow: inset 0 0 0 1px rgba(9, 30, 66, 0.13);
-+    display: inline-block;
++  // BSY Media: checklist status cycle chip - a clickable label (cycles
++  // Not Set -> To Do -> In Progress -> Completed) with a small conjoined
++  // delete button to jump straight back to Not Set. Colors are set inline
++  // per-status by Item.jsx (constants/TaskListStatusColors.js).
++  .statusChip {
++    align-items: center;
++    align-self: center;
++    border-radius: 3px;
++    display: flex;
 +    flex: none;
-+    height: 12px;
-+    margin: 8px;
-+    width: 12px;
++    font-size: 11px;
++    font-weight: bold;
++    height: 22px;
++    overflow: hidden;
 +  }
 +
-+  .statusDotEmpty {
++  // Rendered as a <button> for editors (clickable, cycles state) and a
++  // plain <span> for read-only viewers - cursor differs accordingly.
++  .statusChipLabel {
 +    background: transparent;
++    border: none;
++    color: inherit;
++    cursor: default;
++    font: inherit;
++    padding: 0 8px;
++    text-transform: uppercase;
++    white-space: nowrap;
++  }
++
++  button.statusChipLabel {
++    cursor: pointer;
++  }
++
++  .statusChipDelete {
++    align-items: center;
++    background: rgba(0, 0, 0, 0.12);
++    border: none;
++    color: inherit;
++    cursor: pointer;
++    display: flex;
++    padding: 0 6px;
++
++    &:hover {
++      background: rgba(0, 0, 0, 0.24);
++    }
 +  }
 +
    .button {
      background: transparent;
      box-shadow: none;
-@@ -78,6 +94,10 @@
-     &.four {
-       padding-right: 122px;
+@@ -59,6 +106,9 @@
+   }
+ 
+   .moduleHeaderWithActions {
++    // Actual padding-right is computed per-instance in Item.jsx (variable-
++    // width status chip + a fixed per-icon increment) and applied inline;
++    // this is just the pre-computation fallback.
+     padding-right: 32px;
+ 
+     &:hover {
+@@ -66,18 +116,6 @@
+         opacity: 1;
+       }
      }
-+
-+    &.five {
-+      padding-right: 152px;
-+    }
+-
+-    &.two {
+-      padding-right: 62px;
+-    }
+-
+-    &.three {
+-      padding-right: 92px;
+-    }
+-
+-    &.four {
+-      padding-right: 122px;
+-    }
    }
  
    .moduleHeaderTitle {
-diff --git a/client/src/components/cards/CardModal/TaskLists/SelectStatusStep.jsx b/client/src/components/cards/CardModal/TaskLists/SelectStatusStep.jsx
-new file mode 100644
-index 0000000..d2d6406
---- /dev/null
-+++ b/client/src/components/cards/CardModal/TaskLists/SelectStatusStep.jsx
-@@ -0,0 +1,83 @@
-+/*!
-+ * Copyright (c) 2024 PLANKA Software GmbH
-+ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
-+ */
-+
-+import React, { useCallback } from 'react';
-+import PropTypes from 'prop-types';
-+import classNames from 'classnames';
-+import { Button } from 'semantic-ui-react';
-+import { useTranslation } from 'react-i18next';
-+import { Popup } from '../../../../lib/custom-ui';
-+
-+import { TaskListStatuses } from '../../../../constants/Enums';
-+import TaskListStatusColors from '../../../../constants/TaskListStatusColors';
-+
-+import styles from './SelectStatusStep.module.scss';
-+
-+// BSY Media: manual checklist status toggle - a small fixed 3-option picker,
-+// mirrors GanttModal/GanttChart/ColorPickerStep.jsx's Popup.Header/Content +
-+// clear-button shape, but a labeled row list rather than a color swatch
-+// grid, since the 3 options are text states, not colors.
-+const SelectStatusStep = React.memo(({ status, onSelect, onClear, onClose }) => {
-+  const [t] = useTranslation();
-+
-+  const handleSelectClick = useCallback(
-+    (_, { value }) => {
-+      onSelect(value);
-+      onClose();
-+    },
-+    [onSelect, onClose],
-+  );
-+
-+  const handleClearClick = useCallback(() => {
-+    onClear();
-+    onClose();
-+  }, [onClear, onClose]);
-+
-+  return (
-+    <>
-+      <Popup.Header>{t('common.taskListStatus', { context: 'title' })}</Popup.Header>
-+      <Popup.Content>
-+        <div className={styles.options}>
-+          {Object.values(TaskListStatuses).map((value) => (
-+            <Button
-+              key={value}
-+              type="button"
-+              value={value}
-+              className={classNames(styles.option, value === status && styles.optionActive)}
-+              onClick={handleSelectClick}
-+            >
-+              <span
-+                className={styles.dot}
-+                style={{ background: TaskListStatusColors[value] }}
-+              />
-+              {t(`common.taskListStatus_${value}`)}
-+            </Button>
-+          ))}
-+        </div>
-+        {status && (
-+          <Button
-+            fluid
-+            content={t('action.removeStatus')}
-+            className={styles.clearButton}
-+            onClick={handleClearClick}
-+          />
-+        )}
-+      </Popup.Content>
-+    </>
-+  );
-+});
-+
-+SelectStatusStep.propTypes = {
-+  status: PropTypes.string,
-+  onSelect: PropTypes.func.isRequired,
-+  onClear: PropTypes.func.isRequired,
-+  onClose: PropTypes.func.isRequired,
-+};
-+
-+SelectStatusStep.defaultProps = {
-+  status: null,
-+};
-+
-+export default SelectStatusStep;
-diff --git a/client/src/components/cards/CardModal/TaskLists/SelectStatusStep.module.scss b/client/src/components/cards/CardModal/TaskLists/SelectStatusStep.module.scss
-new file mode 100644
-index 0000000..375e749
---- /dev/null
-+++ b/client/src/components/cards/CardModal/TaskLists/SelectStatusStep.module.scss
-@@ -0,0 +1,58 @@
-+/*!
-+ * Copyright (c) 2024 PLANKA Software GmbH
-+ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
-+ */
-+
-+:global(#app) {
-+  .options {
-+    display: flex;
-+    flex-direction: column;
-+    gap: 2px;
-+  }
-+
-+  .option {
-+    align-items: center;
-+    background: transparent;
-+    box-shadow: none;
-+    display: flex;
-+    font-weight: normal;
-+    gap: 8px;
-+    margin: 0 !important;
-+    padding: 8px 11px !important;
-+    text-align: left;
-+    transition: background 0.3s ease;
-+
-+    &:hover {
-+      background: #e9e9e9;
-+    }
-+  }
-+
-+  .optionActive {
-+    background: rgba(9, 30, 66, 0.08);
-+    font-weight: bold;
-+  }
-+
-+  .dot {
-+    border-radius: 50%;
-+    box-shadow: inset 0 0 0 1px rgba(9, 30, 66, 0.13);
-+    flex: none;
-+    height: 12px;
-+    width: 12px;
-+  }
-+
-+  .clearButton {
-+    background: transparent;
-+    box-shadow: none;
-+    color: #6b808c;
-+    font-weight: normal;
-+    margin-top: 10px;
-+    padding: 6px 11px;
-+    text-align: left;
-+    text-decoration: underline;
-+    transition: background 0.3s ease;
-+
-+    &:hover {
-+      background: #e9e9e9;
-+    }
-+  }
-+}
 diff --git a/client/src/components/notifications/NotificationsStep/Item.jsx b/client/src/components/notifications/NotificationsStep/Item.jsx
 index dfad9ba..ef436d2 100644
 --- a/client/src/components/notifications/NotificationsStep/Item.jsx
@@ -520,10 +452,10 @@ index c5bc183..dbccf6f 100755
  export const NotificationServiceFormats = {
 diff --git a/client/src/constants/TaskListStatusColors.js b/client/src/constants/TaskListStatusColors.js
 new file mode 100644
-index 0000000..14693aa
+index 0000000..2f868ac
 --- /dev/null
 +++ b/client/src/constants/TaskListStatusColors.js
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,25 @@
 +/*!
 + * Copyright (c) 2024 PLANKA Software GmbH
 + * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
@@ -531,17 +463,26 @@ index 0000000..14693aa
 +
 +import { TaskListStatuses } from './Enums';
 +
-+// BSY Media: fixed 3-color legend for the checklist status toggle - reuses
-+// hex values already present in this app's palette (see
-+// GanttTaskListColors.js) rather than inventing new ones, so the status
-+// dot/badge reads consistently with existing color language elsewhere.
++// BSY Media: fixed 4-color legend for the checklist status cycle toggle -
++// client's explicit choice (black/yellow/green for the 3 real states, grey
++// for the unset "Not Set" default, which isn't a stored enum value so it's
++// exported separately rather than keyed into the map below).
++export const TASK_LIST_STATUS_NOT_SET_COLOR = '#dfe1e6';
++export const TASK_LIST_STATUS_NOT_SET_TEXT_COLOR = '#42526e';
++
++export const TaskListStatusTextColors = {
++  [TaskListStatuses.TODO]: '#fff',
++  [TaskListStatuses.IN_PROGRESS]: '#172b4d',
++  [TaskListStatuses.COMPLETED]: '#fff',
++};
++
 +export default {
-+  [TaskListStatuses.TODO]: '#8590a2',
-+  [TaskListStatuses.IN_PROGRESS]: '#0c66e4',
++  [TaskListStatuses.TODO]: '#000000',
++  [TaskListStatuses.IN_PROGRESS]: '#e2b203',
 +  [TaskListStatuses.COMPLETED]: '#4bce97',
 +};
 diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
-index 9b34cd5..f0ebdb5 100644
+index 9b34cd5..1793676 100644
 --- a/client/src/locales/en-US/core.js
 +++ b/client/src/locales/en-US/core.js
 @@ -345,6 +345,10 @@ export default {
@@ -550,7 +491,7 @@ index 9b34cd5..f0ebdb5 100644
        taskListActions_title: 'Task List Actions',
 +      taskListStatus_completed: 'Completed',
 +      taskListStatus_inProgress: 'In Progress',
-+      taskListStatus_title: 'Checklist Status',
++      taskListStatus_notSet: 'Not Set',
 +      taskListStatus_todo: 'To Do',
        taskList_title: 'Task List',
        tasks: 'Tasks',
