@@ -1,0 +1,815 @@
+diff --git a/client/src/actions/comments.js b/client/src/actions/comments.js
+index 6d51bc0..585438e 100644
+--- a/client/src/actions/comments.js
++++ b/client/src/actions/comments.js
+@@ -29,6 +29,30 @@ fetchComments.failure = (cardId, error) => ({
+   },
+ });
+ 
++const fetchSubmissions = (cardId) => ({
++  type: ActionTypes.SUBMISSIONS_FETCH,
++  payload: {
++    cardId,
++  },
++});
++
++fetchSubmissions.success = (cardId, comments, users) => ({
++  type: ActionTypes.SUBMISSIONS_FETCH__SUCCESS,
++  payload: {
++    cardId,
++    comments,
++    users,
++  },
++});
++
++fetchSubmissions.failure = (cardId, error) => ({
++  type: ActionTypes.SUBMISSIONS_FETCH__FAILURE,
++  payload: {
++    cardId,
++    error,
++  },
++});
++
+ const createComment = (comment) => ({
+   type: ActionTypes.COMMENT_CREATE,
+   payload: {
+@@ -121,6 +145,7 @@ const handleCommentDelete = (comment) => ({
+ 
+ export default {
+   fetchComments,
++  fetchSubmissions,
+   createComment,
+   handleCommentCreate,
+   updateComment,
+diff --git a/client/src/components/activities/CardActivities/Item.jsx b/client/src/components/activities/CardActivities/Item.jsx
+index 8dd5105..3bd55cd 100755
+--- a/client/src/components/activities/CardActivities/Item.jsx
++++ b/client/src/components/activities/CardActivities/Item.jsx
+@@ -14,6 +14,7 @@ import { isUserStatic } from '../../../utils/record-helpers';
+ import { ActivityTypes } from '../../../constants/Enums';
+ import TimeAgo from '../../common/TimeAgo';
+ import UserAvatar from '../../users/UserAvatar';
++import getDateFormat from '../../../utils/get-date-format';
+ 
+ import styles from './Item.module.scss';
+ 
+@@ -333,6 +334,11 @@ const Item = React.memo(({ id }) => {
+         <div>{contentNode}</div>
+         <span className={styles.date}>
+           <TimeAgo date={activity.createdAt} />
++          {' · '}
++          {t(`format:${getDateFormat(activity.createdAt)}`, {
++            value: activity.createdAt,
++            postProcess: 'formatDate',
++          })}
+         </span>
+       </div>
+     </Comment>
+diff --git a/client/src/components/cards/CardModal/Communication.jsx b/client/src/components/cards/CardModal/Communication.jsx
+index a2e8d3e..a4a6e03 100644
+--- a/client/src/components/cards/CardModal/Communication.jsx
++++ b/client/src/components/cards/CardModal/Communication.jsx
+@@ -10,6 +10,7 @@ import { Menu, Tab } from 'semantic-ui-react';
+ import Comments from '../../comments/Comments';
+ import CardActivities from '../../activities/CardActivities';
+ import TaskLists from './TaskLists';
++import { CommentTypes } from '../../../constants/Enums';
+ 
+ import styles from './Communication.module.scss';
+ 
+@@ -19,18 +20,30 @@ const Communication = React.memo(() => {
+   const panes = [
+     {
+       menuItem: (
+-        <Menu.Item key="comments" className={styles.menuItem}>
+-          {t('common.comments', {
++        <Menu.Item key="updates" className={styles.menuItem}>
++          {t('common.updates', {
+             context: 'title',
+           })}
+         </Menu.Item>
+       ),
+-      render: () => <Comments />,
++      render: () => <Comments type={CommentTypes.UPDATE} />,
+     },
+     {
+       menuItem: (
+-        <Menu.Item key="checklists" className={styles.menuItem}>
+-          {t('common.checklists', {
++        <Menu.Item key="submissions" className={styles.menuItem}>
++          {t('common.submissions', {
++            context: 'title',
++          })}
++        </Menu.Item>
++      ),
++      render: () => (
++        <Comments type={CommentTypes.SUBMISSION} placeholder="common.writeSubmission" />
++      ),
++    },
++    {
++      menuItem: (
++        <Menu.Item key="tasks" className={styles.menuItem}>
++          {t('common.tasks', {
+             context: 'title',
+           })}
+         </Menu.Item>
+@@ -39,8 +52,8 @@ const Communication = React.memo(() => {
+     },
+     {
+       menuItem: (
+-        <Menu.Item key="actions" className={styles.menuItem}>
+-          {t('common.actions', {
++        <Menu.Item key="activity" className={styles.menuItem}>
++          {t('common.activity', {
+             context: 'title',
+           })}
+         </Menu.Item>
+diff --git a/client/src/components/comments/Comments/Add.jsx b/client/src/components/comments/Comments/Add.jsx
+index c40768a..bf2057a 100755
+--- a/client/src/components/comments/Comments/Add.jsx
++++ b/client/src/components/comments/Comments/Add.jsx
+@@ -4,6 +4,7 @@
+  */
+ 
+ import keyBy from 'lodash/keyBy';
++import PropTypes from 'prop-types';
+ import React, { useCallback, useState, useRef, useMemo } from 'react';
+ import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+@@ -16,6 +17,7 @@ import entryActions from '../../../entry-actions';
+ import { useEscapeInterceptor, useForm, useNestedRef } from '../../../hooks';
+ import { isUsernameChar, mentionTextToMarkup } from '../../../utils/mentions';
+ import { isModifierKeyPressed } from '../../../utils/event-helpers';
++import { CommentTypes } from '../../../constants/Enums';
+ import UserAvatar from '../../users/UserAvatar';
+ 
+ import styles from './Add.module.scss';
+@@ -24,7 +26,7 @@ const DEFAULT_DATA = {
+   text: '',
+ };
+ 
+-const Add = React.memo(() => {
++const Add = React.memo(({ type, placeholder }) => {
+   const boardMemberships = useSelector(selectors.selectMembershipsForCurrentBoard);
+ 
+   const dispatch = useDispatch();
+@@ -51,6 +53,7 @@ const Add = React.memo(() => {
+     const cleanData = {
+       ...data,
+       text: mentionTextToMarkup(data.text.trim(), userByUsername),
++      type,
+     };
+ 
+     if (!cleanData.text) {
+@@ -61,7 +64,7 @@ const Add = React.memo(() => {
+     dispatch(entryActions.createCommentInCurrentCard(cleanData));
+     setData(DEFAULT_DATA);
+     selectTextField();
+-  }, [dispatch, data, setData, selectTextField, userByUsername]);
++  }, [dispatch, data, setData, selectTextField, userByUsername, type]);
+ 
+   const handleEscape = useCallback(() => {
+     if (textMentionsRef.current.isOpened()) {
+@@ -148,7 +151,7 @@ const Add = React.memo(() => {
+           ref={textMentionsRef}
+           inputRef={textInputRef}
+           value={data.text}
+-          placeholder={t('common.writeComment')}
++          placeholder={t(placeholder)}
+           maxLength={1048576}
+           rows={isOpened ? 3 : 1}
+           className="mentions-input"
+@@ -188,4 +191,14 @@ const Add = React.memo(() => {
+   );
+ });
+ 
++Add.propTypes = {
++  type: PropTypes.oneOf(Object.values(CommentTypes)),
++  placeholder: PropTypes.string,
++};
++
++Add.defaultProps = {
++  type: CommentTypes.UPDATE,
++  placeholder: 'common.writeComment',
++};
++
+ export default Add;
+diff --git a/client/src/components/comments/Comments/Comments.jsx b/client/src/components/comments/Comments/Comments.jsx
+index 6ee36f2..e5d2164 100755
+--- a/client/src/components/comments/Comments/Comments.jsx
++++ b/client/src/components/comments/Comments/Comments.jsx
+@@ -3,7 +3,8 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useMemo } from 'react';
++import PropTypes from 'prop-types';
++import React, { useCallback, useMemo } from 'react';
+ import { useDispatch, useSelector } from 'react-redux';
+ import { useInView } from 'react-intersection-observer';
+ import { Comment, Loader } from 'semantic-ui-react';
+@@ -11,17 +12,26 @@ import { Comment, Loader } from 'semantic-ui-react';
+ import selectors from '../../../selectors';
+ import entryActions from '../../../entry-actions';
+ import { isListArchiveOrTrash } from '../../../utils/record-helpers';
+-import { BoardMembershipRoles } from '../../../constants/Enums';
++import { BoardMembershipRoles, CommentTypes } from '../../../constants/Enums';
+ import Item from './Item';
+ import Add from './Add';
+ 
+ import styles from './Comments.module.scss';
+ 
+-const Comments = React.memo(() => {
++const Comments = React.memo(({ type, placeholder }) => {
+   const selectListById = useMemo(() => selectors.makeSelectListById(), []);
+ 
+-  const commentIds = useSelector(selectors.selectCommentIdsForCurrentCard);
+-  const { isCommentsFetching, isAllCommentsFetched } = useSelector(selectors.selectCurrentCard);
++  const isSubmissions = type === CommentTypes.SUBMISSION;
++
++  const commentIds = useSelector(
++    isSubmissions ? selectors.selectSubmissionIdsForCurrentCard : selectors.selectCommentIdsForCurrentCard,
++  );
++
++  const { isCommentsFetching, isAllCommentsFetched, isSubmissionsFetching, isAllSubmissionsFetched } =
++    useSelector(selectors.selectCurrentCard);
++
++  const isFetching = isSubmissions ? isSubmissionsFetching : isCommentsFetching;
++  const isAllFetched = isSubmissions ? isAllSubmissionsFetched : isAllCommentsFetched;
+ 
+   const cadAdd = useSelector((state) => {
+     const { listId } = selectors.selectCurrentCard(state);
+@@ -46,18 +56,27 @@ const Comments = React.memo(() => {
+ 
+   const dispatch = useDispatch();
+ 
+-  const [inViewRef] = useInView({
+-    threshold: 1,
+-    onChange: (inView) => {
++  const handleInViewChange = useCallback(
++    (inView) => {
+       if (inView) {
+-        dispatch(entryActions.fetchCommentsInCurrentCard());
++        if (isSubmissions) {
++          dispatch(entryActions.fetchSubmissionsInCurrentCard());
++        } else {
++          dispatch(entryActions.fetchCommentsInCurrentCard());
++        }
+       }
+     },
++    [dispatch, isSubmissions],
++  );
++
++  const [inViewRef] = useInView({
++    threshold: 1,
++    onChange: handleInViewChange,
+   });
+ 
+   return (
+     <>
+-      {cadAdd && <Add />}
++      {cadAdd && <Add type={type} placeholder={placeholder} />}
+       <div className={styles.itemsWrapper}>
+         <Comment.Group className={styles.items}>
+           {commentIds.map((commentId) => (
+@@ -65,12 +84,12 @@ const Comments = React.memo(() => {
+           ))}
+         </Comment.Group>
+       </div>
+-      {isCommentsFetching !== undefined && isAllCommentsFetched !== undefined && (
++      {isFetching !== undefined && isAllFetched !== undefined && (
+         <div className={styles.loaderWrapper}>
+-          {isCommentsFetching ? (
++          {isFetching ? (
+             <Loader active inverted inline="centered" size="small" />
+           ) : (
+-            !isAllCommentsFetched && <div ref={inViewRef} />
++            !isAllFetched && <div ref={inViewRef} />
+           )}
+         </div>
+       )}
+@@ -78,4 +97,14 @@ const Comments = React.memo(() => {
+   );
+ });
+ 
++Comments.propTypes = {
++  type: PropTypes.oneOf(Object.values(CommentTypes)),
++  placeholder: PropTypes.string,
++};
++
++Comments.defaultProps = {
++  type: CommentTypes.UPDATE,
++  placeholder: undefined,
++};
++
+ export default Comments;
+diff --git a/client/src/components/comments/Comments/Item.jsx b/client/src/components/comments/Comments/Item.jsx
+index 56f3213..397a265 100755
+--- a/client/src/components/comments/Comments/Item.jsx
++++ b/client/src/components/comments/Comments/Item.jsx
+@@ -17,6 +17,7 @@ import { usePopupInClosableContext } from '../../../hooks';
+ import { isListArchiveOrTrash, isUserStatic } from '../../../utils/record-helpers';
+ import { BoardMembershipRoles } from '../../../constants/Enums';
+ import { ClosableContext } from '../../../contexts';
++import getDateFormat from '../../../utils/get-date-format';
+ import Edit from './Edit';
+ import TimeAgo from '../../common/TimeAgo';
+ import Markdown from '../../common/Markdown';
+@@ -116,6 +117,11 @@ const Item = React.memo(({ id }) => {
+             <Comment.Actions className={styles.information}>
+               <span className={styles.date}>
+                 <TimeAgo date={comment.createdAt} />
++                {' · '}
++                {t(`format:${getDateFormat(comment.createdAt)}`, {
++                  value: comment.createdAt,
++                  postProcess: 'formatDate',
++                })}
+               </span>
+               {(canEdit || canDelete) && (
+                 <span className={styles.actions}>
+diff --git a/client/src/constants/ActionTypes.js b/client/src/constants/ActionTypes.js
+index 7695188..b087f7c 100644
+--- a/client/src/constants/ActionTypes.js
++++ b/client/src/constants/ActionTypes.js
+@@ -414,6 +414,10 @@ export default {
+   COMMENT_DELETE__FAILURE: 'COMMENT_DELETE__FAILURE',
+   COMMENT_DELETE_HANDLE: 'COMMENT_DELETE_HANDLE',
+ 
++  SUBMISSIONS_FETCH: 'SUBMISSIONS_FETCH',
++  SUBMISSIONS_FETCH__SUCCESS: 'SUBMISSIONS_FETCH__SUCCESS',
++  SUBMISSIONS_FETCH__FAILURE: 'SUBMISSIONS_FETCH__FAILURE',
++
+   /* Activities */
+ 
+   ACTIVITIES_IN_BOARD_FETCH: 'ACTIVITIES_IN_BOARD_FETCH',
+diff --git a/client/src/constants/Config.js b/client/src/constants/Config.js
+index 029e75e..511d1b1 100755
+--- a/client/src/constants/Config.js
++++ b/client/src/constants/Config.js
+@@ -12,6 +12,7 @@ const ACCESS_TOKEN_VERSION = '1';
+ const POSITION_GAP = 65536;
+ const CARDS_LIMIT = 50;
+ const COMMENTS_LIMIT = 50;
++const SUBMISSIONS_LIMIT = 50;
+ const ACTIVITIES_LIMIT = 50;
+ 
+ const MAX_SIZE_TO_DISPLAY_CONTENT = 256 * 1024;
+@@ -26,6 +27,7 @@ export default {
+   POSITION_GAP,
+   CARDS_LIMIT,
+   COMMENTS_LIMIT,
++  SUBMISSIONS_LIMIT,
+   ACTIVITIES_LIMIT,
+   MAX_SIZE_TO_DISPLAY_CONTENT,
+   IS_MAC,
+diff --git a/client/src/constants/EntryActionTypes.js b/client/src/constants/EntryActionTypes.js
+index 1985757..44e8dee 100755
+--- a/client/src/constants/EntryActionTypes.js
++++ b/client/src/constants/EntryActionTypes.js
+@@ -288,6 +288,8 @@ export default {
+   COMMENT_DELETE: `${PREFIX}/COMMENT_DELETE`,
+   COMMENT_DELETE_HANDLE: `${PREFIX}/COMMENT_DELETE_HANDLE`,
+ 
++  SUBMISSIONS_IN_CURRENT_CARD_FETCH: `${PREFIX}/SUBMISSIONS_IN_CURRENT_CARD_FETCH`,
++
+   /* Activities */
+ 
+   ACTIVITIES_IN_CURRENT_BOARD_FETCH: `${PREFIX}/ACTIVITIES_IN_CURRENT_BOARD_FETCH`,
+diff --git a/client/src/constants/Enums.js b/client/src/constants/Enums.js
+index 412ba43..c5bc183 100755
+--- a/client/src/constants/Enums.js
++++ b/client/src/constants/Enums.js
+@@ -92,6 +92,11 @@ export const AttachmentTypes = {
+   LINK: 'link',
+ };
+ 
++export const CommentTypes = {
++  UPDATE: 'update',
++  SUBMISSION: 'submission',
++};
++
+ export const ActivityTypes = {
+   CREATE_CARD: 'createCard',
+   MOVE_CARD: 'moveCard',
+diff --git a/client/src/entry-actions/comments.js b/client/src/entry-actions/comments.js
+index 73d82e8..b2ea5e1 100755
+--- a/client/src/entry-actions/comments.js
++++ b/client/src/entry-actions/comments.js
+@@ -10,6 +10,11 @@ const fetchCommentsInCurrentCard = () => ({
+   payload: {},
+ });
+ 
++const fetchSubmissionsInCurrentCard = () => ({
++  type: EntryActionTypes.SUBMISSIONS_IN_CURRENT_CARD_FETCH,
++  payload: {},
++});
++
+ const createCommentInCurrentCard = (data) => ({
+   type: EntryActionTypes.COMMENT_IN_CURRENT_CARD_CREATE,
+   payload: {
+@@ -56,6 +61,7 @@ const handleCommentDelete = (comment) => ({
+ 
+ export default {
+   fetchCommentsInCurrentCard,
++  fetchSubmissionsInCurrentCard,
+   createCommentInCurrentCard,
+   handleCommentCreate,
+   updateComment,
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 84c1eca..9b34cd5 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -22,6 +22,7 @@ export default {
+       actions: 'Actions',
+       activateUser_title: 'Activate User',
+       active: 'Active',
++      activity: 'Activity',
+       addAllMembersConfirmation: 'Add {{count}} member(s) to this board as:',
+       addAllMembers_title: 'Add All Members',
+       addAttachment_title: 'Add Attachment',
+@@ -338,6 +339,7 @@ export default {
+       startDate_title: 'Start Date',
+       stopwatch: 'Stopwatch',
+       story: 'Story',
++      submissions: 'Submissions',
+       subscribeToCardWhenCommenting: 'Subscribe to card when commenting',
+       subscribeToMyOwnCardsByDefault: 'Subscribe to my own cards by default',
+       taskActions_title: 'Task Actions',
+@@ -362,6 +364,7 @@ export default {
+       unlinkSso_title: 'Inlink SSO',
+       unsavedChanges: 'Unsaved changes',
+       untitledBoard: 'Untitled board',
++      updates: 'Updates',
+       uploadFailedFileIsTooBig: 'Upload failed: File is too big.',
+       uploadFailedNotEnoughStorageSpace: 'Upload failed: Not enough storage space.',
+       uploadedImages: 'Uploaded images',
+@@ -420,6 +423,7 @@ export default {
+       whatsNew_title: "What's New",
+       withoutBaseGroup: 'Without base group',
+       writeComment: 'Write a comment...',
++      writeSubmission: 'Write a submission...',
+     },
+ 
+     action: {
+diff --git a/client/src/models/Card.js b/client/src/models/Card.js
+index d771c25..cfdcfb2 100755
+--- a/client/src/models/Card.js
++++ b/client/src/models/Card.js
+@@ -9,6 +9,7 @@ import { attr, fk, many, oneToOne } from 'redux-orm';
+ import BaseModel from './BaseModel';
+ import ActionTypes from '../constants/ActionTypes';
+ import Config from '../constants/Config';
++import { CommentTypes } from '../constants/Enums';
+ 
+ export default class extends BaseModel {
+   static modelName = 'Card';
+@@ -45,6 +46,15 @@ export default class extends BaseModel {
+     isAllCommentsFetched: attr({
+       getDefault: () => null,
+     }),
++    lastSubmissionId: attr({
++      getDefault: () => null,
++    }),
++    isSubmissionsFetching: attr({
++      getDefault: () => false,
++    }),
++    isAllSubmissionsFetched: attr({
++      getDefault: () => null,
++    }),
+     lastActivityId: attr({
+       getDefault: () => null,
+     }),
+@@ -524,6 +534,22 @@ export default class extends BaseModel {
+ 
+         break;
+       }
++      case ActionTypes.SUBMISSIONS_FETCH:
++        Card.withId(payload.cardId).update({
++          isSubmissionsFetching: true,
++        });
++
++        break;
++      case ActionTypes.SUBMISSIONS_FETCH__SUCCESS:
++        Card.withId(payload.cardId).update({
++          isSubmissionsFetching: false,
++          isAllSubmissionsFetched: payload.comments.length < Config.SUBMISSIONS_LIMIT,
++          ...(payload.comments.length > 0 && {
++            lastSubmissionId: payload.comments[payload.comments.length - 1].id,
++          }),
++        });
++
++        break;
+       case ActionTypes.ACTIVITIES_IN_CARD_FETCH:
+         Card.withId(payload.cardId).update({
+           isActivitiesFetching: true,
+@@ -581,7 +607,9 @@ export default class extends BaseModel {
+       return [];
+     }
+ 
+-    const commentModels = this.getCommentsQuerySet().toModelArray();
++    const commentModels = this.getCommentsQuerySet()
++      .toModelArray()
++      .filter((commentModel) => commentModel.type === CommentTypes.UPDATE);
+ 
+     if (this.lastCommentId && this.isAllCommentsFetched === false) {
+       return commentModels.filter((commentModel) => {
+@@ -600,6 +628,32 @@ export default class extends BaseModel {
+     return commentModels;
+   }
+ 
++  getSubmissionsModelArray() {
++    if (this.isAllSubmissionsFetched === null) {
++      return [];
++    }
++
++    const submissionModels = this.getCommentsQuerySet()
++      .toModelArray()
++      .filter((commentModel) => commentModel.type === CommentTypes.SUBMISSION);
++
++    if (this.lastSubmissionId && this.isAllSubmissionsFetched === false) {
++      return submissionModels.filter((submissionModel) => {
++        if (submissionModel.id.length > this.lastSubmissionId.length) {
++          return true;
++        }
++
++        if (submissionModel.id.length < this.lastSubmissionId.length) {
++          return false;
++        }
++
++        return submissionModel.id >= this.lastSubmissionId;
++      });
++    }
++
++    return submissionModels;
++  }
++
+   getActivitiesModelArray() {
+     if (this.isAllActivitiesFetched === null) {
+       return [];
+diff --git a/client/src/models/Comment.js b/client/src/models/Comment.js
+index 215ef45..64048ca 100755
+--- a/client/src/models/Comment.js
++++ b/client/src/models/Comment.js
+@@ -14,6 +14,7 @@ export default class extends BaseModel {
+   static fields = {
+     id: attr(),
+     text: attr(),
++    type: attr(),
+     createdAt: attr({
+       getDefault: () => new Date(),
+     }),
+diff --git a/client/src/sagas/core/services/comments.js b/client/src/sagas/core/services/comments.js
+index c641d3a..cd314a0 100644
+--- a/client/src/sagas/core/services/comments.js
++++ b/client/src/sagas/core/services/comments.js
+@@ -25,6 +25,7 @@ export function* fetchComments(cardId) {
+       included: { users },
+     } = yield call(request, api.getComments, cardId, {
+       beforeId: lastCommentId || undefined,
++      type: 'update',
+     }));
+   } catch (error) {
+     yield put(actions.fetchComments.failure(cardId, error));
+@@ -40,6 +41,36 @@ export function* fetchCommentsInCurrentCard() {
+   yield call(fetchComments, cardId);
+ }
+ 
++export function* fetchSubmissions(cardId) {
++  const { lastSubmissionId } = yield select(selectors.selectCardById, cardId);
++
++  yield put(actions.fetchSubmissions(cardId));
++
++  let comments;
++  let users;
++
++  try {
++    ({
++      items: comments,
++      included: { users },
++    } = yield call(request, api.getComments, cardId, {
++      beforeId: lastSubmissionId || undefined,
++      type: 'submission',
++    }));
++  } catch (error) {
++    yield put(actions.fetchSubmissions.failure(cardId, error));
++    return;
++  }
++
++  yield put(actions.fetchSubmissions.success(cardId, comments, users));
++}
++
++export function* fetchSubmissionsInCurrentCard() {
++  const { cardId } = yield select(selectors.selectPath);
++
++  yield call(fetchSubmissions, cardId);
++}
++
+ export function* createComment(cardId, data) {
+   const localId = yield call(createLocalId);
+   const currentUser = yield select(selectors.selectCurrentUser);
+@@ -113,6 +144,8 @@ export function* handleCommentDelete(comment) {
+ export default {
+   fetchComments,
+   fetchCommentsInCurrentCard,
++  fetchSubmissions,
++  fetchSubmissionsInCurrentCard,
+   createComment,
+   createCommentInCurrentCard,
+   handleCommentCreate,
+diff --git a/client/src/sagas/core/watchers/comments.js b/client/src/sagas/core/watchers/comments.js
+index f2f29d8..dec530a 100644
+--- a/client/src/sagas/core/watchers/comments.js
++++ b/client/src/sagas/core/watchers/comments.js
+@@ -13,6 +13,9 @@ export default function* commentsWatchers() {
+     takeEvery(EntryActionTypes.COMMENTS_IN_CURRENT_CARD_FETCH, () =>
+       services.fetchCommentsInCurrentCard(),
+     ),
++    takeEvery(EntryActionTypes.SUBMISSIONS_IN_CURRENT_CARD_FETCH, () =>
++      services.fetchSubmissionsInCurrentCard(),
++    ),
+     takeEvery(EntryActionTypes.COMMENT_IN_CURRENT_CARD_CREATE, ({ payload: { data } }) =>
+       services.createCommentInCurrentCard(data),
+     ),
+diff --git a/client/src/selectors/cards.js b/client/src/selectors/cards.js
+index eb203b1..b2c7610 100644
+--- a/client/src/selectors/cards.js
++++ b/client/src/selectors/cards.js
+@@ -425,6 +425,24 @@ export const selectCommentIdsForCurrentCard = createSelector(
+   },
+ );
+ 
++export const selectSubmissionIdsForCurrentCard = createSelector(
++  orm,
++  (state) => selectPath(state).cardId,
++  ({ Card }, id) => {
++    if (!id) {
++      return id;
++    }
++
++    const cardModel = Card.withId(id);
++
++    if (!cardModel) {
++      return cardModel;
++    }
++
++    return cardModel.getSubmissionsModelArray().map((commentModel) => commentModel.id);
++  },
++);
++
+ export const selectActivityIdsForCurrentCard = createSelector(
+   orm,
+   (state) => selectPath(state).cardId,
+@@ -493,6 +511,7 @@ export default {
+   selectAttachmentsForCurrentCard,
+   selectCustomFieldGroupIdsForCurrentCard,
+   selectCommentIdsForCurrentCard,
++  selectSubmissionIdsForCurrentCard,
+   selectActivityIdsForCurrentCard,
+   selectIsCurrentUserInCurrentCard,
+ };
+diff --git a/server/api/controllers/comments/create.js b/server/api/controllers/comments/create.js
+index 104fc3b..dcde7ea 100755
+--- a/server/api/controllers/comments/create.js
++++ b/server/api/controllers/comments/create.js
+@@ -34,6 +34,11 @@
+  *                 maxLength: 1048576
+  *                 description: Content of the comment
+  *                 example: This task is almost complete...
++ *               type:
++ *                 type: string
++ *                 enum: [update, submission]
++ *                 description: Type of the comment
++ *                 example: update
+  *     responses:
+  *       200:
+  *         description: Comment created successfully
+@@ -78,6 +83,10 @@ module.exports = {
+       maxLength: 1048576,
+       required: true,
+     },
++    type: {
++      type: 'string',
++      isIn: Object.values(Comment.Types),
++    },
+   },
+ 
+   exits: {
+@@ -116,7 +125,7 @@ module.exports = {
+       }
+     }
+ 
+-    const values = _.pick(inputs, ['text']);
++    const values = _.pick(inputs, ['text', 'type']);
+ 
+     const comment = await sails.helpers.comments.createOne.with({
+       project,
+diff --git a/server/api/controllers/comments/index.js b/server/api/controllers/comments/index.js
+index c278236..0af10ed 100644
+--- a/server/api/controllers/comments/index.js
++++ b/server/api/controllers/comments/index.js
+@@ -75,6 +75,10 @@ module.exports = {
+       required: true,
+     },
+     beforeId: idInput,
++    type: {
++      type: 'string',
++      isIn: Object.values(Comment.Types),
++    },
+   },
+ 
+   exits: {
+@@ -110,6 +114,7 @@ module.exports = {
+ 
+     const comments = await Comment.qm.getByCardId(card.id, {
+       beforeId: inputs.beforeId,
++      type: inputs.type,
+     });
+ 
+     const userIds = sails.helpers.utils.mapRecords(comments, 'userId', true, true);
+diff --git a/server/api/hooks/query-methods/models/Comment.js b/server/api/hooks/query-methods/models/Comment.js
+index 7d4a528..9407c9e 100644
+--- a/server/api/hooks/query-methods/models/Comment.js
++++ b/server/api/hooks/query-methods/models/Comment.js
+@@ -32,7 +32,7 @@ const createOne = (values) =>
+ 
+ const getByIds = (ids) => defaultFind(ids);
+ 
+-const getByCardId = (cardId, { beforeId } = {}) => {
++const getByCardId = (cardId, { beforeId, type } = {}) => {
+   const criteria = {
+     cardId,
+   };
+@@ -43,6 +43,10 @@ const getByCardId = (cardId, { beforeId } = {}) => {
+     };
+   }
+ 
++  if (type) {
++    criteria.type = type;
++  }
++
+   return defaultFind(criteria, { limit: LIMIT });
+ };
+ 
+diff --git a/server/api/models/Comment.js b/server/api/models/Comment.js
+index a2a8e7b..9f11ab1 100644
+--- a/server/api/models/Comment.js
++++ b/server/api/models/Comment.js
+@@ -41,6 +41,11 @@
+  *           type: string
+  *           description: Content of the comment
+  *           example: This task is almost complete...
++ *         type:
++ *           type: string
++ *           enum: [update, submission]
++ *           description: Type of the comment
++ *           example: update
+  *         createdAt:
+  *           type: string
+  *           format: date-time
+@@ -55,7 +60,14 @@
+  *           example: 2024-01-01T00:00:00.000Z
+  */
+ 
++const Types = {
++  UPDATE: 'update',
++  SUBMISSION: 'submission',
++};
++
+ module.exports = {
++  Types,
++
+   attributes: {
+     //  ╔═╗╦═╗╦╔╦╗╦╔╦╗╦╦  ╦╔═╗╔═╗
+     //  ╠═╝╠╦╝║║║║║ ║ ║╚╗╔╝║╣ ╚═╗
+@@ -65,6 +77,11 @@ module.exports = {
+       type: 'string',
+       required: true,
+     },
++    type: {
++      type: 'string',
++      isIn: Object.values(Types),
++      defaultsTo: Types.UPDATE,
++    },
+ 
+     //  ╔═╗╔╦╗╔╗ ╔═╗╔╦╗╔═╗
+     //  ║╣ ║║║╠╩╗║╣  ║║╚═╗
+diff --git a/server/db/migrations/20260813150000_add_type_to_comment.js b/server/db/migrations/20260813150000_add_type_to_comment.js
+new file mode 100644
+index 0000000..85b8888
+--- /dev/null
++++ b/server/db/migrations/20260813150000_add_type_to_comment.js
+@@ -0,0 +1,14 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++module.exports.up = (knex) =>
++  knex.schema.alterTable('comment', (table) => {
++    table.string('type').notNullable().defaultTo('update');
++  });
++
++module.exports.down = (knex) =>
++  knex.schema.alterTable('comment', (table) => {
++    table.dropColumn('type');
++  });

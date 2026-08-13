@@ -1344,3 +1344,63 @@ the correct "assigned you to checklist «X»" / "...sub-task «Y» in checklist 
 card links. All verification used an isolated sandbox project + throwaway user created and fully
 deleted via the API afterward — confirmed zero trace left in `project`/`user_account`/
 `notification` tables.
+
+## Card tab rename, Submissions tab, exact timestamps (2026-08-13)
+
+Client wants the card-modal tab bar reorganized (Comments → Updates, Checklists → Tasks, Actions
+→ Activity), a new "Submissions" tab for deliverables/links kept separate from day-to-day
+"Updates," order **Updates, Submissions, Tasks, Activity** with Updates default, and an
+always-visible exact date+time on every comment/submission/activity entry (not just relative
+"time ago"). Confirmed with client: Submissions is text+links only (reuses the existing
+attachments feature for real files), and "notify regardless of tab" is scoped to posts
+(Updates + Submissions), not checklist/activity changes.
+
+Found that PLANKA already has this exact "independently-paginated per-card feed" pattern twice
+(Comments, Activities — separate `isXFetching`/`isAllXFetched`/`lastXId` Card fields, separate
+entry-action/saga/reducer chains, separate selectors). Implemented Submissions as a third
+instance of the same pattern via a new `type` column (`update`/`submission`, defaulting to
+`update`) on the existing `Comment` model — **not** a new sibling model — so the create/update/
+delete routes, the mention pipeline, the subscriber-notification pipeline
+(`comments/create-one.js`), and the real-time socket broadcast are reused completely unchanged;
+none of that code cares about `type`. Server: `Comment.Types` const + `type` attribute + migration
+`20260813150000_add_type_to_comment.js` (Postgres backfills all 432 existing rows to `update` via
+the column default, verified post-deploy — zero comments lost or misfiled). `Comment.qm.
+getByCardId` gained an optional `type` filter (its only call site, `comments/index.js`, passes it
+through). Client: mirrored Card's `lastCommentId`/`isCommentsFetching`/`isAllCommentsFetched` triad
+as `lastSubmissionId`/`isSubmissionsFetching`/`isAllSubmissionsFetched`, added
+`getSubmissionsModelArray()` next to `getCommentsModelArray()` — and had to **fix
+`getCommentsModelArray()` to filter to `type === 'update'`**, since `this.comments` (the reverse
+FK) now mixes both types. `Comments.jsx`/`Add.jsx` took a `type`/`placeholder` prop to branch
+selector/fetch-action/composer-placeholder rather than forking into two components;
+`Item.jsx`/`Edit.jsx` needed zero changes since they already operate generically on a comment id.
+
+Exact timestamps: reused the existing `getDateFormat`/`format:longDateTime`/`format:fullDateTime`
+i18next machinery (already used for start/due-date activity text) and `TimeAgo`'s own internal
+hover-tooltip formatter — just rendered as always-visible text next to the existing relative
+`<TimeAgo>` in `Comments/Item.jsx` and `CardActivities/Item.jsx`, joined with `·`. One rendering
+fix in both files covers Updates, Submissions, and Activity. Renders as e.g. `just now · August 13
+at 5:20 AM` (current year) or `· August 13, 2025 at 5:20 AM` (prior year).
+
+i18n: `common.tasks` already existed (from the Gantt modal's own "Tasks" tab) and was reused
+verbatim; `common.actions` was left untouched since it's shared with an unrelated board-level
+popup — renaming it in place would have mislabeled that too. Added `updates`/`submissions`/
+`activity`/`writeSubmission` keys.
+
+"Notify regardless of tab" needed no new code: `comments/create-one.js`'s subscriber-notification
+block (`sails.helpers.cards.getSubscriptionUserIds`) already fires unconditionally for every
+comment row regardless of `type` — confirmed by reading the helper directly, not assumed.
+
+Patch: `planka-custom/patches/0034-rename-tabs-submissions-exact-timestamps.patch`. **Deployed
+and live-verified 2026-08-13** via `docker exec ... grep` (confirmed the built image actually
+contained the new migration + client bundle strings before trusting any test), direct Postgres
+inspection (`type` column present, all 432 pre-existing comments correctly defaulted to
+`update`), and a headless-browser pass against an isolated sandbox card: confirmed tab order/
+labels (`Updates, Submissions, Tasks, Activity`), Updates shown by default, a Submissions post
+landing only in Submissions (not Updates) and vice versa, and the combined relative+absolute
+timestamp rendering on both tabs and on Activity.
+
+**Housekeeping note**: an early test-script bug in this session's own Puppeteer verification
+(before the composer-textarea selector was fixed) left one stray sandbox project, `Tab Rename
+Verify Sandbox` (id `1840516429321864924`), undeleted in production — the script threw before
+reaching its own cleanup step. Flagged to the user rather than deleted via a DB-discovered ID,
+per the standing rule that only session-tracked IDs get auto-cleanup.
