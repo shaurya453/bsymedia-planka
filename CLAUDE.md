@@ -1450,3 +1450,80 @@ describes the entire source file as if nothing were ever imported, so on a rerun
 create/update" counts are meaningless and shouldn't be trusted as a preview of what `--apply` will
 actually do (this was already known going in from the idempotent-`apply` design, but is worth
 spelling out explicitly here since it nearly gave false comfort before this incident).
+
+## Import tool hardening: card-sync skip, real-user comment attribution (2026-08-13)
+
+Follow-up to the incident above, done same-day. Two asks: (1) actually implement the card-sync
+guard flagged as "not yet fixed" above, so a rerun can no longer silently revert a live staff edit;
+(2) make imported comments post as the real matched user instead of always the service account
+(client's ask: "comments under each card have the users, not the invite service").
+
+**Card-sync guard** (`lib/framework.js` `apply()`): implemented option (b) from the incident
+note. `lib/db.js` gained `getEntityRecord()`, returning `updated_at` alongside `planka_id` — this
+column already existed and was already being bumped correctly by `recordEntity`'s `ON CONFLICT`
+branch, it just wasn't being read anywhere. Before patching a reused card, compare the live card's
+`updatedAt` against `import_entities`'s `updated_at` for that card; if the live value is newer,
+skip the sync entirely (bumped into a new `skippedSync` result bucket, surfaced in the apply
+report) instead of overwriting, and bump the tool's own last-touch record on a *successful* sync so
+future reruns compare against the sync, not the original creation time. Deliberately coarse: since
+`comments/create-one.js` bumps `card.updated_at` on every comment (import-authored or not), this
+also skips syncs that would've been perfectly safe — accepted tradeoff, a false-skip is recoverable
+by hand, a silent revert isn't. Verified live against production immediately after deploying: the
+Dragon Ball card (the one manually fixed after the original incident) correctly showed up in
+`skippedSync` on the next `--apply` rerun instead of being reverted again.
+
+**Real-user comment attribution**: `lib/planka-client.js`'s `request()` now supports an `apiKey`
+option (sends `x-api-key`, per the server's `current-user` hook — a first-class auth mode, not a
+workaround) alongside the existing `token` (Bearer) mode. Added `createUserApiKey()` (admin-only
+`POST /users/:id/api-key`) and `deleteComment()`. In `apply()`'s comment-creation loop, an author
+with a matched Planka account now gets a fresh, **in-memory-only** API key (never written to
+`planka_ops` or disk — regenerated every run rather than persisted, so there's no standing user
+credential sitting in our own database) and their comment posts as them with the original
+unprefixed text; still-unmatched authors keep the old service-account + `[originally posted by X]`
+prefix behavior. New `reauthorComments()` (`--reauthor-comments` CLI mode) retroactively fixes
+already-imported comments the same way — **client explicitly chose this over a
+future-comments-only scope**, accepting that Planka sets `createdAt` at recreation time, so the
+original historical timestamp is not preserved for retroactively-fixed comments. Idempotent via a
+`comment_reauthor` marker row per comment (same upsert pattern as everything else in this tool).
+
+**Known tradeoff, not mitigated**: `createUserApiKey` overwrites/rotates whatever API key a user
+already has — Planka only supports one active key per user. If any matched staff member had
+separately generated their own personal API key for real automation, this silently invalidates it.
+Flagged to the client as a real side effect of this design (not just a code comment) before running
+it live; accepted as low-risk for this deployment's freshly-signed-up accounts, worth remembering
+if that stops being true.
+
+**A second, more serious bug found and fixed the same day, before it could compound**: the first
+production run of `--reauthor-comments` deleted the old service-account comment *before* confirming
+the new real-user comment was created. 8 of the run's comments failed to recreate — not because
+anything was wrong with them, but because **a comment author isn't necessarily a card assignee**,
+and `apply()`'s up-front board-membership grant was scoped only to `assigneeEmailsUsed`. An
+unlisted comment author has no board access, so posting as them via their API key hit
+`comments/create.js`'s non-member path, which throws a misleadingly-worded `Errors.CARD_NOT_FOUND`
+("Card not found") that's actually a disguised Forbidden. Confirmed via direct count: the board's
+comment total dropped from 332 to 326 - **real, confirmed data loss**, caught immediately via the
+apply-result report's failure list rather than assumed.
+
+Fixed two ways, both required together: (1) broadened the `assigneeEmailsUsed` set in `apply()`'s
+up-front membership pass to also include every comment author, and added the same
+`ensureBoardMembership` idempotent grant directly inside `reauthorComments()` too, so it's
+self-sufficient and doesn't depend on an `apply()` run having happened first; (2) reordered
+`reauthorComments()` to **create the new comment first, then delete the old one** — a create
+failure now leaves the original untouched instead of losing it, and a delete against an
+already-gone id (from a comment that hit the pre-fix bug on an earlier run) is caught and treated
+as success, not a failure, since the goal state is already met.
+
+Before touching production again, built a from-scratch regression harness (throwaway Postgres
+container + a fully fake in-memory Planka client with *real* board-membership enforcement on
+`createComment` — the first version of this harness didn't simulate that check at all, which is
+exactly why it hadn't caught the bug in the first place) and ran 4 scenarios: apply() granting
+membership to a comment-only (never-assignee) author; reauthor succeeding cleanly once membership
+exists; reauthor being fully self-sufficient with zero net comment loss even when it has to grant
+membership itself, mid-run, with no prior `apply()` pass. All passed before rerunning against
+production. Recovery: took a fresh off-cycle backup first, reran the fixed `--reauthor-comments`,
+which recovered exactly the 8 previously-failed comments (0 failures this time) with their original
+text and correct attribution, verified byte-for-byte against a sample. Final board comment count:
+334 (117 still-service-account for genuinely still-unmatched authors + 215 reauthored across both
+runs = 332, the exact original Taiga total, plus 2 extra organic comments staff posted through the
+live UI during the same window, confirmed via timestamp clustering and zero duplicate
+`(card_id, text)` pairs — not an artifact of this process).

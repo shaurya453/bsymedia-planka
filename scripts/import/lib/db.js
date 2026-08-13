@@ -101,6 +101,19 @@ async function getEntity(pool, { source, entityType, sourceRef }) {
   return rows[0] ? rows[0].planka_id : null;
 }
 
+// Like getEntity, but also returns updated_at - the last time this tool
+// itself touched (created or synced) this entity. Used to tell "the export
+// changed" apart from "someone edited this directly in Planka since we last
+// touched it" before blindly overwriting a reused entity on a rerun.
+async function getEntityRecord(pool, { source, entityType, sourceRef }) {
+  const { rows } = await pool.query(
+    `SELECT planka_id, updated_at FROM import_entities
+     WHERE source = $1 AND entity_type = $2 AND source_ref = $3`,
+    [source, entityType, sourceRef],
+  );
+  return rows[0] ? { plankaId: rows[0].planka_id, updatedAt: rows[0].updated_at } : null;
+}
+
 async function recordEntity(pool, { source, sourceFileSha256, entityType, sourceRef, plankaId }) {
   await pool.query(
     `INSERT INTO import_entities (source, source_file_sha256, entity_type, source_ref, planka_id)
@@ -130,4 +143,4 @@ async function recordCycleTimeEvent(pool, ev) {
   );
 }
 
-module.exports = { connect, getEntity, recordEntity, recordCycleTimeEvent };
+module.exports = { connect, getEntity, getEntityRecord, recordEntity, recordCycleTimeEvent };

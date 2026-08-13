@@ -12,9 +12,13 @@ class PlankaApiError extends Error {
   }
 }
 
-async function request(path, { method = 'GET', token, body, form } = {}) {
+async function request(path, { method = 'GET', token, apiKey, body, form } = {}) {
   const headers = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
+  // apiKey authenticates AS that specific user (x-api-key header, see
+  // server's current-user hook) - used so imported comments can be posted
+  // by the real matched user instead of always the service account.
+  if (apiKey) headers['x-api-key'] = apiKey;
+  else if (token) headers.Authorization = `Bearer ${token}`;
 
   let payload;
   if (form) {
@@ -121,13 +125,39 @@ async function createCardMembership(cardId, userId, token) {
   return data.item;
 }
 
-async function createComment(cardId, text, token) {
+// authAs: pass { apiKey } to post as that real user instead of the service
+// account (token). Only one of token/authAs.apiKey is actually used by
+// request() - token kept as a fallback param for callers that don't care.
+async function createComment(cardId, text, token, authAs) {
   const data = await request(`/api/cards/${cardId}/comments`, {
     method: 'POST',
     token,
+    apiKey: authAs && authAs.apiKey,
     body: { text },
   });
   return data.item;
+}
+
+async function deleteComment(commentId, token) {
+  const data = await request(`/api/comments/${commentId}`, {
+    method: 'DELETE',
+    token,
+  });
+  return data.item;
+}
+
+// Admin-only. Overwrites any API key the user already has (Planka only
+// supports one active key per user) - if a matched user has separately
+// generated their own personal API key for real automation use, calling
+// this for import purposes would silently revoke it. Not currently guarded
+// against; acceptable for this deployment's freshly-signed-up staff
+// accounts, but worth remembering if that ever stops being true.
+async function createUserApiKey(userId, token) {
+  const data = await request(`/api/users/${userId}/api-key`, {
+    method: 'POST',
+    token,
+  });
+  return data.included.apiKey;
 }
 
 async function createTaskList(cardId, { name, position }, token) {
@@ -189,6 +219,8 @@ module.exports = {
   createBoardMembership,
   createCardMembership,
   createComment,
+  deleteComment,
+  createUserApiKey,
   createTaskList,
   createTask,
   createFileAttachment,

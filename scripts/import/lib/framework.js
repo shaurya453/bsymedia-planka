@@ -56,9 +56,14 @@ function gapAnalysis(model, plankaUsers) {
         `those specific assignments will be skipped (card itself still imports).`,
     );
   }
-  lines.push('- Comments: all migrated comments will be posted by the PLANKA service account, ' +
-    'prefixed with the original author + date, since PLANKA\'s API cannot post a comment "as" ' +
-    'another user (comments/create.js always attributes to the authenticated caller).');
+  lines.push('- Comments: for an author with a matched Planka account, the comment is posted as ' +
+    'that real user (via a per-user API key, generated fresh and not stored) with the original ' +
+    'text unchanged. For a still-unmatched author, it falls back to the PLANKA service account, ' +
+    'prefixed with the original author + date, since Planka\'s API cannot otherwise post a ' +
+    'comment "as" another user. Run --reauthor-comments after more members sign up to ' +
+    'retroactively re-post already-imported service-account comments as their now-matched real ' +
+    'author (note: this deletes + recreates the comment, so its createdAt becomes the ' +
+    'reauthor time, not the original Taiga date).');
   lines.push('');
   lines.push('## Unmatched members (resolve manually - no auto-create)');
   if (memberMatches.unmatched.length === 0) {
@@ -134,7 +139,20 @@ async function apply(model, memberMatches, { plankaClient, token, pool }) {
     return { id: created.id, reused: false };
   }
 
-  const result = { created: {}, reused: {}, updated: {}, skippedAssignments: 0, failedAttachments: [] };
+  // In-memory only, never persisted - regenerated fresh every run rather
+  // than stored, so there's no live user credential sitting in our own
+  // planka_ops DB. Each POST /users/:id/api-key call overwrites that user's
+  // existing key (Planka only supports one active key per user); see the
+  // caveat on plankaClient.createUserApiKey.
+  const apiKeyCache = new Map();
+  async function ensureApiKey(userId) {
+    if (!apiKeyCache.has(userId)) {
+      apiKeyCache.set(userId, await plankaClient.createUserApiKey(userId, token));
+    }
+    return apiKeyCache.get(userId);
+  }
+
+  const result = { created: {}, reused: {}, updated: {}, skippedSync: {}, skippedAssignments: 0, failedAttachments: [] };
   const bump = (bucket, key) => {
     result[bucket][key] = (result[bucket][key] || 0) + 1;
   };
@@ -160,7 +178,14 @@ async function apply(model, memberMatches, { plankaClient, token, pool }) {
   // otherwise) - ensure editor access up front for every matched member who
   // is actually an assignee somewhere, so this run is self-sufficient and
   // doesn't depend on someone having separately run batch-assign first.
-  const assigneeEmailsUsed = new Set(model.cards.flatMap((c) => c.assigneeEmails));
+  // Also covers comment authors, not just assignees: comments/create.js
+  // rejects a non-board-member with a disguised "Card not found" (really
+  // Forbidden) when posting as a specific real user via API key, and a
+  // comment author isn't necessarily also an assignee anywhere.
+  const assigneeEmailsUsed = new Set([
+    ...model.cards.flatMap((c) => c.assigneeEmails),
+    ...model.cards.flatMap((c) => c.comments.map((cm) => cm.authorEmail)),
+  ]);
   for (const email of assigneeEmailsUsed) {
     const userId = matchedByEmail.get(email);
     if (!userId) continue;
@@ -238,8 +263,39 @@ async function apply(model, memberMatches, { plankaClient, token, pool }) {
           patch.position = await nextPositionInList(listId);
         }
         if (Object.keys(patch).length > 0) {
-          await plankaClient.updateCard(cardId, patch, token);
-          bump('updated', 'card');
+          // Don't blindly overwrite - if the live card was touched more
+          // recently than the last time THIS TOOL touched it (creation or a
+          // prior sync), someone (real staff, most likely) has interacted
+          // with it since, and a field-level diff can't tell a stale export
+          // value apart from a deliberate edit. Confirmed the hard way: a
+          // rerun once silently reverted a staff member's real card move -
+          // see CLAUDE.md "Taiga import: re-running --apply clobbered a
+          // real staff card move (2026-08-13)". Prefer leaving a stale
+          // field over risking a silent revert; the gap gets surfaced in
+          // the apply report for a human to look at instead.
+          //
+          // Note this is intentionally coarse: ANY card activity (a new
+          // comment, a task list, a member add) bumps card.updatedAt, not
+          // just name/description/column edits, so this will also skip
+          // syncs that would have been perfectly safe. That false-skip is
+          // the acceptable failure mode here - a stale field is recoverable
+          // by hand, a silently clobbered edit usually isn't.
+          const cardEntity = await db.getEntityRecord(pool, { source, entityType: 'card', sourceRef: card.sourceRef });
+          const lastToolTouch = cardEntity ? cardEntity.updatedAt : null;
+          const liveUpdatedAt = existing.updatedAt ? new Date(existing.updatedAt) : null;
+
+          if (lastToolTouch && liveUpdatedAt && liveUpdatedAt > lastToolTouch) {
+            result.skippedSyncs = result.skippedSyncs || [];
+            result.skippedSyncs.push({ cardRef: card.sourceRef, title: card.title, patchFields: Object.keys(patch) });
+            bump('skippedSync', 'card');
+          } else {
+            await plankaClient.updateCard(cardId, patch, token);
+            // Bump this tool's own last-touch record so a future rerun's
+            // comparison baseline reflects this sync, not the original
+            // creation time.
+            await db.recordEntity(pool, { source, sourceFileSha256: sha, entityType: 'card', sourceRef: card.sourceRef, plankaId: cardId });
+            bump('updated', 'card');
+          }
         }
       }
     }
@@ -261,9 +317,20 @@ async function apply(model, memberMatches, { plankaClient, token, pool }) {
     }
 
     for (const [ci, comment] of card.comments.entries()) {
-      const text = `_[originally posted by ${comment.authorName} <${comment.authorEmail}> on ${comment.createdAt}]_\n\n${comment.text}`;
-      const c = await getOrCreate('comment', `${card.sourceRef}:${ci}`, () =>
-        plankaClient.createComment(cardId, text, token));
+      const authorUserId = matchedByEmail.get(comment.authorEmail);
+      // When the original author now has a matched Planka account, post
+      // the comment as them (via a fresh, in-memory-only API key) with the
+      // original unprefixed text - real attribution instead of "the invite
+      // service said this on your behalf". Falls back to the service
+      // account + text prefix for still-unmatched authors, same as before.
+      const c = await getOrCreate('comment', `${card.sourceRef}:${ci}`, async () => {
+        if (authorUserId) {
+          const apiKey = await ensureApiKey(authorUserId);
+          return plankaClient.createComment(cardId, comment.text, token, { apiKey });
+        }
+        const text = `_[originally posted by ${comment.authorName} <${comment.authorEmail}> on ${comment.createdAt}]_\n\n${comment.text}`;
+        return plankaClient.createComment(cardId, text, token);
+      });
       bump(c.reused ? 'reused' : 'created', 'comment');
     }
 
@@ -309,6 +376,124 @@ async function apply(model, memberMatches, { plankaClient, token, pool }) {
   }
 
   return { result, boardId: board.id };
+}
+
+// One-time (but idempotent) retroactive fix for comments that were already
+// imported by apply() back when their author had no matching Planka
+// account yet - reposts them as the now-matched real user instead of the
+// service account, dropping the "[originally posted by X]" prefix since
+// it's genuinely them now. Deliberately a separate, explicitly-invoked mode
+// from --apply (see cli.js --reauthor-comments) rather than folded into
+// every apply() run, since it deletes + recreates real comments: the new
+// comment gets a new id and Planka sets createdAt at recreation time, so
+// the original historical timestamp is NOT preserved. Confirmed idempotent
+// via a 'comment_reauthor' marker row per comment - safe to rerun as more
+// members sign up, already-fixed comments are skipped.
+async function reauthorComments(model, memberMatches, { plankaClient, token, pool }) {
+  const matchedByEmail = new Map(memberMatches.matched.map((m) => [m.email, m.plankaId]));
+  const source = model.source;
+  const sha = model.sourceFileSha256;
+  const boardId = await db.getEntity(pool, { source, entityType: 'board', sourceRef: 'board' });
+
+  const apiKeyCache = new Map();
+  async function ensureApiKey(userId) {
+    if (!apiKeyCache.has(userId)) {
+      apiKeyCache.set(userId, await plankaClient.createUserApiKey(userId, token));
+    }
+    return apiKeyCache.get(userId);
+  }
+
+  // A comment author isn't necessarily a card assignee, so apply()'s
+  // up-front "ensure editor access" pass (scoped to assigneeEmailsUsed)
+  // won't have granted them board membership - and comments/create.js
+  // rejects a non-member with a misleadingly-worded "Card not found"
+  // (really a disguised Forbidden). Found this the hard way: 8 comments hit
+  // it, and because delete-then-create used to run in that order, the
+  // failure happened *after* the original had already been deleted -
+  // silent, confirmed data loss (332 -> 326 comments on the Yapmaster
+  // board). Grant membership up front here too, same idempotent
+  // create-or-409-is-fine pattern apply() already uses for assignees.
+  const boardMembershipGranted = new Set();
+  async function ensureBoardMembership(userId) {
+    if (boardMembershipGranted.has(userId)) return;
+    try {
+      await plankaClient.createBoardMembership(boardId, userId, 'editor', token);
+    } catch (err) {
+      if (err.status !== 409) throw err;
+    }
+    boardMembershipGranted.add(userId);
+  }
+
+  const result = { reauthored: 0, alreadyReauthored: 0, stillUnmatched: 0, notYetImported: 0, failed: [] };
+
+  for (const card of model.cards) {
+    let cardPlankaId = null;
+
+    for (const [ci, comment] of card.comments.entries()) {
+      const authorUserId = matchedByEmail.get(comment.authorEmail);
+      if (!authorUserId) {
+        result.stillUnmatched += 1;
+        continue;
+      }
+
+      const sourceRef = `${card.sourceRef}:${ci}`;
+
+      const marker = await db.getEntity(pool, { source, entityType: 'comment_reauthor', sourceRef });
+      if (marker) {
+        result.alreadyReauthored += 1;
+        continue;
+      }
+
+      const oldCommentId = await db.getEntity(pool, { source, entityType: 'comment', sourceRef });
+      if (!oldCommentId) {
+        // apply() hasn't imported this comment yet (e.g. a brand new export
+        // row) - nothing to reauthor; a future apply() run will already
+        // post it correctly-attributed via the forward-looking check.
+        result.notYetImported += 1;
+        continue;
+      }
+
+      if (!cardPlankaId) {
+        cardPlankaId = await db.getEntity(pool, { source, entityType: 'card', sourceRef: card.sourceRef });
+      }
+      if (!cardPlankaId) {
+        result.failed.push({ cardRef: card.sourceRef, commentRef: sourceRef, error: 'card not found in import_entities' });
+        continue;
+      }
+
+      try {
+        await ensureBoardMembership(authorUserId);
+        const apiKey = await ensureApiKey(authorUserId);
+
+        // Create the correctly-attributed comment FIRST, and only delete
+        // the old one once that succeeds - if createComment throws, the
+        // original stays intact instead of being lost. This is the fix for
+        // the data-loss bug above.
+        const created = await plankaClient.createComment(cardPlankaId, comment.text, token, { apiKey });
+
+        try {
+          await plankaClient.deleteComment(oldCommentId, token);
+        } catch (delErr) {
+          // Already gone - e.g. this exact comment hit the pre-fix bug on
+          // an earlier run (deleted, then failed to recreate). The goal
+          // state (one correctly-attributed comment with this text exists)
+          // is met either way; a missing delete target isn't a failure.
+          if (delErr.status !== 404) throw delErr;
+        }
+
+        // Overwrite the comment entity to point at the new id, and drop a
+        // marker so a rerun skips this one - both via the same upsert path
+        // getOrCreate/recordEntity already use elsewhere.
+        await db.recordEntity(pool, { source, sourceFileSha256: sha, entityType: 'comment', sourceRef, plankaId: created.id });
+        await db.recordEntity(pool, { source, sourceFileSha256: sha, entityType: 'comment_reauthor', sourceRef, plankaId: created.id });
+        result.reauthored += 1;
+      } catch (err) {
+        result.failed.push({ cardRef: card.sourceRef, commentRef: sourceRef, error: err.message });
+      }
+    }
+  }
+
+  return result;
 }
 
 async function verifyCounts(model, plankaClient, token, boardId) {
@@ -361,4 +546,4 @@ async function verifyCounts(model, plankaClient, token, boardId) {
   };
 }
 
-module.exports = { matchMembers, gapAnalysis, planDryRun, apply, verifyCounts };
+module.exports = { matchMembers, gapAnalysis, planDryRun, apply, reauthorComments, verifyCounts };

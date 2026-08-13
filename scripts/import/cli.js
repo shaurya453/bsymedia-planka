@@ -6,6 +6,7 @@
 //   node cli.js taiga --file /data/export.json --gap-analysis
 //   node cli.js taiga --file /data/export.json --dry-run
 //   node cli.js taiga --file /data/export.json --apply
+//   node cli.js taiga --file /data/export.json --reauthor-comments
 //   node cli.js taiga --file /data/export.json --verify=<boardId>
 const fs = require('fs');
 const path = require('path');
@@ -22,6 +23,7 @@ function parseArgs(argv) {
     if (arg === '--gap-analysis') opts.mode = 'gap-analysis';
     else if (arg === '--dry-run') opts.mode = 'dry-run';
     else if (arg === '--apply') opts.mode = 'apply';
+    else if (arg === '--reauthor-comments') opts.mode = 'reauthor-comments';
     else if (arg.startsWith('--verify=')) {
       opts.mode = 'verify';
       opts.verifyBoardId = arg.split('=')[1];
@@ -35,7 +37,7 @@ function parseArgs(argv) {
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (!opts.adapterName || !opts.mode || !opts.file) {
-    console.error('Usage: node cli.js <adapter> --file <path> [--gap-analysis|--dry-run|--apply|--verify=<boardId>]');
+    console.error('Usage: node cli.js <adapter> --file <path> [--gap-analysis|--dry-run|--apply|--reauthor-comments|--verify=<boardId>]');
     process.exit(1);
   }
 
@@ -84,11 +86,34 @@ async function main() {
         `Skipped assignments (no matching PLANKA account): ${result.skippedAssignments}`,
         `Failed assignments (matched account, but card-membership call still failed): ${JSON.stringify(result.failedAssignments || [], null, 2)}`,
         `Failed attachments: ${JSON.stringify(result.failedAttachments, null, 2)}`,
+        `Skipped syncs (live card touched more recently than this tool's last sync - left as-is, needs a human look): ${JSON.stringify(result.skippedSyncs || [], null, 2)}`,
       ];
       const reportText = lines.join('\n');
       console.log(reportText);
       writeReport(`${opts.adapterName}-apply-result.md`, reportText);
       console.log(`\nRun verification with: node cli.js ${opts.adapterName} --file "${opts.file}" --verify=${boardId}`);
+    } finally {
+      await pool.end();
+    }
+    return;
+  }
+
+  if (opts.mode === 'reauthor-comments') {
+    const { memberMatches } = framework.gapAnalysis(model, plankaUsers);
+    const pool = await db.connect();
+    try {
+      const result = await framework.reauthorComments(model, memberMatches, { plankaClient: planka, token, pool });
+      const lines = [
+        `# Reauthor-comments result - ${model.project.name}`,
+        `Reauthored (deleted service-account comment, reposted as the real matched user): ${result.reauthored}`,
+        `Already reauthored (prior run already fixed these, skipped): ${result.alreadyReauthored}`,
+        `Still unmatched (author has no Planka account yet, left as-is): ${result.stillUnmatched}`,
+        `Not yet imported (this export row hasn't been through --apply yet): ${result.notYetImported}`,
+        `Failed: ${JSON.stringify(result.failed, null, 2)}`,
+      ];
+      const reportText = lines.join('\n');
+      console.log(reportText);
+      writeReport(`${opts.adapterName}-reauthor-comments-result.md`, reportText);
     } finally {
       await pool.end();
     }
