@@ -1403,4 +1403,50 @@ timestamp rendering on both tabs and on Activity.
 (before the composer-textarea selector was fixed) left one stray sandbox project, `Tab Rename
 Verify Sandbox` (id `1840516429321864924`), undeleted in production — the script threw before
 reaching its own cleanup step. Flagged to the user rather than deleted via a DB-discovered ID,
-per the standing rule that only session-tracked IDs get auto-cleanup.
+per the standing rule that only session-tracked IDs get auto-cleanup. Deleted after explicit
+user approval.
+
+## Taiga import: re-running `--apply` clobbered a real staff card move (2026-08-13)
+
+Client asked to invite the Yapmaster Media board's Taiga-referenced staff who'd signed up since
+the last import. Re-ran `--apply` against the same `yapmaster media - 11082026.json` already
+applied on 2026-08-11 — safe by design for that purpose (idempotent `getOrCreate` reused the
+project/board/16 lists/187 cards/332 comments/57 attachments untouched, and correctly created
+1 new board membership + 6 new card assignments for the users who'd matched since: 34/73 members
+now match, up from 0/75 at initial import).
+
+**But `apply()`'s per-card sync step is not idempotency-aware** — for any *reused* card, it force-
+patches name/description/dueDate/**listId** to match the export whenever they differ from live
+PLANKA, with zero regard for whether the live value is a stale export artifact or a **real staff
+edit made since the last import**. This run silently reverted one card ("Most Disturbing Crimes
+in the Dragon Ball Community") from "VO Ready for Editing" back to "Ready for VO" — undoing a
+real move a staff member made the day before (2026-08-12, confirmed via the `action` table
+alongside other genuine activity on that same card — task list created/deleted, members changed).
+A second card ("Disturbing Crimes on Twitter") also got bumped into the `updated` count, but a
+hash-comparison against that morning's 03:00 backup showed byte-identical content — a harmless
+no-op patch, not a real revert (likely a description-serialization quirk that satisfies the naive
+`!==` string check without an actual meaningful difference).
+
+**How it was caught and fixed**: the daily `scripts/backup.sh` cron (3am) happened to have run
+~2.5 hours before this apply, so the pre-apply DB state was recoverable — restored `planka.sql.gz`
+from `/home/deploy/planka-backups/20260813-030001/` into a disposable throwaway Postgres container
+(never touching production or the real restore path) to diff both flagged cards' fields against
+current state. Confirmed via the `action` table's `moveCard` records (`data.fromList`/`data.toList`
+survive intact) exactly which list the card had been in before the staff move, then moved it back
+via a single explicit `PATCH /cards/:id`, with the user's explicit sign-off first — the permission
+system correctly blocked the first attempt at this corrective write as an unconfirmed production
+change I'd inferred on my own.
+
+**Not yet fixed, flagged for later**: the underlying tool gap. `apply()`'s card-sync step
+(`lib/framework.js`, the `if (cardRes.reused)` block) has no way to tell "export changed, sync it"
+apart from "PLANKA changed since last import, leave it alone." Options if this needs to run again
+before a real fix: (a) skip the sync entirely on a rerun and rely on `--dry-run`'s per-card diff
+being reviewed by a human first (dry-run is currently naive/non-idempotency-aware too — see below,
+would need fixing in tandem), or (b) compare each card's live `updatedAt` against the
+`import_entities` row's timestamp from the last time *that specific card* was touched by this tool,
+and skip the sync if the live card was modified more recently than that. Also worth fixing
+separately: `planDryRun` (`lib/framework.js`) doesn't consult `import_entities` at all — it
+describes the entire source file as if nothing were ever imported, so on a rerun its "Would
+create/update" counts are meaningless and shouldn't be trusted as a preview of what `--apply` will
+actually do (this was already known going in from the idempotent-`apply` design, but is worth
+spelling out explicitly here since it nearly gave false comfort before this incident).
