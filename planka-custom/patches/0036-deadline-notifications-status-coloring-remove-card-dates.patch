@@ -1,0 +1,2694 @@
+diff --git a/client/src/api/cards.js b/client/src/api/cards.js
+index d2b2b97..38b4495 100755
+--- a/client/src/api/cards.js
++++ b/client/src/api/cards.js
+@@ -14,12 +14,6 @@ import { transformNotification } from './notifications';
+ 
+ export const transformCard = (card) => ({
+   ...card,
+-  ...(card.startDate && {
+-    startDate: new Date(card.startDate),
+-  }),
+-  ...(card.dueDate && {
+-    dueDate: new Date(card.dueDate),
+-  }),
+   ...(card.stopwatch && {
+     stopwatch: {
+       ...card.stopwatch,
+@@ -38,12 +32,6 @@ export const transformCard = (card) => ({
+ 
+ export const transformCardData = (data) => ({
+   ...data,
+-  ...(data.startDate && {
+-    startDate: data.startDate.toISOString(),
+-  }),
+-  ...(data.dueDate && {
+-    dueDate: data.dueDate.toISOString(),
+-  }),
+   ...(data.stopwatch && {
+     stopwatch: {
+       ...data.stopwatch,
+diff --git a/client/src/components/activities/CardActivities/Item.jsx b/client/src/components/activities/CardActivities/Item.jsx
+index c48629e..2f197a5 100755
+--- a/client/src/components/activities/CardActivities/Item.jsx
++++ b/client/src/components/activities/CardActivities/Item.jsx
+@@ -295,68 +295,6 @@ const Item = React.memo(({ id }) => {
+       );
+ 
+       break;
+-    case ActivityTypes.SET_CARD_START_DATE: {
+-      const { startDate } = activity.data;
+-
+-      contentNode = startDate ? (
+-        <Trans
+-          i18nKey="common.userSetStartDateOnThisCard"
+-          values={{
+-            user: userName,
+-            startDate: t('format:longDateTime', {
+-              value: new Date(startDate),
+-              postProcess: 'formatDate',
+-            }),
+-          }}
+-        >
+-          <span className={styles.author}>{userName}</span>
+-          {' set the start date on this card'}
+-        </Trans>
+-      ) : (
+-        <Trans
+-          i18nKey="common.userRemovedStartDateFromThisCard"
+-          values={{
+-            user: userName,
+-          }}
+-        >
+-          <span className={styles.author}>{userName}</span>
+-          {' removed the start date from this card'}
+-        </Trans>
+-      );
+-
+-      break;
+-    }
+-    case ActivityTypes.SET_CARD_DUE_DATE: {
+-      const { dueDate } = activity.data;
+-
+-      contentNode = dueDate ? (
+-        <Trans
+-          i18nKey="common.userSetDueDateOnThisCard"
+-          values={{
+-            user: userName,
+-            dueDate: t('format:longDateTime', {
+-              value: new Date(dueDate),
+-              postProcess: 'formatDate',
+-            }),
+-          }}
+-        >
+-          <span className={styles.author}>{userName}</span>
+-          {' set the due date on this card'}
+-        </Trans>
+-      ) : (
+-        <Trans
+-          i18nKey="common.userRemovedDueDateFromThisCard"
+-          values={{
+-            user: userName,
+-          }}
+-        >
+-          <span className={styles.author}>{userName}</span>
+-          {' removed the due date from this card'}
+-        </Trans>
+-      );
+-
+-      break;
+-    }
+     default:
+       contentNode = null;
+   }
+diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+index ce20b1d..ce3db6f 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
++++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+@@ -256,7 +256,6 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage, onColorChange }) =
+                 isGroupBoundary={row.isGroupBoundary}
+                 startDate={row.startDate}
+                 dueDate={row.dueDate}
+-                cardId={row.cardId}
+                 taskListId={row.taskListId}
+                 taskId={row.taskId}
+                 rangeStart={range.start}
+@@ -282,7 +281,6 @@ GanttChart.propTypes = {
+       isGroupBoundary: PropTypes.bool.isRequired,
+       startDate: PropTypes.instanceOf(Date),
+       dueDate: PropTypes.instanceOf(Date),
+-      cardId: PropTypes.string,
+       taskListId: PropTypes.string,
+       taskId: PropTypes.string,
+       color: PropTypes.string,
+diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.jsx b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
+index 7d9fdbc..f99cb79 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/Row.jsx
++++ b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
+@@ -31,7 +31,6 @@ const Row = React.memo(
+     isGroupBoundary,
+     startDate,
+     dueDate,
+-    cardId,
+     taskListId,
+     taskId,
+     rangeStart,
+@@ -98,7 +97,7 @@ const Row = React.memo(
+       background: bar.background,
+     };
+ 
+-    const isClickable = !!bar && canEdit && !!(cardId || taskListId || taskId);
++    const isClickable = !!bar && canEdit && !!(taskListId || taskId);
+ 
+     // BSY Media: a bar should be identifiable without tracing back to the
+     // left column, so the row's own label is drawn on/next to its bar too.
+@@ -152,7 +151,7 @@ const Row = React.memo(
+         <div className={styles.track}>
+           {bar &&
+             (isClickable ? (
+-              <EditDatesPopup cardId={cardId} taskListId={taskListId} taskId={taskId}>
++              <EditDatesPopup taskListId={taskListId} taskId={taskId}>
+                 <button type="button" className={styles.barButton} style={barStyle}>
+                   {barContent}
+                 </button>
+@@ -182,7 +181,6 @@ Row.propTypes = {
+   isGroupBoundary: PropTypes.bool.isRequired,
+   startDate: PropTypes.instanceOf(Date),
+   dueDate: PropTypes.instanceOf(Date),
+-  cardId: PropTypes.string,
+   taskListId: PropTypes.string,
+   taskId: PropTypes.string,
+   rangeStart: PropTypes.instanceOf(Date).isRequired,
+@@ -195,7 +193,6 @@ Row.propTypes = {
+ Row.defaultProps = {
+   startDate: null,
+   dueDate: null,
+-  cardId: undefined,
+   taskListId: undefined,
+   taskId: undefined,
+   color: null,
+diff --git a/client/src/components/boards/GanttModal/Schedule/Schedule.jsx b/client/src/components/boards/GanttModal/Schedule/Schedule.jsx
+index 710826b..10f7cf0 100644
+--- a/client/src/components/boards/GanttModal/Schedule/Schedule.jsx
++++ b/client/src/components/boards/GanttModal/Schedule/Schedule.jsx
+@@ -23,7 +23,6 @@ const ScheduleEntry = React.memo(({ entry, canEdit }) => {
+   const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
+ 
+   const iconByType = {
+-    card: 'file outline',
+     taskList: 'check square outline',
+     task: 'check circle outline',
+   };
+@@ -57,7 +56,7 @@ const ScheduleEntry = React.memo(({ entry, canEdit }) => {
+           />
+         )}
+       </span>
+-      {(entry.type === 'card' || entry.type === 'task') && entry.userIds.length > 0 && (
++      {entry.type === 'task' && entry.userIds.length > 0 && (
+         <span className={styles.avatars}>
+           {entry.userIds.map((userId) => (
+             <UserAvatar key={userId} id={userId} size="tiny" />
+@@ -73,7 +72,6 @@ const ScheduleEntry = React.memo(({ entry, canEdit }) => {
+ 
+   return (
+     <EditDatesPopup
+-      cardId={entry.type === 'card' ? entry.cardId : undefined}
+       taskListId={entry.type === 'taskList' ? entry.taskListId : undefined}
+       taskId={entry.type === 'task' ? entry.taskId : undefined}
+     >
+@@ -87,14 +85,13 @@ const ScheduleEntry = React.memo(({ entry, canEdit }) => {
+ ScheduleEntry.propTypes = {
+   entry: PropTypes.shape({
+     key: PropTypes.string.isRequired,
+-    type: PropTypes.oneOf(['card', 'taskList', 'task']).isRequired,
++    type: PropTypes.oneOf(['taskList', 'task']).isRequired,
+     name: PropTypes.string.isRequired,
+     cardName: PropTypes.string,
+     taskListName: PropTypes.string,
+     startDate: PropTypes.instanceOf(Date),
+     dueDate: PropTypes.instanceOf(Date),
+     isDueCompleted: PropTypes.bool.isRequired,
+-    cardId: PropTypes.string,
+     taskListId: PropTypes.string,
+     taskId: PropTypes.string,
+     userIds: PropTypes.arrayOf(PropTypes.string),
+@@ -119,22 +116,6 @@ const Schedule = React.memo(() => {
+     const entries = [];
+ 
+     items.forEach((item) => {
+-      const cardDate = item.dueDate || item.startDate;
+-
+-      if (cardDate) {
+-        entries.push({
+-          key: `card:${item.cardId}`,
+-          date: cardDate,
+-          type: 'card',
+-          name: item.cardName,
+-          startDate: item.startDate,
+-          dueDate: item.dueDate,
+-          isDueCompleted: item.isDueCompleted,
+-          cardId: item.cardId,
+-          userIds: item.userIds,
+-        });
+-      }
+-
+       item.taskLists.forEach((taskList) => {
+         const taskListDate = taskList.dueDate || taskList.startDate;
+ 
+diff --git a/client/src/components/boards/GanttModal/Tasks/Tasks.jsx b/client/src/components/boards/GanttModal/Tasks/Tasks.jsx
+index 4e51db7..9792035 100644
+--- a/client/src/components/boards/GanttModal/Tasks/Tasks.jsx
++++ b/client/src/components/boards/GanttModal/Tasks/Tasks.jsx
+@@ -94,12 +94,10 @@ ChecklistRow.propTypes = {
+   canEdit: PropTypes.bool.isRequired,
+ };
+ 
+-const CardGroup = React.memo(({ item, canEdit }) => {
+-  const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
+-
+-  const hasDates = !!(item.startDate || item.dueDate);
+-
+-  const header = (
++// BSY Media: cards have no dates of their own (removed 2026-08-13, see
++// CLAUDE.md) - the header is plain, unclickable, no date chips.
++const CardGroup = React.memo(({ item, canEdit }) => (
++  <div className={styles.card}>
+     <div className={styles.cardHeader}>
+       <span className={styles.cardName}>{item.cardName}</span>
+       {item.listName && (
+@@ -108,55 +106,22 @@ const CardGroup = React.memo(({ item, canEdit }) => {
+           {item.listName}
+         </span>
+       )}
+-      {hasDates && (
+-        <span className={styles.dates}>
+-          {item.startDate && (
+-            <DueDateChip size="tiny" value={item.startDate} isCompleted={false} withStatus={false} />
+-          )}
+-          {item.dueDate && (
+-            <DueDateChip
+-              size="tiny"
+-              withStatusIcon
+-              value={item.dueDate}
+-              isCompleted={item.isDueCompleted}
+-              withStatus
+-            />
+-          )}
+-        </span>
+-      )}
+     </div>
+-  );
+-
+-  return (
+-    <div className={styles.card}>
+-      {canEdit ? (
+-        <EditDatesPopup cardId={item.cardId}>
+-          <button type="button" className={styles.cardHeaderButton}>
+-            {header}
+-          </button>
+-        </EditDatesPopup>
+-      ) : (
+-        header
+-      )}
+-      {item.taskLists.length > 0 && (
+-        <div className={styles.checklists}>
+-          {item.taskLists.map((taskList) => (
+-            <ChecklistRow key={taskList.id} taskList={taskList} canEdit={canEdit} />
+-          ))}
+-        </div>
+-      )}
+-    </div>
+-  );
+-});
++    {item.taskLists.length > 0 && (
++      <div className={styles.checklists}>
++        {item.taskLists.map((taskList) => (
++          <ChecklistRow key={taskList.id} taskList={taskList} canEdit={canEdit} />
++        ))}
++      </div>
++    )}
++  </div>
++));
+ 
+ CardGroup.propTypes = {
+   item: PropTypes.shape({
+     cardId: PropTypes.string.isRequired,
+     cardName: PropTypes.string.isRequired,
+     listName: PropTypes.string,
+-    startDate: PropTypes.instanceOf(Date),
+-    dueDate: PropTypes.instanceOf(Date),
+-    isDueCompleted: PropTypes.bool.isRequired,
+     taskLists: PropTypes.array.isRequired, // eslint-disable-line react/forbid-prop-types
+   }).isRequired,
+   canEdit: PropTypes.bool.isRequired,
+diff --git a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
+index c79b68d..37e92e1 100644
+--- a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
++++ b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
+@@ -16,12 +16,14 @@ import GanttChart from '../GanttChart';
+ import styles from './TeamWorkload.module.scss';
+ 
+ // BSY Media: same GanttChart renderer as Timeline, grouped by board member
+-// instead of by card - each member's dated cards, dated checklists, and
+-// dated checklist items are nested under their name. A checklist appears
+-// under a member either because they're a card member (regardless of the
+-// checklist's own assignee) or because the checklist itself - or one of its
+-// dated items - is directly assigned to them; pushTaskListRow dedupes so it
+-// never renders twice for the same member.
++// instead of by card - each member's cards with at least one dated
++// checklist (plus those checklists' own dated items) are nested under
++// their name. Cards have no dates of their own (removed 2026-08-13, see
++// CLAUDE.md) so a card row here is always bar-less, just a label. A
++// checklist appears under a member either because they're a card member
++// (regardless of the checklist's own assignee) or because the checklist
++// itself - or one of its dated items - is directly assigned to them;
++// pushTaskListRow dedupes so it never renders twice for the same member.
+ const TeamWorkload = React.memo(() => {
+   const items = useSelector(selectors.selectGanttItemsForCurrentBoard);
+   const memberships = useSelector(selectors.selectMembershipsForCurrentBoard);
+@@ -105,14 +107,14 @@ const TeamWorkload = React.memo(() => {
+         .forEach((item) => {
+           // A checklist counts as "dated" here if it has its own dates, or
+           // has no dates of its own but contains at least one dated item
+-          // (taskList.tasks is already pre-filtered to dated items).
++          // (taskList.tasks is already pre-filtered to dated items). Cards
++          // themselves have no dates of their own (removed 2026-08-13) - a
++          // card only ever surfaces here via its dated checklists.
+           const datedTaskLists = item.taskLists.filter(
+             (taskList) => taskList.startDate || taskList.dueDate || taskList.tasks.length > 0,
+           );
+ 
+-          const cardHasDates = !!(item.startDate || item.dueDate);
+-
+-          if (!cardHasDates && datedTaskLists.length === 0) {
++          if (datedTaskLists.length === 0) {
+             return;
+           }
+ 
+@@ -126,9 +128,8 @@ const TeamWorkload = React.memo(() => {
+             ),
+             isGroupHeader: false,
+             isGroupBoundary: false,
+-            startDate: item.startDate,
+-            dueDate: item.dueDate,
+-            cardId: item.cardId,
++            startDate: null,
++            dueDate: null,
+           });
+           memberRowsTotal += 1;
+ 
+diff --git a/client/src/components/cards/Card/ProjectContent.jsx b/client/src/components/cards/Card/ProjectContent.jsx
+index 33d34dc..0970cb2 100644
+--- a/client/src/components/cards/Card/ProjectContent.jsx
++++ b/client/src/components/cards/Card/ProjectContent.jsx
+@@ -16,7 +16,6 @@ import { isListArchiveOrTrash } from '../../../utils/record-helpers';
+ import moveCurrentUserFirst from '../../../utils/move-current-user-first';
+ import { BoardMembershipRoles, BoardViews } from '../../../constants/Enums';
+ import TaskList from './TaskList';
+-import DueDateChip from '../DueDateChip';
+ import StopwatchChip from '../StopwatchChip';
+ import TimeAgo from '../../common/TimeAgo';
+ import UserAvatar from '../../users/UserAvatar';
+@@ -126,7 +125,6 @@ const ProjectContent = React.memo(({ cardId }) => {
+ 
+   const hasInformation =
+     card.description ||
+-    card.dueDate ||
+     card.stopwatch ||
+     card.commentsTotal > 0 ||
+     withAge ||
+@@ -200,16 +198,6 @@ const ProjectContent = React.memo(({ cardId }) => {
+               {notificationsTotal}
+             </span>
+           )}
+-          {card.dueDate && (
+-            <span className={classNames(styles.attachment, styles.attachmentLeft)}>
+-              <DueDateChip
+-                value={card.dueDate}
+-                size="tiny"
+-                isCompleted={card.isDueCompleted}
+-                withStatus={!card.isClosed}
+-              />
+-            </span>
+-          )}
+           {card.stopwatch && (
+             <span className={classNames(styles.attachment, styles.attachmentLeft)}>
+               <StopwatchChip
+diff --git a/client/src/components/cards/Card/TaskList/Task.jsx b/client/src/components/cards/Card/TaskList/Task.jsx
+index c781cf9..6d4d9dc 100644
+--- a/client/src/components/cards/Card/TaskList/Task.jsx
++++ b/client/src/components/cards/Card/TaskList/Task.jsx
+@@ -13,6 +13,8 @@ import { Icon } from 'semantic-ui-react';
+ import selectors from '../../../../selectors';
+ import Paths from '../../../../constants/Paths';
+ import Linkify from '../../../common/Linkify';
++import { useDueDateStatus } from '../../../../hooks';
++import { DueDateStatuses } from '../../../../utils/get-due-date-status';
+ 
+ import styles from './Task.module.scss';
+ 
+@@ -30,19 +32,31 @@ const Task = React.memo(({ id }) => {
+     event.stopPropagation();
+   }, []);
+ 
++  const dueDateStatus = useDueDateStatus(
++    task.dueDate ? new Date(task.dueDate) : null,
++    !!task.isDueCompleted,
++  );
++
++  const nameClassName = classNames(
++    styles.name,
++    task.isCompleted && styles.nameCompleted,
++    !task.isCompleted && dueDateStatus === DueDateStatuses.DUE_SOON && styles.nameDueSoon,
++    !task.isCompleted && dueDateStatus === DueDateStatuses.OVERDUE && styles.nameOverdue,
++  );
++
+   return (
+     <li className={styles.wrapper}>
+       {task.linkedCardId ? (
+         <>
+           <Icon name="exchange" size="small" className={styles.icon} />
+-          <span className={classNames(styles.name, task.isCompleted && styles.nameCompleted)}>
++          <span className={nameClassName}>
+             <Link to={Paths.CARDS.replace(':id', task.linkedCardId)} onClick={handleLinkClick}>
+               {linkedCard ? linkedCard.name : task.name}
+             </Link>
+           </span>
+         </>
+       ) : (
+-        <span className={classNames(styles.name, task.isCompleted && styles.nameCompleted)}>
++        <span className={nameClassName}>
+           <Linkify linkStopPropagation>{task.name}</Linkify>
+         </span>
+       )}
+diff --git a/client/src/components/cards/Card/TaskList/Task.module.scss b/client/src/components/cards/Card/TaskList/Task.module.scss
+index 8205876..3b24011 100644
+--- a/client/src/components/cards/Card/TaskList/Task.module.scss
++++ b/client/src/components/cards/Card/TaskList/Task.module.scss
+@@ -19,6 +19,17 @@
+     text-decoration: line-through;
+   }
+ 
++  // BSY Media: sub-task name turns orange/red when its own due date is
++  // within 24h / past due, shown on the card face once the checklist is
++  // expanded - same hex values as DueDateChip's due-soon/overdue colors.
++  .nameDueSoon {
++    color: #f2711c;
++  }
++
++  .nameOverdue {
++    color: #db2828;
++  }
++
+   .wrapper {
+     display: block;
+     font-size: 12px;
+@@ -50,6 +61,17 @@
+     color: #9fadbc;
+   }
+ 
++  // BSY Media: same specificity fight as above - the id-qualified rule
++  // just above would otherwise outrank these plain combo classes and wash
++  // out the orange/red due-status coloring in dark mode.
++  .name.nameDueSoon {
++    color: #f2711c;
++  }
++
++  .name.nameOverdue {
++    color: #db2828;
++  }
++
+   .icon {
+     color: rgba(159, 173, 188, 0.5);
+   }
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.jsx b/client/src/components/cards/Card/TaskList/TaskList.jsx
+index a6da0ab..c1fd27a 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.jsx
++++ b/client/src/components/cards/Card/TaskList/TaskList.jsx
+@@ -10,9 +10,11 @@ import { useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+ import { Progress } from 'semantic-ui-react';
+ import { useDidUpdate, useToggle } from '../../../../lib/hooks';
++import { useDueDateStatus } from '../../../../hooks';
+ 
+ import selectors from '../../../../selectors';
+ import TaskListStatusColors from '../../../../constants/TaskListStatusColors';
++import { DueDateStatuses } from '../../../../utils/get-due-date-status';
+ import Task from './Task';
+ 
+ import styles from './TaskList.module.scss';
+@@ -32,6 +34,11 @@ const TaskList = React.memo(({ id }) => {
+ 
+   const [isOpened, toggleOpened] = useToggle(defaultIsOpened);
+ 
++  const dueDateStatus = useDueDateStatus(
++    taskLists.dueDate ? new Date(taskLists.dueDate) : null,
++    !!taskLists.isDueCompleted,
++  );
++
+   const filteredTasks = useMemo(
+     () => (taskLists.hideCompletedTasks ? tasks.filter((task) => !task.isCompleted) : tasks),
+     [taskLists.hideCompletedTasks, tasks],
+@@ -65,7 +72,15 @@ const TaskList = React.memo(({ id }) => {
+ 
+   return (
+     <>
+-      <div className={styles.name}>{taskLists.name}</div>
++      <div
++        className={classNames(
++          styles.name,
++          dueDateStatus === DueDateStatuses.DUE_SOON && styles.nameDueSoon,
++          dueDateStatus === DueDateStatuses.OVERDUE && styles.nameOverdue,
++        )}
++      >
++        {taskLists.name}
++      </div>
+       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events,
+                                    jsx-a11y/no-static-element-interactions */}
+       <div className={styles.progressRow} onClick={handleToggleClick}>
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.module.scss b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+index 0c61a36..1ab59af 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.module.scss
++++ b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+@@ -46,6 +46,17 @@
+     white-space: nowrap;
+   }
+ 
++  // BSY Media: checklist name turns orange/red directly on the card face
++  // once its own due date is within 24h / past due - same hex values as
++  // DueDateChip's existing due-soon/overdue status colors, for consistency.
++  .nameDueSoon {
++    color: #f2711c;
++  }
++
++  .nameOverdue {
++    color: #db2828;
++  }
++
+   .progress {
+     margin: 0;
+   }
+diff --git a/client/src/components/cards/CardActionsStep/CardActionsStep.jsx b/client/src/components/cards/CardActionsStep/CardActionsStep.jsx
+index 8f7c5b8..7ce7dbe 100644
+--- a/client/src/components/cards/CardActionsStep/CardActionsStep.jsx
++++ b/client/src/components/cards/CardActionsStep/CardActionsStep.jsx
+@@ -16,7 +16,6 @@ import { useSteps } from '../../../hooks';
+ import { isListArchiveOrTrash } from '../../../utils/record-helpers';
+ import { BoardMembershipRoles, CardTypes, ListTypes } from '../../../constants/Enums';
+ import SelectCardTypeStep from '../SelectCardTypeStep';
+-import EditDueDateStep from '../EditDueDateStep';
+ import EditStopwatchStep from '../EditStopwatchStep';
+ import MoveCardStep from '../MoveCardStep';
+ import ConfirmationStep from '../../common/ConfirmationStep';
+@@ -29,7 +28,6 @@ const StepTypes = {
+   MEMBERS: 'MEMBERS',
+   LABELS: 'LABELS',
+   EDIT_TYPE: 'EDIT_TYPE',
+-  EDIT_DUE_DATE: 'EDIT_DUE_DATE',
+   EDIT_STOPWATCH: 'EDIT_STOPWATCH',
+   MOVE: 'MOVE',
+   ARCHIVE: 'ARCHIVE',
+@@ -58,7 +56,6 @@ const CardActionsStep = React.memo(({ cardId, defaultStep, onNameEdit, onClose }
+   const {
+     canEditType,
+     canEditName,
+-    canEditDueDate,
+     canEditStopwatch,
+     canCopy,
+     canCut,
+@@ -79,7 +76,6 @@ const CardActionsStep = React.memo(({ cardId, defaultStep, onNameEdit, onClose }
+       return {
+         canEditType: false,
+         canEditName: false,
+-        canEditDueDate: false,
+         canEditStopwatch: false,
+         canCopy: isManager || isEditor,
+         canCut: isEditor,
+@@ -96,7 +92,6 @@ const CardActionsStep = React.memo(({ cardId, defaultStep, onNameEdit, onClose }
+     return {
+       canEditType: isEditor,
+       canEditName: isEditor,
+-      canEditDueDate: isEditor,
+       canEditStopwatch: isEditor,
+       canCopy: isManager || isEditor,
+       canCut: isEditor,
+@@ -121,7 +116,6 @@ const CardActionsStep = React.memo(({ cardId, defaultStep, onNameEdit, onClose }
+     if (card.type === CardTypes.PROJECT && canUseMembers) menuItemsTotal += 1;
+     if (canUseLabels) menuItemsTotal += 1;
+     if (card.type !== CardTypes.PROJECT && canUseMembers) menuItemsTotal += 1;
+-    if (card.type === CardTypes.PROJECT && canEditDueDate) menuItemsTotal += 1;
+     if (card.type === CardTypes.PROJECT && canEditStopwatch) menuItemsTotal += 1;
+     if (canEditName) menuItemsTotal += 1;
+     if (!board.limitCardTypesToDefaultOne && canEditType) menuItemsTotal += 1;
+@@ -154,7 +148,6 @@ const CardActionsStep = React.memo(({ cardId, defaultStep, onNameEdit, onClose }
+     prevList,
+     canEditType,
+     canEditName,
+-    canEditDueDate,
+     canEditStopwatch,
+     canCopy,
+     canCut,
+@@ -172,7 +165,6 @@ const CardActionsStep = React.memo(({ cardId, defaultStep, onNameEdit, onClose }
+       (card.type === CardTypes.PROJECT && canUseMembers) ||
+       canUseLabels ||
+       (card.type !== CardTypes.PROJECT && canUseMembers) ||
+-      (card.type === CardTypes.PROJECT && canEditDueDate) ||
+       (card.type === CardTypes.PROJECT && canEditStopwatch) ||
+       canEditName ||
+       (!board.limitCardTypesToDefaultOne && canEditType)
+@@ -182,7 +174,6 @@ const CardActionsStep = React.memo(({ cardId, defaultStep, onNameEdit, onClose }
+     card.type,
+     canEditType,
+     canEditName,
+-    canEditDueDate,
+     canEditStopwatch,
+     canUseMembers,
+     canUseLabels,
+@@ -300,10 +291,6 @@ const CardActionsStep = React.memo(({ cardId, defaultStep, onNameEdit, onClose }
+     openStep(StepTypes.EDIT_TYPE);
+   }, [openStep]);
+ 
+-  const handleEditDueDateClick = useCallback(() => {
+-    openStep(StepTypes.EDIT_DUE_DATE);
+-  }, [openStep]);
+-
+   const handleEditStopwatchClick = useCallback(() => {
+     openStep(StepTypes.EDIT_STOPWATCH);
+   }, [openStep]);
+@@ -353,8 +340,6 @@ const CardActionsStep = React.memo(({ cardId, defaultStep, onNameEdit, onClose }
+             onClose={onClose}
+           />
+         );
+-      case StepTypes.EDIT_DUE_DATE:
+-        return <EditDueDateStep cardId={cardId} onBack={handleBack} onClose={onClose} />;
+       case StepTypes.EDIT_STOPWATCH:
+         return <EditStopwatchStep cardId={cardId} onBack={handleBack} onClose={onClose} />;
+       case StepTypes.MOVE:
+@@ -420,14 +405,6 @@ const CardActionsStep = React.memo(({ cardId, defaultStep, onNameEdit, onClose }
+               })}
+             </Menu.Item>
+           )}
+-          {card.type === CardTypes.PROJECT && canEditDueDate && (
+-            <Menu.Item className={styles.menuItem} onClick={handleEditDueDateClick}>
+-              <Icon name="calendar check outline" className={styles.menuItemIcon} />
+-              {t('action.editDueDate', {
+-                context: 'title',
+-              })}
+-            </Menu.Item>
+-          )}
+           {card.type === CardTypes.PROJECT && canEditStopwatch && (
+             <Menu.Item className={styles.menuItem} onClick={handleEditStopwatchClick}>
+               <Icon name="clock outline" className={styles.menuItemIcon} />
+diff --git a/client/src/components/cards/CardModal/ProjectContent.jsx b/client/src/components/cards/CardModal/ProjectContent.jsx
+index c161ca5..f666fff 100644
+--- a/client/src/components/cards/CardModal/ProjectContent.jsx
++++ b/client/src/components/cards/CardModal/ProjectContent.jsx
+@@ -7,7 +7,7 @@ import React, { useCallback, useContext, useMemo, useState } from 'react';
+ import classNames from 'classnames';
+ import { shallowEqual, useDispatch, useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+-import { Button, Checkbox, Grid, Icon } from 'semantic-ui-react';
++import { Button, Grid, Icon } from 'semantic-ui-react';
+ import { useDidUpdate } from '../../../lib/hooks';
+ 
+ import selectors from '../../../selectors';
+@@ -24,9 +24,7 @@ import CustomFieldGroups from './CustomFieldGroups';
+ import Communication from './Communication';
+ import CreationDetailsStep from './CreationDetailsStep';
+ import MoreActionsStep from './MoreActionsStep';
+-import DueDateChip from '../DueDateChip';
+ import StopwatchChip from '../StopwatchChip';
+-import EditDueDateStep from '../EditDueDateStep';
+ import EditStopwatchStep from '../EditStopwatchStep';
+ import ExpandableMarkdown from '../../common/ExpandableMarkdown';
+ import EditMarkdown from '../../common/EditMarkdown';
+@@ -76,7 +74,6 @@ const ProjectContent = React.memo(() => {
+     canEditType,
+     canEditName,
+     canEditDescription,
+-    canEditDueDate,
+     canEditStopwatch,
+     canSubscribe,
+     canJoin,
+@@ -103,7 +100,6 @@ const ProjectContent = React.memo(() => {
+         canEditType: false,
+         canEditName: false,
+         canEditDescription: false,
+-        canEditDueDate: false,
+         canEditStopwatch: false,
+         canSubscribe: isMember,
+         canJoin: false,
+@@ -121,7 +117,6 @@ const ProjectContent = React.memo(() => {
+       canEditType: isEditor,
+       canEditName: isEditor,
+       canEditDescription: isEditor,
+-      canEditDueDate: isEditor,
+       canEditStopwatch: isEditor,
+       canSubscribe: isMember,
+       canJoin: isEditor,
+@@ -163,14 +158,6 @@ const ProjectContent = React.memo(() => {
+     [dispatch],
+   );
+ 
+-  const handleDueCompletionChange = useCallback(() => {
+-    dispatch(
+-      entryActions.updateCurrentCard({
+-        isDueCompleted: !card.isDueCompleted,
+-      }),
+-    );
+-  }, [card.isDueCompleted, dispatch]);
+-
+   const handleToggleStopwatchClick = useCallback(() => {
+     dispatch(
+       entryActions.updateCurrentCard({
+@@ -267,7 +254,6 @@ const ProjectContent = React.memo(() => {
+   const CreationDetailsPopup = usePopupInClosableContext(CreationDetailsStep);
+   const BoardMembershipsPopup = usePopupInClosableContext(BoardMembershipsStep);
+   const LabelsPopup = usePopupInClosableContext(LabelsStep);
+-  const EditDueDatePopup = usePopupInClosableContext(EditDueDateStep);
+   const EditStopwatchPopup = usePopupInClosableContext(EditStopwatchStep);
+   const MoreActionsPopup = usePopupInClosableContext(MoreActionsStep);
+   const ConfirmationPopup = usePopupInClosableContext(ConfirmationStep);
+@@ -290,9 +276,7 @@ const ProjectContent = React.memo(() => {
+       </Grid.Row>
+       <Grid.Row className={styles.modalPadding}>
+         <Grid.Column width={12} className={styles.contentPadding}>
+-          {(card.startDate ||
+-            card.dueDate ||
+-            card.stopwatch ||
++          {(card.stopwatch ||
+             board.alwaysDisplayCardCreator ||
+             userIds.length > 0 ||
+             labelIds.length > 0) && (
+@@ -389,61 +373,6 @@ const ProjectContent = React.memo(() => {
+                   )}
+                 </div>
+               )}
+-              {card.startDate && (
+-                <div className={styles.attachments}>
+-                  <div className={styles.text}>
+-                    {t('common.startDate', {
+-                      context: 'title',
+-                    })}
+-                  </div>
+-                  <span className={classNames(styles.attachment, styles.attachmentDueDate)}>
+-                    {canEditDueDate ? (
+-                      <EditDueDatePopup cardId={card.id}>
+-                        <DueDateChip value={card.startDate} isCompleted={false} withStatus={false} />
+-                      </EditDueDatePopup>
+-                    ) : (
+-                      <DueDateChip value={card.startDate} isCompleted={false} withStatus={false} />
+-                    )}
+-                  </span>
+-                </div>
+-              )}
+-              {card.dueDate && (
+-                <div className={styles.attachments}>
+-                  <div className={styles.text}>
+-                    {t('common.dueDate', {
+-                      context: 'title',
+-                    })}
+-                  </div>
+-                  <span className={classNames(styles.attachment, styles.attachmentDueDate)}>
+-                    {canEditDueDate ? (
+-                      <>
+-                        {!card.isClosed && (
+-                          <Checkbox
+-                            checked={card.isDueCompleted}
+-                            disabled={!canEditDueDate}
+-                            onChange={handleDueCompletionChange}
+-                          />
+-                        )}
+-                        <EditDueDatePopup cardId={card.id}>
+-                          <DueDateChip
+-                            withStatusIcon
+-                            value={card.dueDate}
+-                            isCompleted={card.isDueCompleted}
+-                            withStatus={!card.isClosed}
+-                          />
+-                        </EditDueDatePopup>
+-                      </>
+-                    ) : (
+-                      <DueDateChip
+-                        withStatusIcon
+-                        value={card.dueDate}
+-                        isCompleted={card.isDueCompleted}
+-                        withStatus={!card.isClosed}
+-                      />
+-                    )}
+-                  </span>
+-                </div>
+-              )}
+               {card.stopwatch && (
+                 <div className={styles.attachments}>
+                   <div className={styles.text}>
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.jsx b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+index 8c94a1e..41e7282 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.jsx
++++ b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+@@ -245,6 +245,7 @@ const Item = React.memo(({ id, index }) => {
+                           value={new Date(taskList.startDate)}
+                           isCompleted={false}
+                           withStatus={false}
++                          baseColor="blue"
+                         />
+                       </span>
+                     )}
+@@ -252,10 +253,10 @@ const Item = React.memo(({ id, index }) => {
+                       <span className={styles.dateChip}>
+                         <DueDateChip
+                           size="tiny"
+-                          withStatusIcon
+                           value={new Date(taskList.dueDate)}
+                           isCompleted={!!taskList.isDueCompleted}
+                           withStatus
++                          baseColor="orange"
+                         />
+                       </span>
+                     )}
+diff --git a/client/src/components/cards/DueDateChip/DueDateChip.jsx b/client/src/components/cards/DueDateChip/DueDateChip.jsx
+index 6d9ce31..7a25eda 100644
+--- a/client/src/components/cards/DueDateChip/DueDateChip.jsx
++++ b/client/src/components/cards/DueDateChip/DueDateChip.jsx
+@@ -4,12 +4,12 @@
+  */
+ 
+ import upperFirst from 'lodash/upperFirst';
+-import React, { useEffect, useRef } from 'react';
++import React from 'react';
+ import PropTypes from 'prop-types';
+ import classNames from 'classnames';
+ import { useTranslation } from 'react-i18next';
+ import { Icon } from 'semantic-ui-react';
+-import { useForceUpdate } from '../../../lib/hooks';
++import { useDueDateStatus } from '../../../hooks';
+ 
+ import getDateFormat from '../../../utils/get-date-format';
+ 
+@@ -21,6 +21,18 @@ const Sizes = {
+   MEDIUM: 'medium',
+ };
+ 
++// BSY Media: resting/default chip color before any due-soon/overdue/
++// completed status applies - 'neutral' preserves the original always-grey
++// look for every existing call site that doesn't opt in; 'blue'/'orange'
++// match the calendar picker's start/due-date colors (client's request:
++// date chips should read blue for start, orange for due, with status
++// still overriding when active).
++const BaseColors = {
++  NEUTRAL: 'neutral',
++  BLUE: 'blue',
++  ORANGE: 'orange',
++};
++
+ const Statuses = {
+   DUE_SOON: 'dueSoon',
+   OVERDUE: 'overdue',
+@@ -54,33 +66,11 @@ const STATUS_ICON_PROPS_BY_STATUS = {
+   },
+ };
+ 
+-const getStatus = (date, isCompleted) => {
+-  if (isCompleted) {
+-    return Statuses.COMPLETED;
+-  }
+-
+-  const secondsLeft = Math.floor((date.getTime() - new Date().getTime()) / 1000);
+-
+-  if (secondsLeft <= 0) {
+-    return Statuses.OVERDUE;
+-  }
+-
+-  if (secondsLeft <= 24 * 60 * 60) {
+-    return Statuses.DUE_SOON;
+-  }
+-
+-  return null;
+-};
+-
+ const DueDateChip = React.memo(
+-  ({ value, size, isCompleted, isDisabled, withStatus, withStatusIcon, onClick }) => {
++  ({ value, size, isCompleted, isDisabled, withStatus, withStatusIcon, baseColor, onClick }) => {
+     const [t] = useTranslation();
+-    const forceUpdate = useForceUpdate();
+ 
+-    const statusRef = useRef(null);
+-    statusRef.current = withStatus ? getStatus(value, isCompleted) : null;
+-
+-    const intervalRef = useRef(null);
++    const status = useDueDateStatus(withStatus ? value : null, isCompleted);
+ 
+     const dateFormat = getDateFormat(
+       value,
+@@ -88,38 +78,14 @@ const DueDateChip = React.memo(
+       FULL_DATE_FORMAT_BY_SIZE[size],
+     );
+ 
+-    useEffect(() => {
+-      if (
+-        withStatus &&
+-        statusRef.current !== Statuses.OVERDUE &&
+-        statusRef.current !== Statuses.COMPLETED
+-      ) {
+-        intervalRef.current = setInterval(() => {
+-          const status = getStatus(value, isCompleted);
+-
+-          if (status !== statusRef.current) {
+-            forceUpdate();
+-          }
+-
+-          if (status === Statuses.OVERDUE) {
+-            clearInterval(intervalRef.current);
+-          }
+-        }, 1000);
+-      }
+-
+-      return () => {
+-        if (intervalRef.current) {
+-          clearInterval(intervalRef.current);
+-        }
+-      };
+-    }, [value, isCompleted, withStatus, forceUpdate]);
+-
+     const contentNode = (
+       <span
+         className={classNames(
+           styles.wrapper,
+           styles[`wrapper${upperFirst(size)}`],
+-          !withStatusIcon && statusRef.current && styles[`wrapper${upperFirst(statusRef.current)}`],
++          !withStatusIcon && status
++            ? styles[`wrapper${upperFirst(status)}`]
++            : styles[`wrapperBase${upperFirst(baseColor)}`],
+           onClick && styles.wrapperHoverable,
+         )}
+       >
+@@ -127,9 +93,9 @@ const DueDateChip = React.memo(
+           value,
+           postProcess: 'formatDate',
+         })}
+-        {withStatusIcon && statusRef.current && (
++        {withStatusIcon && status && (
+           // eslint-disable-next-line react/jsx-props-no-spreading
+-          <Icon {...STATUS_ICON_PROPS_BY_STATUS[statusRef.current]} className={styles.statusIcon} />
++          <Icon {...STATUS_ICON_PROPS_BY_STATUS[status]} className={styles.statusIcon} />
+         )}
+       </span>
+     );
+@@ -151,6 +117,7 @@ DueDateChip.propTypes = {
+   isDisabled: PropTypes.bool,
+   withStatus: PropTypes.bool.isRequired,
+   withStatusIcon: PropTypes.bool,
++  baseColor: PropTypes.oneOf(Object.values(BaseColors)),
+   onClick: PropTypes.func,
+ };
+ 
+@@ -158,6 +125,7 @@ DueDateChip.defaultProps = {
+   size: Sizes.MEDIUM,
+   isDisabled: false,
+   withStatusIcon: false,
++  baseColor: BaseColors.NEUTRAL,
+   onClick: undefined,
+ };
+ 
+diff --git a/client/src/components/cards/DueDateChip/DueDateChip.module.scss b/client/src/components/cards/DueDateChip/DueDateChip.module.scss
+index 240ffbb..af4b4e2 100644
+--- a/client/src/components/cards/DueDateChip/DueDateChip.module.scss
++++ b/client/src/components/cards/DueDateChip/DueDateChip.module.scss
+@@ -67,4 +67,24 @@
+     background: #21ba45;
+     color: #fff;
+   }
++
++  /* Base colors - resting state before/without an active status, or when
++     withStatus is false entirely. wrapperBaseNeutral duplicates .wrapper's
++     own default colors so every call site's fallback stays uniform
++     regardless of which branch DueDateChip.jsx's className logic takes. */
++
++  .wrapperBaseNeutral {
++    background: #dce0e4;
++    color: #6a808b;
++  }
++
++  .wrapperBaseBlue {
++    background: #2185d0;
++    color: #fff;
++  }
++
++  .wrapperBaseOrange {
++    background: #e8632c;
++    color: #fff;
++  }
+ }
+diff --git a/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx b/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
+index e266774..2c7470e 100755
+--- a/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
++++ b/client/src/components/cards/EditDueDateStep/EditDueDateStep.jsx
+@@ -20,13 +20,13 @@ import parseTime from '../../../utils/parse-time';
+ 
+ import styles from './EditDueDateStep.module.scss';
+ 
+-// BSY Media: "Dates" popup, targets a card, a checklist (TaskList), or a
+-// checklist item (Task) - exactly one of cardId/taskListId/taskId is
+-// provided by the caller. Card dates are stored as Date instances
+-// client-side (matching the existing transformCard/transformCardData
+-// pipeline in api/cards.js); TaskList and Task have no such transform
+-// layer, so their dates are kept as raw ISO strings in the store and parsed
+-// to Date here only for editing/display.
++// BSY Media: "Dates" popup, targets a checklist (TaskList) or a checklist
++// item (Task) - exactly one of taskListId/taskId is provided by the
++// caller. TaskList and Task have no Date-transform layer the way Card used
++// to, so their dates are kept as raw ISO strings in the store and parsed to
++// Date here only for editing/display. (Previously also supported a cardId
++// mode for the card's own dates - removed 2026-08-13 when the client asked
++// for the card-level dates feature to be dropped entirely; see CLAUDE.md.)
+ //
+ // Two tabs, "Start date" and "Due date", each with its own date+time boxes
+ // and the same shared calendar underneath - whichever tab is active decides
+@@ -37,8 +37,7 @@ import styles from './EditDueDateStep.module.scss';
+ // set). Colour logic: blue for start, orange for due, both shown as
+ // highlightDates markers on the calendar regardless of which tab is active,
+ // with a faint fill on the days strictly between the two.
+-const EditDueDateStep = React.memo(({ cardId, taskListId, taskId, onBack, onClose }) => {
+-  const selectCardById = useMemo(() => selectors.makeSelectCardById(), []);
++const EditDueDateStep = React.memo(({ taskListId, taskId, onBack, onClose }) => {
+   const selectTaskListById = useMemo(() => selectors.makeSelectTaskListById(), []);
+   const selectTaskById = useMemo(() => selectors.makeSelectTaskById(), []);
+ 
+@@ -47,7 +46,7 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, taskId, onBack, onClos
+       return selectTaskById(state, taskId);
+     }
+ 
+-    return taskListId ? selectTaskListById(state, taskListId) : selectCardById(state, cardId);
++    return selectTaskListById(state, taskListId);
+   });
+ 
+   const toDateOrNull = (value) => {
+@@ -213,12 +212,12 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, taskId, onBack, onClos
+     const values = {};
+ 
+     if (!defaultStartDate || nextStartDate.getTime() !== defaultStartDate.getTime()) {
+-      values.startDate = cardId ? nextStartDate : nextStartDate.toISOString();
++      values.startDate = nextStartDate.toISOString();
+     }
+ 
+     if (nextDueDate) {
+       if (!defaultDueDate || nextDueDate.getTime() !== defaultDueDate.getTime()) {
+-        values.dueDate = cardId ? nextDueDate : nextDueDate.toISOString();
++        values.dueDate = nextDueDate.toISOString();
+       }
+     } else if (defaultDueDate) {
+       values.dueDate = null;
+@@ -227,16 +226,13 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, taskId, onBack, onClos
+     if (Object.keys(values).length > 0) {
+       if (taskId) {
+         dispatch(entryActions.updateTask(taskId, values));
+-      } else if (taskListId) {
+-        dispatch(entryActions.updateTaskList(taskListId, values));
+       } else {
+-        dispatch(entryActions.updateCard(cardId, values));
++        dispatch(entryActions.updateTaskList(taskListId, values));
+       }
+     }
+ 
+     onClose();
+   }, [
+-    cardId,
+     taskListId,
+     taskId,
+     onClose,
+@@ -254,25 +250,21 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, taskId, onBack, onClos
+     if (defaultStartDate) {
+       if (taskId) {
+         dispatch(entryActions.updateTask(taskId, { startDate: null }));
+-      } else if (taskListId) {
+-        dispatch(entryActions.updateTaskList(taskListId, { startDate: null }));
+       } else {
+-        dispatch(entryActions.updateCard(cardId, { startDate: null }));
++        dispatch(entryActions.updateTaskList(taskListId, { startDate: null }));
+       }
+     }
+-  }, [cardId, taskListId, taskId, defaultStartDate, dispatch]);
++  }, [taskListId, taskId, defaultStartDate, dispatch]);
+ 
+   const handleClearDueClick = useCallback(() => {
+     if (defaultDueDate) {
+       if (taskId) {
+         dispatch(entryActions.updateTask(taskId, { dueDate: null }));
+-      } else if (taskListId) {
+-        dispatch(entryActions.updateTaskList(taskListId, { dueDate: null }));
+       } else {
+-        dispatch(entryActions.updateCard(cardId, { dueDate: null }));
++        dispatch(entryActions.updateTaskList(taskListId, { dueDate: null }));
+       }
+     }
+-  }, [cardId, taskListId, taskId, defaultDueDate, dispatch]);
++  }, [taskListId, taskId, defaultDueDate, dispatch]);
+ 
+   const handleStartTabClick = useCallback(() => {
+     setActiveTab('startDate');
+@@ -467,7 +459,6 @@ const EditDueDateStep = React.memo(({ cardId, taskListId, taskId, onBack, onClos
+ });
+ 
+ EditDueDateStep.propTypes = {
+-  cardId: PropTypes.string,
+   taskListId: PropTypes.string,
+   taskId: PropTypes.string,
+   onBack: PropTypes.func,
+@@ -475,7 +466,6 @@ EditDueDateStep.propTypes = {
+ };
+ 
+ EditDueDateStep.defaultProps = {
+-  cardId: undefined,
+   taskListId: undefined,
+   taskId: undefined,
+   onBack: undefined,
+diff --git a/client/src/components/lists/List/SortStep.jsx b/client/src/components/lists/List/SortStep.jsx
+index 3087ec7..e72a919 100644
+--- a/client/src/components/lists/List/SortStep.jsx
++++ b/client/src/components/lists/List/SortStep.jsx
+@@ -17,7 +17,6 @@ import styles from './ActionsStep.module.scss';
+ 
+ const Types = {
+   ALPHABETICALLY: 'alphabetically',
+-  BY_DUE_DATE: 'byDueDate',
+   OLDEST_FIRST: 'oldestFirst',
+   NEWEST_FIRST: 'newestFirst',
+ };
+@@ -26,9 +25,6 @@ const DATA_BY_TYPE = {
+   [Types.ALPHABETICALLY]: {
+     fieldName: ListSortFieldNames.NAME,
+   },
+-  [Types.BY_DUE_DATE]: {
+-    fieldName: ListSortFieldNames.DUE_DATE,
+-  },
+   [Types.OLDEST_FIRST]: {
+     fieldName: ListSortFieldNames.CREATED_AT,
+   },
+@@ -59,7 +55,7 @@ const SortStep = React.memo(({ listId, onBack, onClose }) => {
+       </Popup.Header>
+       <Popup.Content>
+         <Menu secondary vertical className={styles.menu}>
+-          {[Types.ALPHABETICALLY, Types.BY_DUE_DATE, Types.OLDEST_FIRST, Types.NEWEST_FIRST].map(
++          {[Types.ALPHABETICALLY, Types.OLDEST_FIRST, Types.NEWEST_FIRST].map(
+             (type) => (
+               <Menu.Item
+                 key={type}
+diff --git a/client/src/components/notifications/NotificationsStep/Item.jsx b/client/src/components/notifications/NotificationsStep/Item.jsx
+index ef436d2..93eb7d2 100644
+--- a/client/src/components/notifications/NotificationsStep/Item.jsx
++++ b/client/src/components/notifications/NotificationsStep/Item.jsx
+@@ -6,10 +6,11 @@
+ import truncate from 'lodash/truncate';
+ import React, { useCallback, useMemo } from 'react';
+ import PropTypes from 'prop-types';
++import classNames from 'classnames';
+ import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation, Trans } from 'react-i18next';
+ import { Link } from 'react-router';
+-import { Button } from 'semantic-ui-react';
++import { Button, Icon } from 'semantic-ui-react';
+ 
+ import selectors from '../../../selectors';
+ import entryActions from '../../../entry-actions';
+@@ -22,6 +23,24 @@ import UserAvatar from '../../users/UserAvatar';
+ 
+ import styles from './Item.module.scss';
+ 
++// BSY Media: deadline notifications come from a scheduled job, not a real
++// user - their wording is deliberately impersonal (no "X did this"
++// framing). notification.creatorUserId still points at the bootstrap admin
++// account (required by the DB schema), so it must be excluded here too, or
++// the admin's avatar would visibly de-anonymize an otherwise impersonal
++// notification.
++const IMPERSONAL_NOTIFICATION_TYPES = [
++  NotificationTypes.TASK_LIST_DUE_SOON,
++  NotificationTypes.TASK_LIST_OVERDUE,
++  NotificationTypes.TASK_DUE_SOON,
++  NotificationTypes.TASK_OVERDUE,
++];
++
++const OVERDUE_NOTIFICATION_TYPES = [
++  NotificationTypes.TASK_LIST_OVERDUE,
++  NotificationTypes.TASK_OVERDUE,
++];
++
+ const Item = React.memo(({ id, onClose }) => {
+   const selectNotificationById = useMemo(() => selectors.makeSelectNotificationById(), []);
+   const selectCreatorUserById = useMemo(() => selectors.makeSelectUserById(), []);
+@@ -167,6 +186,71 @@ const Item = React.memo(({ id, onClose }) => {
+ 
+       break;
+     }
++    case NotificationTypes.TASK_LIST_DUE_SOON: {
++      const { taskList } = notification.data;
++
++      contentNode = (
++        <Trans
++          i18nKey="common.taskListDueSoon"
++          values={{ taskList: taskList.name, card: cardName }}
++        >
++          {`Checklist «${taskList.name}» is due soon on `}
++          <Link to={Paths.CARDS.replace(':id', notification.cardId)} onClick={onClose}>
++            {cardName}
++          </Link>
++        </Trans>
++      );
++
++      break;
++    }
++    case NotificationTypes.TASK_LIST_OVERDUE: {
++      const { taskList } = notification.data;
++
++      contentNode = (
++        <Trans i18nKey="common.taskListOverdue" values={{ taskList: taskList.name, card: cardName }}>
++          {`Checklist «${taskList.name}» is overdue on `}
++          <Link to={Paths.CARDS.replace(':id', notification.cardId)} onClick={onClose}>
++            {cardName}
++          </Link>
++        </Trans>
++      );
++
++      break;
++    }
++    case NotificationTypes.TASK_DUE_SOON: {
++      const { task, taskList } = notification.data;
++
++      contentNode = (
++        <Trans
++          i18nKey="common.taskDueSoon"
++          values={{ task: task.name, taskList: taskList.name, card: cardName }}
++        >
++          {`Sub-task «${task.name}» in checklist «${taskList.name}» is due soon on `}
++          <Link to={Paths.CARDS.replace(':id', notification.cardId)} onClick={onClose}>
++            {cardName}
++          </Link>
++        </Trans>
++      );
++
++      break;
++    }
++    case NotificationTypes.TASK_OVERDUE: {
++      const { task, taskList } = notification.data;
++
++      contentNode = (
++        <Trans
++          i18nKey="common.taskOverdue"
++          values={{ task: task.name, taskList: taskList.name, card: cardName }}
++        >
++          {`Sub-task «${task.name}» in checklist «${taskList.name}» is overdue on `}
++          <Link to={Paths.CARDS.replace(':id', notification.cardId)} onClick={onClose}>
++            {cardName}
++          </Link>
++        </Trans>
++      );
++
++      break;
++    }
+     case NotificationTypes.CHANGE_TASK_LIST_STATUS: {
+       const { status, taskList } = notification.data;
+ 
+@@ -231,9 +315,20 @@ const Item = React.memo(({ id, onClose }) => {
+       contentNode = null;
+   }
+ 
++  const isImpersonal = IMPERSONAL_NOTIFICATION_TYPES.includes(notification.type);
++  const isOverdue = OVERDUE_NOTIFICATION_TYPES.includes(notification.type);
++
+   return (
+     <div className={styles.wrapper}>
+-      <UserAvatar id={notification.creatorUserId} size="large" />
++      {isImpersonal ? (
++        <span
++          className={classNames(styles.systemIcon, isOverdue && styles.systemIconOverdue)}
++        >
++          <Icon fitted name={isOverdue ? 'hourglass end' : 'hourglass half'} />
++        </span>
++      ) : (
++        <UserAvatar id={notification.creatorUserId} size="large" />
++      )}
+       <span className={styles.content}>
+         <div>{contentNode}</div>
+         <span className={styles.date}>
+diff --git a/client/src/components/notifications/NotificationsStep/Item.module.scss b/client/src/components/notifications/NotificationsStep/Item.module.scss
+index 22cc4b1..86ebfbe 100644
+--- a/client/src/components/notifications/NotificationsStep/Item.module.scss
++++ b/client/src/components/notifications/NotificationsStep/Item.module.scss
+@@ -43,6 +43,27 @@
+     font-size: 12px;
+   }
+ 
++  // BSY Media: neutral placeholder shown instead of UserAvatar for
++  // deadline notifications (no real "sender" to depict) - same 36x36
++  // footprint as UserAvatar's "large" size so .content's width math still
++  // lines up.
++  .systemIcon {
++    align-items: center;
++    background: #f2711c;
++    border-radius: 50%;
++    color: #fff;
++    display: inline-flex;
++    font-size: 14px;
++    height: 36px;
++    justify-content: center;
++    vertical-align: top;
++    width: 36px;
++  }
++
++  .systemIconOverdue {
++    background: #db2828;
++  }
++
+   .wrapper {
+     padding: 12px;
+ 
+diff --git a/client/src/components/task-lists/TaskList/Task/Task.jsx b/client/src/components/task-lists/TaskList/Task/Task.jsx
+index f6ac971..776f456 100755
+--- a/client/src/components/task-lists/TaskList/Task/Task.jsx
++++ b/client/src/components/task-lists/TaskList/Task/Task.jsx
+@@ -198,6 +198,7 @@ const Task = React.memo(({ id, index }) => {
+                           value={new Date(task.startDate)}
+                           isCompleted={false}
+                           withStatus={false}
++                          baseColor="blue"
+                         />
+                       </span>
+                     )}
+@@ -205,10 +206,10 @@ const Task = React.memo(({ id, index }) => {
+                       <span className={styles.dateChip}>
+                         <DueDateChip
+                           size="tiny"
+-                          withStatusIcon
+                           value={new Date(task.dueDate)}
+                           isCompleted={!!task.isDueCompleted}
+                           withStatus
++                          baseColor="orange"
+                         />
+                       </span>
+                     )}
+diff --git a/client/src/constants/Enums.js b/client/src/constants/Enums.js
+index dbccf6f..372e7f4 100755
+--- a/client/src/constants/Enums.js
++++ b/client/src/constants/Enums.js
+@@ -78,7 +78,6 @@ export const ListTypeStates = {
+ 
+ export const ListSortFieldNames = {
+   NAME: 'name',
+-  DUE_DATE: 'dueDate',
+   CREATED_AT: 'createdAt',
+ };
+ 
+@@ -109,8 +108,6 @@ export const ActivityTypes = {
+   DELETE_TASK_LIST: 'deleteTaskList',
+   CREATE_TASK: 'createTask',
+   DELETE_TASK: 'deleteTask',
+-  SET_CARD_START_DATE: 'setCardStartDate',
+-  SET_CARD_DUE_DATE: 'setCardDueDate',
+   CHANGE_TASK_LIST_STATUS: 'changeTaskListStatus',
+ };
+ 
+@@ -122,6 +119,10 @@ export const NotificationTypes = {
+   ASSIGN_TASK_LIST: 'assignTaskList',
+   ASSIGN_TASK: 'assignTask',
+   CHANGE_TASK_LIST_STATUS: 'changeTaskListStatus',
++  TASK_LIST_DUE_SOON: 'taskListDueSoon',
++  TASK_LIST_OVERDUE: 'taskListOverdue',
++  TASK_DUE_SOON: 'taskDueSoon',
++  TASK_OVERDUE: 'taskOverdue',
+ };
+ 
+ export const TaskListStatuses = {
+diff --git a/client/src/hooks/index.js b/client/src/hooks/index.js
+index 7f1b029..cf338d4 100644
+--- a/client/src/hooks/index.js
++++ b/client/src/hooks/index.js
+@@ -12,6 +12,7 @@ import useSteps from './use-steps';
+ import useModal from './use-modal';
+ import useClosableModal from './use-closable-modal';
+ import usePopupInClosableContext from './use-popup-in-closable-context';
++import useDueDateStatus from './use-due-date-status';
+ 
+ export {
+   useNestedRef,
+@@ -23,4 +24,5 @@ export {
+   useModal,
+   useClosableModal,
+   usePopupInClosableContext,
++  useDueDateStatus,
+ };
+diff --git a/client/src/hooks/use-due-date-status.js b/client/src/hooks/use-due-date-status.js
+new file mode 100644
+index 0000000..cb97bbb
+--- /dev/null
++++ b/client/src/hooks/use-due-date-status.js
+@@ -0,0 +1,47 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import { useEffect, useRef } from 'react';
++import { useForceUpdate } from '../lib/hooks';
++import getDueDateStatus, { DueDateStatuses } from '../utils/get-due-date-status';
++
++// BSY Media: live-updating due-soon/overdue/completed status for a given
++// date - extracted from DueDateChip.jsx's own polling logic so the
++// card-face title-coloring feature can share the exact same
++// live-update behavior (re-renders on the second the status actually
++// changes, stops polling once overdue/completed) instead of duplicating it.
++const useDueDateStatus = (date, isCompleted) => {
++  const forceUpdate = useForceUpdate();
++  const statusRef = useRef(date ? getDueDateStatus(date, isCompleted) : null);
++  statusRef.current = date ? getDueDateStatus(date, isCompleted) : null;
++
++  useEffect(() => {
++    if (
++      !date ||
++      statusRef.current === DueDateStatuses.OVERDUE ||
++      statusRef.current === DueDateStatuses.COMPLETED
++    ) {
++      return undefined;
++    }
++
++    const intervalId = setInterval(() => {
++      const status = getDueDateStatus(date, isCompleted);
++
++      if (status !== statusRef.current) {
++        forceUpdate();
++      }
++
++      if (status === DueDateStatuses.OVERDUE) {
++        clearInterval(intervalId);
++      }
++    }, 1000);
++
++    return () => clearInterval(intervalId);
++  }, [date, isCompleted, forceUpdate]);
++
++  return statusRef.current;
++};
++
++export default useDueDateStatus;
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 1793676..fea4e09 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -108,7 +108,6 @@ export default {
+       boardUser: 'Board user',
+       byCreationTime: 'By creation time',
+       byDefault: 'By default',
+-      byDueDate: 'By due date',
+       canBeInvitedToWorkInBoards: 'Can be invited to work in boards.',
+       canComment: 'Can comment',
+       canCreateOwnProjectsAndBeInvitedToWorkInOthers:
+@@ -344,12 +343,16 @@ export default {
+       subscribeToMyOwnCardsByDefault: 'Subscribe to my own cards by default',
+       taskActions_title: 'Task Actions',
+       taskAssignmentAndProjectCompletion: 'Task assignment and project completion.',
++      taskDueSoon: 'Sub-task «{{task}}» in checklist «{{taskList}}» is due soon on <1>{{card}}</1>',
+       taskListActions_title: 'Task List Actions',
++      taskListDueSoon: 'Checklist «{{taskList}}» is due soon on <1>{{card}}</1>',
++      taskListOverdue: 'Checklist «{{taskList}}» is overdue on <1>{{card}}</1>',
+       taskListStatus_completed: 'Completed',
+       taskListStatus_inProgress: 'In Progress',
+       taskListStatus_notSet: 'Not Set',
+       taskListStatus_todo: 'To Do',
+       taskList_title: 'Task List',
++      taskOverdue: 'Sub-task «{{task}}» in checklist «{{taskList}}» is overdue on <1>{{card}}</1>',
+       tasks: 'Tasks',
+       team: 'Team',
+       teamWorkload: 'Team Workload',
+@@ -416,15 +419,10 @@ export default {
+         '<0>{{user}}</0> moved <2>{{card}}</2> from {{fromList}} to {{toList}}',
+       userMovedThisCardFromListToList:
+         '<0>{{user}}</0> moved this card from {{fromList}} to {{toList}}',
+-      userRemovedDueDateFromThisCard: '<0>{{user}}</0> removed the due date from this card',
+-      userRemovedStartDateFromThisCard: '<0>{{user}}</0> removed the start date from this card',
+       userRemovedUserFromCard: '<0>{{actorUser}}</0> removed {{removedUser}} from <4>{{card}}</4>',
+       userRemovedUserFromThisCard: '<0>{{actorUser}}</0> removed {{removedUser}} from this card',
+       username: 'Username',
+       users: 'Users',
+-      userSetDueDateOnThisCard: '<0>{{user}}</0> set the due date on this card to {{dueDate}}',
+-      userSetStartDateOnThisCard:
+-        '<0>{{user}}</0> set the start date on this card to {{startDate}}',
+       userUpdatedChecklistOnThisCard:
+         '<0>{{user}}</0> updated checklist {{taskList}} on this card',
+       viewer: 'Viewer',
+@@ -517,7 +515,6 @@ export default {
+       editAvatar_title: 'Edit Avatar',
+       editColor_title: 'Edit Color',
+       editDescription_title: 'Edit Description',
+-      editDueDate_title: 'Edit Due Date',
+       editEmail_title: 'Edit E-mail',
+       editGroup: 'Edit group',
+       editInformation_title: 'Edit Information',
+diff --git a/client/src/models/Card.js b/client/src/models/Card.js
+index cfdcfb2..25f6289 100755
+--- a/client/src/models/Card.js
++++ b/client/src/models/Card.js
+@@ -20,9 +20,6 @@ export default class extends BaseModel {
+     position: attr(),
+     name: attr(),
+     description: attr(),
+-    startDate: attr(),
+-    dueDate: attr(),
+-    isDueCompleted: attr(),
+     stopwatch: attr(),
+     isClosed: attr(),
+     commentsTotal: attr({
+@@ -332,16 +329,6 @@ export default class extends BaseModel {
+           payload.data.listChangedAt = new Date(); // eslint-disable-line no-param-reassign
+         }
+ 
+-        if (payload.data.dueDate !== undefined) {
+-          if (payload.data.dueDate) {
+-            if (!cardModel.dueDate) {
+-              payload.data.isDueCompleted = false; // eslint-disable-line no-param-reassign
+-            }
+-          } else {
+-            payload.data.isDueCompleted = null; // eslint-disable-line no-param-reassign
+-          }
+-        }
+-
+         if (payload.data.isClosed !== undefined && payload.data.isClosed !== cardModel.isClosed) {
+           cardModel.linkedTasks.update({
+             isCompleted: payload.data.isClosed,
+@@ -706,8 +693,6 @@ export default class extends BaseModel {
+       position: this.position,
+       name: this.name,
+       description: this.description,
+-      dueDate: this.dueDate,
+-      isDueCompleted: this.isDueCompleted,
+       stopwatch: this.stopwatch,
+       isClosed: this.isClosed,
+       ...data,
+diff --git a/client/src/models/List.js b/client/src/models/List.js
+index 7a1fef3..72ab1ec 100755
+--- a/client/src/models/List.js
++++ b/client/src/models/List.js
+@@ -415,20 +415,6 @@ export default class extends BaseModel {
+       case ListSortFieldNames.NAME:
+         cardModels.sort((card1, card2) => card1.name.localeCompare(card2.name));
+ 
+-        break;
+-      case ListSortFieldNames.DUE_DATE:
+-        cardModels.sort((card1, card2) => {
+-          if (card1.dueDate === null) {
+-            return 1;
+-          }
+-
+-          if (card2.dueDate === null) {
+-            return -1;
+-          }
+-
+-          return card1.dueDate - card2.dueDate;
+-        });
+-
+         break;
+       case ListSortFieldNames.CREATED_AT:
+         cardModels.sort((card1, card2) => card1.createdAt - card2.createdAt);
+diff --git a/client/src/selectors/gantt.js b/client/src/selectors/gantt.js
+index 362d90a..c5c7b63 100644
+--- a/client/src/selectors/gantt.js
++++ b/client/src/selectors/gantt.js
+@@ -18,10 +18,10 @@ const toDateOrNull = (value) => {
+ 
+ // BSY Media: single source of truth for the board Gantt view (Timeline /
+ // Tasks / Team workload / Schedule tabs) - walks every active card on the
+-// board once and normalizes card + checklist dates into Date instances
+-// (Card dates are already Date objects via the API transform layer,
+-// TaskList dates are raw ISO strings - see EditDueDateStep.jsx) so none of
+-// the 4 tab components need to care which model they came from.
++// board once and normalizes checklist/task dates into Date instances
++// (TaskList/Task dates are raw ISO strings - see EditDueDateStep.jsx).
++// Cards themselves have no dates of their own (removed 2026-08-13, see
++// CLAUDE.md) - only their nested taskLists carry date info.
+ export const selectGanttItemsForCurrentBoard = createSelector(
+   orm,
+   (state) => selectPath(state).boardId,
+@@ -73,9 +73,6 @@ export const selectGanttItemsForCurrentBoard = createSelector(
+         cardName: cardModel.name,
+         listId: cardModel.listId,
+         listName: cardModel.list ? cardModel.list.name : null,
+-        startDate: toDateOrNull(cardModel.startDate),
+-        dueDate: toDateOrNull(cardModel.dueDate),
+-        isDueCompleted: !!cardModel.isDueCompleted,
+         userIds: cardModel.users.toRefArray().map((user) => user.id),
+         taskLists,
+       };
+diff --git a/client/src/utils/get-due-date-status.js b/client/src/utils/get-due-date-status.js
+new file mode 100644
+index 0000000..bd0b96d
+--- /dev/null
++++ b/client/src/utils/get-due-date-status.js
+@@ -0,0 +1,34 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++// BSY Media: shared 24-hour due-soon/overdue threshold logic, originally
++// local to DueDateChip.jsx - extracted so the card-face title-coloring
++// feature (Card/TaskList/TaskList.jsx, Card/TaskList/Task.jsx) can reuse
++// the exact same math instead of duplicating it a third place.
++export const DueDateStatuses = {
++  DUE_SOON: 'dueSoon',
++  OVERDUE: 'overdue',
++  COMPLETED: 'completed',
++};
++
++const getDueDateStatus = (date, isCompleted) => {
++  if (isCompleted) {
++    return DueDateStatuses.COMPLETED;
++  }
++
++  const secondsLeft = Math.floor((date.getTime() - new Date().getTime()) / 1000);
++
++  if (secondsLeft <= 0) {
++    return DueDateStatuses.OVERDUE;
++  }
++
++  if (secondsLeft <= 24 * 60 * 60) {
++    return DueDateStatuses.DUE_SOON;
++  }
++
++  return null;
++};
++
++export default getDueDateStatus;
+diff --git a/server/api/controllers/cards/create.js b/server/api/controllers/cards/create.js
+index 9437344..2eea928 100755
+--- a/server/api/controllers/cards/create.js
++++ b/server/api/controllers/cards/create.js
+@@ -52,16 +52,6 @@
+  *                 nullable: true
+  *                 description: Detailed description of the card
+  *                 example: Add JWT-based authentication system...
+- *               dueDate:
+- *                 type: string
+- *                 format: date-time
+- *                 description: Due date for the card
+- *                 example: 2024-01-01T00:00:00.000Z
+- *               isDueCompleted:
+- *                 type: boolean
+- *                 nullable: true
+- *                 description: Whether the due date is completed
+- *                 example: false
+  *               stopwatch:
+  *                 type: object
+  *                 required:
+@@ -103,7 +93,7 @@
+  *         $ref: '#/components/responses/UnprocessableEntity'
+  */
+ 
+-const { isDueDate, isStopwatch } = require('../../../utils/validators');
++const { isStopwatch } = require('../../../utils/validators');
+ const { idInput } = require('../../../utils/inputs');
+ 
+ const Errors = {
+@@ -145,14 +135,6 @@ module.exports = {
+       maxLength: 1048576,
+       allowNull: true,
+     },
+-    dueDate: {
+-      type: 'string',
+-      custom: isDueDate,
+-    },
+-    isDueCompleted: {
+-      type: 'boolean',
+-      allowNull: true,
+-    },
+     stopwatch: {
+       type: 'json',
+       custom: isStopwatch,
+@@ -194,8 +176,6 @@ module.exports = {
+       'position',
+       'name',
+       'description',
+-      'dueDate',
+-      'isDueCompleted',
+       'stopwatch',
+     ]);
+ 
+diff --git a/server/api/controllers/cards/update.js b/server/api/controllers/cards/update.js
+index 966b497..7253ecf 100755
+--- a/server/api/controllers/cards/update.js
++++ b/server/api/controllers/cards/update.js
+@@ -62,23 +62,6 @@
+  *                 nullable: true
+  *                 description: Detailed description of the card
+  *                 example: Add JWT-based authentication system...
+- *               startDate:
+- *                 type: string
+- *                 format: date-time
+- *                 nullable: true
+- *                 description: Start date for the card
+- *                 example: 2024-01-01T00:00:00.000Z
+- *               dueDate:
+- *                 type: string
+- *                 format: date-time
+- *                 nullable: true
+- *                 description: Due date for the card
+- *                 example: 2024-01-01T00:00:00.000Z
+- *               isDueCompleted:
+- *                 type: boolean
+- *                 nullable: true
+- *                 description: Whether the due date is completed
+- *                 example: false
+  *               stopwatch:
+  *                 type: object
+  *                 required:
+@@ -123,7 +106,7 @@
+  *         $ref: '#/components/responses/UnprocessableEntity'
+  */
+ 
+-const { isDueDate, isStopwatch } = require('../../../utils/validators');
++const { isStopwatch } = require('../../../utils/validators');
+ const { idInput } = require('../../../utils/inputs');
+ 
+ const Errors = {
+@@ -185,20 +168,6 @@ module.exports = {
+       maxLength: 1048576,
+       allowNull: true,
+     },
+-    startDate: {
+-      type: 'string',
+-      custom: isDueDate,
+-      allowNull: true,
+-    },
+-    dueDate: {
+-      type: 'string',
+-      custom: isDueDate,
+-      allowNull: true,
+-    },
+-    isDueCompleted: {
+-      type: 'boolean',
+-      allowNull: true,
+-    },
+     stopwatch: {
+       type: 'json',
+       custom: isStopwatch,
+@@ -268,9 +237,6 @@ module.exports = {
+         'position',
+         'name',
+         'description',
+-        'startDate',
+-        'dueDate',
+-        'isDueCompleted',
+         'stopwatch',
+       );
+     }
+@@ -337,9 +303,6 @@ module.exports = {
+       'position',
+       'name',
+       'description',
+-      'startDate',
+-      'dueDate',
+-      'isDueCompleted',
+       'stopwatch',
+       'isSubscribed',
+     ]);
+diff --git a/server/api/controllers/lists/sort.js b/server/api/controllers/lists/sort.js
+index 6057c69..d3d95b4 100644
+--- a/server/api/controllers/lists/sort.js
++++ b/server/api/controllers/lists/sort.js
+@@ -31,7 +31,7 @@
+  *             properties:
+  *               fieldName:
+  *                 type: string
+- *                 enum: [name, dueDate, createdAt]
++ *                 enum: [name, createdAt]
+  *                 description: Field to sort cards by
+  *                 example: name
+  *               order:
+diff --git a/server/api/helpers/boards/import-from-trello.js b/server/api/helpers/boards/import-from-trello.js
+index 5fb379a..f2d5bad 100644
+--- a/server/api/helpers/boards/import-from-trello.js
++++ b/server/api/helpers/boards/import-from-trello.js
+@@ -66,8 +66,6 @@ module.exports = {
+           position: trelloCard.pos,
+           name: trelloCard.name,
+           description: trelloCard.desc || null,
+-          dueDate: trelloCard.due,
+-          isDueCompleted: trelloCard.due && trelloCard.dueComplete,
+           listChangedAt: new Date().toISOString(),
+         };
+ 
+diff --git a/server/api/helpers/cards/create-one.js b/server/api/helpers/cards/create-one.js
+index 1f315e7..c86a1d8 100644
+--- a/server/api/helpers/cards/create-one.js
++++ b/server/api/helpers/cards/create-one.js
+@@ -25,14 +25,6 @@ module.exports = {
+   async fn(inputs) {
+     const { values } = inputs;
+ 
+-    if (values.dueDate) {
+-      if (_.isNil(values.isDueCompleted)) {
+-        values.isDueCompleted = false;
+-      }
+-    } else {
+-      delete values.isDueCompleted;
+-    }
+-
+     if (sails.helpers.lists.isFinite(values.list)) {
+       if (_.isUndefined(values.position)) {
+         throw 'positionMustBeInValues';
+diff --git a/server/api/helpers/cards/duplicate-one.js b/server/api/helpers/cards/duplicate-one.js
+index 164841d..f926bd4 100644
+--- a/server/api/helpers/cards/duplicate-one.js
++++ b/server/api/helpers/cards/duplicate-one.js
+@@ -176,8 +176,6 @@ module.exports = {
+         'type',
+         'name',
+         'description',
+-        'dueDate',
+-        'isDueCompleted',
+         'stopwatch',
+         'isClosed',
+       ]),
+diff --git a/server/api/helpers/cards/update-one.js b/server/api/helpers/cards/update-one.js
+index 589739b..693160b 100644
+--- a/server/api/helpers/cards/update-one.js
++++ b/server/api/helpers/cards/update-one.js
+@@ -105,20 +105,6 @@ module.exports = {
+       }
+     }
+ 
+-    const dueDate = _.isUndefined(values.dueDate) ? inputs.record.dueDate : values.dueDate;
+-
+-    if (dueDate) {
+-      const isDueCompleted = _.isUndefined(values.isDueCompleted)
+-        ? inputs.record.isDueCompleted
+-        : values.isDueCompleted;
+-
+-      if (_.isNull(isDueCompleted)) {
+-        values.isDueCompleted = false;
+-      }
+-    } else {
+-      values.isDueCompleted = null;
+-    }
+-
+     let card;
+     if (_.isEmpty(values)) {
+       card = inputs.record;
+@@ -380,55 +366,6 @@ module.exports = {
+         }),
+         user: inputs.actorUser,
+       });
+-
+-      // BSY Media: card start/due date activity logging - compares the
+-      // post-update record against the pre-update one (both DB-shaped
+-      // Date/null) rather than the raw input values, so a same-value
+-      // resubmit can't produce a false positive.
+-      const dateFieldChanged = (key) => {
+-        const prevValue = inputs.record[key];
+-        const nextValue = card[key];
+-        const prevTime = prevValue ? new Date(prevValue).getTime() : null;
+-        const nextTime = nextValue ? new Date(nextValue).getTime() : null;
+-
+-        return prevTime !== nextTime;
+-      };
+-
+-      if (dateFieldChanged('startDate')) {
+-        await sails.helpers.actions.createOne.with({
+-          webhooks,
+-          values: {
+-            card,
+-            type: Action.Types.SET_CARD_START_DATE,
+-            data: {
+-              card: _.pick(card, ['name']),
+-              startDate: card.startDate,
+-            },
+-            user: inputs.actorUser,
+-          },
+-          project,
+-          board,
+-          list,
+-        });
+-      }
+-
+-      if (dateFieldChanged('dueDate')) {
+-        await sails.helpers.actions.createOne.with({
+-          webhooks,
+-          values: {
+-            card,
+-            type: Action.Types.SET_CARD_DUE_DATE,
+-            data: {
+-              card: _.pick(card, ['name']),
+-              dueDate: card.dueDate,
+-            },
+-            user: inputs.actorUser,
+-          },
+-          project,
+-          board,
+-          list,
+-        });
+-      }
+     }
+ 
+     if (!_.isUndefined(isSubscribed)) {
+diff --git a/server/api/helpers/deadline-notifications/process-task-lists.js b/server/api/helpers/deadline-notifications/process-task-lists.js
+new file mode 100644
+index 0000000..8dd58aa
+--- /dev/null
++++ b/server/api/helpers/deadline-notifications/process-task-lists.js
+@@ -0,0 +1,115 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++// BSY Media: called on a timer by the `deadline-notifications` hook, not
++// from an HTTP request - there's no real "actor" here, so the bootstrap
++// admin account (sails.config.custom.defaultAdminEmail) is used purely to
++// satisfy Notification.creatorUserId's schema requirement. The client-side
++// rendering for these 4 notification types deliberately never displays
++// this name/avatar (see NotificationsStep/Item.jsx) - the wording is
++// impersonal by design.
++const notifyAndMark = async (taskList, actionType, trackingField, adminUser, webhooks) => {
++  if (taskList.assigneeUserId === adminUser.id) {
++    return;
++  }
++
++  const assigneeUser = await User.qm.getOneById(taskList.assigneeUserId, {
++    withDeactivated: false,
++  });
++
++  if (!assigneeUser) {
++    return;
++  }
++
++  const pathToProject = await sails.helpers.taskLists
++    .getPathToProjectById(taskList.id)
++    .intercept('pathNotFound', () => null);
++
++  if (!pathToProject) {
++    return;
++  }
++
++  const { card, list, board, project } = pathToProject;
++
++  const isBoardMember = await sails.helpers.users.isBoardMember(assigneeUser.id, board.id);
++
++  if (!isBoardMember) {
++    return;
++  }
++
++  await sails.helpers.actions.createOne.with({
++    webhooks,
++    values: {
++      type: actionType,
++      data: {
++        user: { id: taskList.assigneeUserId },
++        card: _.pick(card, ['name']),
++        taskList: _.pick(taskList, ['id', 'name']),
++      },
++      user: adminUser,
++      card,
++    },
++    project,
++    board,
++    list,
++  });
++
++  await TaskList.qm.updateOne(taskList.id, {
++    [trackingField]: new Date().toISOString(),
++  });
++};
++
++module.exports = {
++  async fn() {
++    const adminUser = await User.qm.getOneByEmail(sails.config.custom.defaultAdminEmail || '');
++
++    if (!adminUser) {
++      sails.log.warn(
++        'deadline-notifications: bootstrap admin user not found, skipping this run',
++      );
++      return;
++    }
++
++    const webhooks = await Webhook.qm.getAll();
++    const now = new Date();
++    const dueSoonThreshold = new Date(now.getTime() + 24 * 60 * 60 * 1000);
++
++    const overdueTaskLists = await TaskList.qm.getOverdue(now);
++
++    // eslint-disable-next-line no-restricted-syntax
++    for (const taskList of overdueTaskLists) {
++      try {
++        // eslint-disable-next-line no-await-in-loop
++        await notifyAndMark(
++          taskList,
++          Action.Types.TASK_LIST_OVERDUE,
++          'lastOverdueNotifiedAt',
++          adminUser,
++          webhooks,
++        );
++      } catch (error) {
++        sails.log.error(`deadline-notifications: failed to notify overdue task list ${taskList.id}:`, error);
++      }
++    }
++
++    const dueSoonTaskLists = await TaskList.qm.getDueSoon(now, dueSoonThreshold);
++
++    // eslint-disable-next-line no-restricted-syntax
++    for (const taskList of dueSoonTaskLists) {
++      try {
++        // eslint-disable-next-line no-await-in-loop
++        await notifyAndMark(
++          taskList,
++          Action.Types.TASK_LIST_DUE_SOON,
++          'lastDueSoonNotifiedAt',
++          adminUser,
++          webhooks,
++        );
++      } catch (error) {
++        sails.log.error(`deadline-notifications: failed to notify due-soon task list ${taskList.id}:`, error);
++      }
++    }
++  },
++};
+diff --git a/server/api/helpers/deadline-notifications/process-tasks.js b/server/api/helpers/deadline-notifications/process-tasks.js
+new file mode 100644
+index 0000000..df694d6
+--- /dev/null
++++ b/server/api/helpers/deadline-notifications/process-tasks.js
+@@ -0,0 +1,112 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++// BSY Media: sub-task counterpart to process-task-lists.js - see that
++// file's header comment for why the bootstrap admin account is used as the
++// synthetic actor here.
++const notifyAndMark = async (task, actionType, trackingField, adminUser, webhooks) => {
++  if (task.assigneeUserId === adminUser.id) {
++    return;
++  }
++
++  const assigneeUser = await User.qm.getOneById(task.assigneeUserId, {
++    withDeactivated: false,
++  });
++
++  if (!assigneeUser) {
++    return;
++  }
++
++  const pathToProject = await sails.helpers.tasks
++    .getPathToProjectById(task.id)
++    .intercept('pathNotFound', () => null);
++
++  if (!pathToProject) {
++    return;
++  }
++
++  const { taskList, card, list, board, project } = pathToProject;
++
++  const isBoardMember = await sails.helpers.users.isBoardMember(assigneeUser.id, board.id);
++
++  if (!isBoardMember) {
++    return;
++  }
++
++  await sails.helpers.actions.createOne.with({
++    webhooks,
++    values: {
++      type: actionType,
++      data: {
++        user: { id: task.assigneeUserId },
++        card: _.pick(card, ['name']),
++        taskList: _.pick(taskList, ['id', 'name']),
++        task: _.pick(task, ['id', 'name']),
++      },
++      user: adminUser,
++      card,
++    },
++    project,
++    board,
++    list,
++  });
++
++  await Task.qm.updateOne(task.id, {
++    [trackingField]: new Date().toISOString(),
++  });
++};
++
++module.exports = {
++  async fn() {
++    const adminUser = await User.qm.getOneByEmail(sails.config.custom.defaultAdminEmail || '');
++
++    if (!adminUser) {
++      sails.log.warn(
++        'deadline-notifications: bootstrap admin user not found, skipping this run',
++      );
++      return;
++    }
++
++    const webhooks = await Webhook.qm.getAll();
++    const now = new Date();
++    const dueSoonThreshold = new Date(now.getTime() + 24 * 60 * 60 * 1000);
++
++    const overdueTasks = await Task.qm.getOverdue(now);
++
++    // eslint-disable-next-line no-restricted-syntax
++    for (const task of overdueTasks) {
++      try {
++        // eslint-disable-next-line no-await-in-loop
++        await notifyAndMark(
++          task,
++          Action.Types.TASK_OVERDUE,
++          'lastOverdueNotifiedAt',
++          adminUser,
++          webhooks,
++        );
++      } catch (error) {
++        sails.log.error(`deadline-notifications: failed to notify overdue task ${task.id}:`, error);
++      }
++    }
++
++    const dueSoonTasks = await Task.qm.getDueSoon(now, dueSoonThreshold);
++
++    // eslint-disable-next-line no-restricted-syntax
++    for (const task of dueSoonTasks) {
++      try {
++        // eslint-disable-next-line no-await-in-loop
++        await notifyAndMark(
++          task,
++          Action.Types.TASK_DUE_SOON,
++          'lastDueSoonNotifiedAt',
++          adminUser,
++          webhooks,
++        );
++      } catch (error) {
++        sails.log.error(`deadline-notifications: failed to notify due-soon task ${task.id}:`, error);
++      }
++    }
++  },
++};
+diff --git a/server/api/helpers/lists/sort-one.js b/server/api/helpers/lists/sort-one.js
+index 5c3a086..fae0c03 100644
+--- a/server/api/helpers/lists/sort-one.js
++++ b/server/api/helpers/lists/sort-one.js
+@@ -50,20 +50,6 @@ module.exports = {
+       case List.SortFieldNames.NAME:
+         cards.sort((card1, card2) => card1.name.localeCompare(card2.name));
+ 
+-        break;
+-      case List.SortFieldNames.DUE_DATE:
+-        cards.sort((card1, card2) => {
+-          if (card1.dueDate === null) {
+-            return 1;
+-          }
+-
+-          if (card2.dueDate === null) {
+-            return -1;
+-          }
+-
+-          return new Date(card1.dueDate) - new Date(card2.dueDate);
+-        });
+-
+         break;
+       case List.SortFieldNames.CREATED_AT:
+         cards.sort((card1, card2) => new Date(card1.createdAt) - new Date(card2.createdAt));
+diff --git a/server/api/helpers/task-lists/update-one.js b/server/api/helpers/task-lists/update-one.js
+index eb3f184..7c126c9 100644
+--- a/server/api/helpers/task-lists/update-one.js
++++ b/server/api/helpers/task-lists/update-one.js
+@@ -155,6 +155,35 @@ module.exports = {
+         });
+       }
+ 
++      // BSY Media: reset deadline-notification tracking whenever the due
++      // date moves or the assignee changes, so a postponed deadline or a
++      // newly assigned user gets their own fresh due-soon/overdue
++      // notification cycle from the deadline-notifications hook, instead of
++      // silently inheriting the old cycle (or never getting notified again
++      // because the old dueDate already used up its one-shot flags).
++      const dueDateChanged = (() => {
++        const prevValue = inputs.record.dueDate;
++        const nextValue = taskList.dueDate;
++        const prevTime = prevValue ? new Date(prevValue).getTime() : null;
++        const nextTime = nextValue ? new Date(nextValue).getTime() : null;
++
++        return prevTime !== nextTime;
++      })();
++
++      const assigneeChanged = taskList.assigneeUserId !== inputs.record.assigneeUserId;
++
++      if (
++        (dueDateChanged || assigneeChanged) &&
++        (taskList.lastDueSoonNotifiedAt || taskList.lastOverdueNotifiedAt)
++      ) {
++        await TaskList.qm.updateOne(taskList.id, {
++          lastDueSoonNotifiedAt: null,
++          lastOverdueNotifiedAt: null,
++        });
++        taskList.lastDueSoonNotifiedAt = null;
++        taskList.lastOverdueNotifiedAt = null;
++      }
++
+       // BSY Media: ping the new checklist owner. Only fires on a genuine new
+       // assignment (not on unassign, not on a no-op resubmit) - the
+       // PERSONAL_NOTIFIABLE_TYPES self-skip in actions/create-one.js already
+diff --git a/server/api/helpers/tasks/update-one.js b/server/api/helpers/tasks/update-one.js
+index fa2336c..283e132 100644
+--- a/server/api/helpers/tasks/update-one.js
++++ b/server/api/helpers/tasks/update-one.js
+@@ -154,6 +154,32 @@ module.exports = {
+         });
+       }
+ 
++      // BSY Media: reset deadline-notification tracking whenever the due
++      // date moves or the assignee changes - see the identical block in
++      // task-lists/update-one.js for the full reasoning.
++      const dueDateChanged = (() => {
++        const prevValue = inputs.record.dueDate;
++        const nextValue = task.dueDate;
++        const prevTime = prevValue ? new Date(prevValue).getTime() : null;
++        const nextTime = nextValue ? new Date(nextValue).getTime() : null;
++
++        return prevTime !== nextTime;
++      })();
++
++      const assigneeChanged = task.assigneeUserId !== inputs.record.assigneeUserId;
++
++      if (
++        (dueDateChanged || assigneeChanged) &&
++        (task.lastDueSoonNotifiedAt || task.lastOverdueNotifiedAt)
++      ) {
++        await Task.qm.updateOne(task.id, {
++          lastDueSoonNotifiedAt: null,
++          lastOverdueNotifiedAt: null,
++        });
++        task.lastDueSoonNotifiedAt = null;
++        task.lastOverdueNotifiedAt = null;
++      }
++
+       // BSY Media: ping the new sub-task assignee. Only fires on a genuine
+       // new assignment (not on unassign, not on a no-op resubmit) - the
+       // PERSONAL_NOTIFIABLE_TYPES self-skip in actions/create-one.js already
+diff --git a/server/api/hooks/deadline-notifications/index.js b/server/api/hooks/deadline-notifications/index.js
+new file mode 100644
+index 0000000..465cb24
+--- /dev/null
++++ b/server/api/hooks/deadline-notifications/index.js
+@@ -0,0 +1,46 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++/**
++ * deadline-notifications hook
++ *
++ * @description :: BSY Media - scans TaskList/Task rows on a timer for
++ *                 dueDates crossing the "due soon" (<24h) or "overdue"
++ *                 threshold and notifies the assignee. Mirrors the
++ *                 `watcher` hook's setInterval pattern - this codebase has
++ *                 no cron/scheduling library, and none is added for this.
++ * @docs        :: https://sailsjs.com/docs/concepts/extending-sails/hooks
++ */
++
++module.exports = function defineDeadlineNotificationsHook(sails) {
++  const CHECK_INTERVAL_MS = 60 * 1000;
++
++  // Unlike watcher's synchronous callback, this one does async DB/network
++  // work - a bare setInterval callback can't reject into anything, so an
++  // unhandled promise rejection here would otherwise be silent/noisy on
++  // every tick if a query ever fails transiently. Log and keep running.
++  const processDeadlines = async () => {
++    try {
++      await sails.helpers.deadlineNotifications.processTaskLists();
++      await sails.helpers.deadlineNotifications.processTasks();
++    } catch (error) {
++      sails.log.error('deadline-notifications hook failed:', error);
++    }
++  };
++
++  return {
++    /**
++     * Runs when this Sails app loads/lifts.
++     */
++
++    async initialize() {
++      sails.log.info('Initializing custom hook (`deadline-notifications`)');
++
++      setInterval(() => {
++        processDeadlines();
++      }, CHECK_INTERVAL_MS);
++    },
++  };
++};
+diff --git a/server/api/hooks/query-methods/models/Task.js b/server/api/hooks/query-methods/models/Task.js
+index 32c3380..2319eea 100644
+--- a/server/api/hooks/query-methods/models/Task.js
++++ b/server/api/hooks/query-methods/models/Task.js
+@@ -48,6 +48,33 @@ const getOneById = (id, { taskListId } = {}) => {
+   return Task.findOne(criteria);
+ };
+ 
++// BSY Media: for the deadline-notifications scheduled hook - not-yet-
++// notified, assigned, not-completed (either the checkbox itself or the
++// due-date-specific completion flag - a checked-off item shouldn't ping as
++// overdue just because isDueCompleted was never separately toggled) tasks
++// whose dueDate has already passed / falls within the next 24h respectively.
++// isDueCompleted is a nullable boolean and almost every real row has it as
++// null, never false - `{ '!=': true }` alone excludes those under plain SQL
++// three-valued logic (`NULL != true` is unknown, not true), so it has to be
++// paired with an explicit `or` branch for null too.
++const getOverdue = (now) =>
++  Task.find({
++    dueDate: { '<=': now.toISOString() },
++    or: [{ isDueCompleted: false }, { isDueCompleted: null }],
++    isCompleted: false,
++    lastOverdueNotifiedAt: null,
++    assigneeUserId: { '!=': null },
++  });
++
++const getDueSoon = (now, threshold) =>
++  Task.find({
++    dueDate: { '>': now.toISOString(), '<=': threshold.toISOString() },
++    or: [{ isDueCompleted: false }, { isDueCompleted: null }],
++    isCompleted: false,
++    lastDueSoonNotifiedAt: null,
++    assigneeUserId: { '!=': null },
++  });
++
+ const update = (criteria, values) => Task.update(criteria).set(values).fetch();
+ 
+ const updateOne = (criteria, values) => Task.updateOne(criteria).set({ ...values });
+@@ -64,6 +91,8 @@ module.exports = {
+   getByTaskListId,
+   getByTaskListIds,
+   getOneById,
++  getOverdue,
++  getDueSoon,
+   update,
+   updateOne,
+   deleteOne,
+diff --git a/server/api/hooks/query-methods/models/TaskList.js b/server/api/hooks/query-methods/models/TaskList.js
+index 7c7e966..a81ffca 100644
+--- a/server/api/hooks/query-methods/models/TaskList.js
++++ b/server/api/hooks/query-methods/models/TaskList.js
+@@ -47,6 +47,29 @@ const getOneById = (id, { cardId } = {}) => {
+   return TaskList.findOne(criteria);
+ };
+ 
++// BSY Media: for the deadline-notifications scheduled hook - not-yet-
++// notified, assigned, not-due-date-completed task lists whose dueDate has
++// already passed / falls within the next 24h respectively. isDueCompleted
++// is a nullable boolean (allowNull: true) and the overwhelming majority of
++// real rows have it as null, never false - `{ '!=': true }` alone excludes
++// those under plain SQL three-valued-logic (`NULL != true` is unknown, not
++// true), so it has to be paired with an explicit `or` branch for null too.
++const getOverdue = (now) =>
++  TaskList.find({
++    dueDate: { '<=': now.toISOString() },
++    or: [{ isDueCompleted: false }, { isDueCompleted: null }],
++    lastOverdueNotifiedAt: null,
++    assigneeUserId: { '!=': null },
++  });
++
++const getDueSoon = (now, threshold) =>
++  TaskList.find({
++    dueDate: { '>': now.toISOString(), '<=': threshold.toISOString() },
++    or: [{ isDueCompleted: false }, { isDueCompleted: null }],
++    lastDueSoonNotifiedAt: null,
++    assigneeUserId: { '!=': null },
++  });
++
+ const updateOne = (criteria, values) => TaskList.updateOne(criteria).set({ ...values });
+ 
+ // eslint-disable-next-line no-underscore-dangle
+@@ -61,6 +84,8 @@ module.exports = {
+   getByCardId,
+   getByCardIds,
+   getOneById,
++  getOverdue,
++  getDueSoon,
+   updateOne,
+   deleteOne,
+   delete: delete_,
+diff --git a/server/api/models/Action.js b/server/api/models/Action.js
+index 6fa6cbe..0ec3742 100755
+--- a/server/api/models/Action.js
++++ b/server/api/models/Action.js
+@@ -46,7 +46,7 @@
+  *           example: "1357158568008091267"
+  *         type:
+  *           type: string
+- *           enum: [createCard, moveCard, addMemberToCard, removeMemberFromCard, completeTask, uncompleteTask, createTaskList, updateTaskList, deleteTaskList, createTask, deleteTask, setCardStartDate, setCardDueDate, assignTaskList, assignTask, changeTaskListStatus]
++ *           enum: [createCard, moveCard, addMemberToCard, removeMemberFromCard, completeTask, uncompleteTask, createTaskList, updateTaskList, deleteTaskList, createTask, deleteTask, assignTaskList, assignTask, changeTaskListStatus, taskListDueSoon, taskListOverdue, taskDueSoon, taskOverdue]
+  *           description: Type of the action
+  *           example: moveCard
+  *         data:
+@@ -83,8 +83,6 @@ const Types = {
+   DELETE_TASK_LIST: 'deleteTaskList',
+   CREATE_TASK: 'createTask',
+   DELETE_TASK: 'deleteTask',
+-  SET_CARD_START_DATE: 'setCardStartDate',
+-  SET_CARD_DUE_DATE: 'setCardDueDate',
+   // BSY Media: ping notifications when a checklist owner or sub-task
+   // assignee is set - task-lists/update-one.js, tasks/update-one.js.
+   ASSIGN_TASK_LIST: 'assignTaskList',
+@@ -97,6 +95,14 @@ const Types = {
+   // subscriber-broadcast branch (same one MOVE_CARD already uses) instead
+   // of the single-recipient one.
+   CHANGE_TASK_LIST_STATUS: 'changeTaskListStatus',
++  // BSY Media: scheduled deadline notifications (deadline-notifications
++  // hook) - single-targeted-recipient like ASSIGN_TASK_LIST/ASSIGN_TASK, so
++  // these go in PERSONAL_NOTIFIABLE_TYPES too, not the subscriber-broadcast
++  // branch.
++  TASK_LIST_DUE_SOON: 'taskListDueSoon',
++  TASK_LIST_OVERDUE: 'taskListOverdue',
++  TASK_DUE_SOON: 'taskDueSoon',
++  TASK_OVERDUE: 'taskOverdue',
+ };
+ 
+ const INTERNAL_NOTIFIABLE_TYPES = [
+@@ -105,12 +111,20 @@ const INTERNAL_NOTIFIABLE_TYPES = [
+   Types.ASSIGN_TASK_LIST,
+   Types.ASSIGN_TASK,
+   Types.CHANGE_TASK_LIST_STATUS,
++  Types.TASK_LIST_DUE_SOON,
++  Types.TASK_LIST_OVERDUE,
++  Types.TASK_DUE_SOON,
++  Types.TASK_OVERDUE,
+ ];
+ const EXTERNAL_NOTIFIABLE_TYPES = [Types.CREATE_CARD, Types.MOVE_CARD];
+ const PERSONAL_NOTIFIABLE_TYPES = [
+   Types.ADD_MEMBER_TO_CARD,
+   Types.ASSIGN_TASK_LIST,
+   Types.ASSIGN_TASK,
++  Types.TASK_LIST_DUE_SOON,
++  Types.TASK_LIST_OVERDUE,
++  Types.TASK_DUE_SOON,
++  Types.TASK_OVERDUE,
+ ];
+ 
+ module.exports = {
+diff --git a/server/api/models/Card.js b/server/api/models/Card.js
+index 8b4fc25..df443cb 100755
+--- a/server/api/models/Card.js
++++ b/server/api/models/Card.js
+@@ -27,8 +27,6 @@
+  *         - position
+  *         - name
+  *         - description
+- *         - dueDate
+- *         - isDueCompleted
+  *         - stopwatch
+  *         - commentsTotal
+  *         - isClosed
+@@ -82,17 +80,6 @@
+  *           nullable: true
+  *           description: Detailed description of the card
+  *           example: Add JWT-based authentication system...
+- *         dueDate:
+- *           type: string
+- *           format: date-time
+- *           nullable: true
+- *           description: Due date for the card
+- *           example: 2024-01-01T00:00:00.000Z
+- *         isDueCompleted:
+- *           type: boolean
+- *           nullable: true
+- *           description: Whether the due date is completed
+- *           example: false
+  *         stopwatch:
+  *           type: object
+  *           required:
+@@ -171,19 +158,17 @@ module.exports = {
+       isNotEmptyString: true,
+       allowNull: true,
+     },
+-    startDate: {
+-      type: 'ref',
+-      columnName: 'start_date',
+-    },
+-    dueDate: {
+-      type: 'ref',
+-      columnName: 'due_date',
+-    },
+-    isDueCompleted: {
+-      type: 'boolean',
+-      allowNull: true,
+-      columnName: 'is_due_completed',
+-    },
++    // BSY Media: startDate/dueDate/isDueCompleted deliberately removed from
++    // this model (2026-08-13) - the client asked for the card-level dates
++    // feature to be dropped entirely (redundant with checklist/task-level
++    // dates). The DB columns (start_date/due_date/is_due_completed on
++    // `card`) are intentionally left in place, unused - 31 real production
++    // cards had due_date set at the time of removal, and dropping the
++    // columns wasn't worth the data-loss risk for what's purely a UI/API
++    // surface change. Do not re-add these attributes without re-adding the
++    // full client-side UI too (Card/ProjectContent.jsx card face,
++    // CardModal/ProjectContent.jsx sidebar, EditDueDateStep's cardId mode,
++    // the Gantt modal's card-level date handling) - see CLAUDE.md.
+     stopwatch: {
+       type: 'json',
+     },
+diff --git a/server/api/models/List.js b/server/api/models/List.js
+index fa4a60f..1b8267d 100755
+--- a/server/api/models/List.js
++++ b/server/api/models/List.js
+@@ -89,7 +89,6 @@ const TypeStates = {
+ 
+ const SortFieldNames = {
+   NAME: 'name',
+-  DUE_DATE: 'dueDate',
+   CREATED_AT: 'createdAt',
+ };
+ 
+diff --git a/server/api/models/Notification.js b/server/api/models/Notification.js
+index 0f905fb..c19867d 100755
+--- a/server/api/models/Notification.js
++++ b/server/api/models/Notification.js
+@@ -63,7 +63,7 @@
+  *           example: "1357158568008091270"
+  *         type:
+  *           type: string
+- *           enum: [moveCard, commentCard, addMemberToCard, mentionInComment, assignTaskList, assignTask, changeTaskListStatus]
++ *           enum: [moveCard, commentCard, addMemberToCard, mentionInComment, assignTaskList, assignTask, changeTaskListStatus, taskListDueSoon, taskListOverdue, taskDueSoon, taskOverdue]
+  *           description: Type of the notification
+  *           example: commentCard
+  *         data:
+@@ -99,6 +99,11 @@ const Types = {
+   ASSIGN_TASK: 'assignTask',
+   // BSY Media: manual checklist status toggle (todo/inProgress/completed)
+   CHANGE_TASK_LIST_STATUS: 'changeTaskListStatus',
++  // BSY Media: scheduled deadline notifications (deadline-notifications hook)
++  TASK_LIST_DUE_SOON: 'taskListDueSoon',
++  TASK_LIST_OVERDUE: 'taskListOverdue',
++  TASK_DUE_SOON: 'taskDueSoon',
++  TASK_OVERDUE: 'taskOverdue',
+ };
+ 
+ module.exports = {
+diff --git a/server/api/models/Task.js b/server/api/models/Task.js
+index 54e9d7a..cc3b63c 100755
+--- a/server/api/models/Task.js
++++ b/server/api/models/Task.js
+@@ -75,6 +75,18 @@
+  *           nullable: true
+  *           description: Whether the due date is marked as completed
+  *           example: false
++ *         lastDueSoonNotifiedAt:
++ *           type: string
++ *           format: date-time
++ *           nullable: true
++ *           description: Internal - when the due-soon deadline notification was last sent for this task
++ *           example: 2024-01-01T00:00:00.000Z
++ *         lastOverdueNotifiedAt:
++ *           type: string
++ *           format: date-time
++ *           nullable: true
++ *           description: Internal - when the overdue deadline notification was last sent for this task
++ *           example: 2024-01-01T00:00:00.000Z
+  *         createdAt:
+  *           type: string
+  *           format: date-time
+@@ -121,6 +133,16 @@ module.exports = {
+       allowNull: true,
+       columnName: 'is_due_completed',
+     },
++    // BSY Media: deadline-notification idempotency tracking, mirrors
++    // TaskList.js - see that file's comment for the reset-on-change rule.
++    lastDueSoonNotifiedAt: {
++      type: 'ref',
++      columnName: 'last_due_soon_notified_at',
++    },
++    lastOverdueNotifiedAt: {
++      type: 'ref',
++      columnName: 'last_overdue_notified_at',
++    },
+ 
+     //  ╔═╗╔╦╗╔╗ ╔═╗╔╦╗╔═╗
+     //  ║╣ ║║║╠╩╗║╣  ║║╚═╗
+diff --git a/server/api/models/TaskList.js b/server/api/models/TaskList.js
+index 964315a..c4a721f 100644
+--- a/server/api/models/TaskList.js
++++ b/server/api/models/TaskList.js
+@@ -80,6 +80,18 @@
+  *           nullable: true
+  *           description: Workflow status of the task list
+  *           example: todo
++ *         lastDueSoonNotifiedAt:
++ *           type: string
++ *           format: date-time
++ *           nullable: true
++ *           description: Internal - when the due-soon deadline notification was last sent for this task list
++ *           example: 2024-01-01T00:00:00.000Z
++ *         lastOverdueNotifiedAt:
++ *           type: string
++ *           format: date-time
++ *           nullable: true
++ *           description: Internal - when the overdue deadline notification was last sent for this task list
++ *           example: 2024-01-01T00:00:00.000Z
+  *         createdAt:
+  *           type: string
+  *           format: date-time
+@@ -144,6 +156,18 @@ module.exports = {
+       isIn: Object.values(Statuses),
+       allowNull: true,
+     },
++    // BSY Media: deadline-notification idempotency tracking for the
++    // scheduled `deadline-notifications` hook - reset to null whenever
++    // dueDate or assigneeUserId changes (see task-lists/update-one.js), set
++    // once the corresponding notification actually fires.
++    lastDueSoonNotifiedAt: {
++      type: 'ref',
++      columnName: 'last_due_soon_notified_at',
++    },
++    lastOverdueNotifiedAt: {
++      type: 'ref',
++      columnName: 'last_overdue_notified_at',
++    },
+ 
+     //  ╔═╗╔╦╗╔╗ ╔═╗╔╦╗╔═╗
+     //  ║╣ ║║║╠╩╗║╣  ║║╚═╗
+diff --git a/server/db/migrations/20260813180000_add_deadline_notification_tracking_to_task_list.js b/server/db/migrations/20260813180000_add_deadline_notification_tracking_to_task_list.js
+new file mode 100644
+index 0000000..f31ebcf
+--- /dev/null
++++ b/server/db/migrations/20260813180000_add_deadline_notification_tracking_to_task_list.js
+@@ -0,0 +1,16 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++module.exports.up = (knex) =>
++  knex.schema.alterTable('task_list', (table) => {
++    table.timestamp('last_due_soon_notified_at', true);
++    table.timestamp('last_overdue_notified_at', true);
++  });
++
++module.exports.down = (knex) =>
++  knex.schema.alterTable('task_list', (table) => {
++    table.dropColumn('last_due_soon_notified_at');
++    table.dropColumn('last_overdue_notified_at');
++  });
+diff --git a/server/db/migrations/20260813180001_add_deadline_notification_tracking_to_task.js b/server/db/migrations/20260813180001_add_deadline_notification_tracking_to_task.js
+new file mode 100644
+index 0000000..cc090b3
+--- /dev/null
++++ b/server/db/migrations/20260813180001_add_deadline_notification_tracking_to_task.js
+@@ -0,0 +1,16 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++module.exports.up = (knex) =>
++  knex.schema.alterTable('task', (table) => {
++    table.timestamp('last_due_soon_notified_at', true);
++    table.timestamp('last_overdue_notified_at', true);
++  });
++
++module.exports.down = (knex) =>
++  knex.schema.alterTable('task', (table) => {
++    table.dropColumn('last_due_soon_notified_at');
++    table.dropColumn('last_overdue_notified_at');
++  });

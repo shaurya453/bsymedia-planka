@@ -1668,3 +1668,151 @@ with readable text on each; sub-task rows still show no status control at all. R
 again against the real "Yapmaster Media" board's existing checklists (now correctly showing grey
 "NOT SET" chips, since their status has never been touched) and the Gantt Timeline tab, both
 unaffected. Sandbox project/board fully deleted afterward, confirmed via direct Postgres count.
+
+## Deadline notifications, due-status coloring, date-chip colors, remove card-level dates (2026-08-13)
+
+Follow-up to a plain question ("what happens when a task's deadline is approaching? any visual
+cues, any notifications?") that surfaced a real gap: this app had zero time-based notifications
+(only mutation-triggered ones) and the only due-date visual cue lived on small chips *inside* the
+opened card, invisible from the board. Four related changes landed together:
+
+1. **A real scheduled deadline-notification system** - pings the assignee when a checklist/
+   sub-task crosses <24h from its due date ("due soon"), and again when it becomes overdue.
+2. **Card-face title coloring** - a checklist/sub-task's own name text turns orange (due soon) /
+   red (overdue) directly on the Kanban board card face, including sub-tasks when the card's
+   expand arrow is open, so urgency is visible without opening the card.
+3. **Date-chip base colors** - the small start/due chips inside the card modal now use fixed
+   identity colors (blue start, orange due, matching the calendar picker) as their resting state,
+   with the existing overdue-red/completed-green status override still taking priority.
+4. **Card-level dates removed entirely** - the card's own separate start/due date feature (distinct
+   from checklist/task dates) was dropped from the UI and API. Confirmed via a real DB check before
+   touching anything: 31 production cards had `due_date` set, so removal was scoped **non-
+   destructive** - UI/API surface only, the `card.start_date`/`due_date`/`is_due_completed` columns
+   stay in the database, unused and untouched (re-confirmed identical count, 31/231, after shipping).
+
+### Feature 1 - scheduled hook (new pattern for this codebase)
+
+No cron/scheduling library exists anywhere in this app - confirmed via `server/package.json` - so
+the new `server/api/hooks/deadline-notifications/index.js` mirrors the *only* existing recurring-
+task precedent, `watcher/index.js`'s bare `setInterval` (60s), calling two new helpers,
+`server/api/helpers/deadline-notifications/process-{task-lists,tasks}.js`. Two new nullable
+timestamp columns per model (`last_due_soon_notified_at`/`last_overdue_notified_at` on `task_list`
+and `task`, migrations `20260813180000`/`20260813180001`) track idempotency - reset to null in
+`task-lists/update-one.js`/`tasks/update-one.js` whenever `dueDate` or `assigneeUserId` changes, so
+a postponed deadline or a newly-assigned user gets a fresh notification cycle. Delivery reuses the
+existing `Action.PERSONAL_NOTIFIABLE_TYPES` single-recipient pathway (same one `ASSIGN_TASK_LIST`/
+`ASSIGN_TASK` already use) - four new types, `TASK_LIST_DUE_SOON`/`TASK_LIST_OVERDUE`/
+`TASK_DUE_SOON`/`TASK_OVERDUE`. Since a scheduled job has no real "actor," the bootstrap admin
+account (`sails.config.custom.defaultAdminEmail`) is used purely to satisfy `Notification.
+creatorUserId`'s schema requirement - the client renders these 4 types with deliberately impersonal
+wording ("Checklist «X» is due soon on «Card»") and, critically, **does not show the admin's
+avatar either** (`NotificationsStep/Item.jsx` was found to unconditionally render `<UserAvatar
+id={notification.creatorUserId} .../>` outside the per-type switch - fixed by swapping in a neutral
+orange/red hourglass icon for these 4 types specifically, matching the due-soon/overdue color
+language, so the "no sender shown" intent is actually true end-to-end, not just in the text).
+
+**Two real bugs found and fixed during live verification, not caught by code review alone:**
+- **Waterline's `{ '!=': true }` on a nullable boolean silently excludes `NULL` rows** (plain SQL
+  three-valued logic - `NULL != true` is unknown, not true) - `isDueCompleted` is `allowNull: true`
+  and the overwhelming majority of real rows have it as `null`, never `false`, so the original
+  due-soon/overdue queries matched **zero** real checklists despite objectively-matching test data
+  (confirmed by directly comparing the Waterline query result against an equivalent raw-SQL check
+  during verification - the row satisfied every condition by eye, `TaskList.find()` still returned
+  empty). Fixed in both `TaskList.qm.getOverdue`/`getDueSoon` and the `Task.qm` equivalents by
+  replacing `isDueCompleted: { '!=': true }` with `or: [{ isDueCompleted: false }, { isDueCompleted:
+  null }]`.
+- **`Trans` component child-index miscounting**: the 4 new notification cases render `[plain-text-
+  string, <Link>]` as children (no leading `<span className={styles.author}>` since these are
+  impersonal) - the i18n strings were written as `<0>{{card}}</0>`, but react-i18next's `Trans`
+  counts *every* child including plain text nodes toward the numeric index, confirmed directly
+  against the working `ASSIGN_TASK_LIST` precedent (`<0>{{user}}</0> ... <2>{{card}}</2>`, where
+  index 1 is exactly this kind of in-between plain-text child) - the Link was actually at index 1,
+  not 0. Manifested as garbled, duplicated notification text in the live UI ("Checklist «X» is
+  overdue on Checklist «X» is overdue on") until caught by an actual headless-browser screenshot of
+  the notification bell, not just a DB/API check. Fixed by correcting all 4 new i18n keys to `<1>`.
+
+Both bugs were caught only because verification went all the way to a real browser screenshot and
+a live-running scheduled interval, not just "the helper function ran without throwing" - consistent
+with this deployment's own standing rule to verify live, not just claim it works.
+
+Live-verified end-to-end in an isolated sandbox (fully deleted afterward, confirmed via direct
+Postgres count): due-soon and overdue each fire exactly once (idempotency confirmed across a full
+extra interval tick with zero DB changes), a `PATCH` via the real API resets tracking, a deactivated
+assignee is silently skipped with no error, and the real running `setInterval` (not just a manual
+helper invocation) picks up a reset row within one tick.
+
+### Feature 2 - card-face title coloring
+
+Extracted the due-soon/overdue/completed threshold math (previously only living inside
+`DueDateChip.jsx`'s local `getStatus()`) into a shared `client/src/utils/get-due-date-status.js`,
+and its live-updating `setInterval`-based re-render logic into a shared `client/src/hooks/
+use-due-date-status.js` - both `DueDateChip` and the new card-face coloring (`Card/TaskList/
+TaskList.jsx` for the checklist name, `Card/TaskList/Task.jsx` for the sub-task name shown when
+the card's expand arrow is open) consume the same one implementation instead of a third copy of the
+24-hour math. Colors reuse `DueDateChip`'s own existing hex values exactly (`#f2711c`/`#db2828`) for
+consistency - live-verified via `getComputedStyle` matching pixel-for-pixel, not just "looks
+orange." `Task.module.scss`'s existing dark-mode-cards override block (`:global(#app.dark-mode-
+cards-enabled) .name:not(.nameCompleted)`, id-qualified) needed matching double-class overrides
+added, or its higher specificity would have silently washed out the new plain classes in dark mode.
+
+### Feature 3 - date-chip base colors
+
+`DueDateChip.jsx` gained one additive prop, `baseColor` (`'neutral'` default, unchanged for every
+untouched call site, or `'blue'`/`'orange'`) - when an active due-soon/overdue/completed status
+exists, the existing status classes still win (this *is* "status overrides base color"); otherwise
+the chip falls back to the new base color instead of always-grey. Only the checklist-header
+(`CardModal/TaskLists/Item.jsx`) and sub-task (`task-lists/TaskList/Task/Task.jsx`) date chips were
+updated - Gantt's Schedule/Tasks/Timeline chips stay neutral (out of scope, unaffected by the new
+default). Live-verified all 4 states on one real chip in sequence: solid blue start, solid orange
+due (far-future, base color), solid green (marked `isDueCompleted`) - confirmed distinct from the
+base orange, matching `DueDateChip`'s pre-existing status-color values exactly.
+
+### Feature 4 - card-level dates removed (non-destructive)
+
+Full removal swept server (`Card.js` model attributes, `cards/{update,create}.js` controllers,
+`cards/{update-one,create-one,duplicate-one}.js` helpers, the `SET_CARD_START_DATE`/
+`SET_CARD_DUE_DATE` Action types, `boards/import-from-trello.js`'s Trello-date import - flagging
+this as a genuine behavior change, future Trello imports no longer bring in card due dates) and
+client (`models/Card.js`, `api/cards.js`'s transform layer, `Card/ProjectContent.jsx` card face,
+the entire "Dates" sidebar section in `CardModal/ProjectContent.jsx`, the `cardId` mode of the
+shared `EditDueDateStep.jsx`, `CardActivities/Item.jsx`'s activity cases). `CardModal/
+StoryContent.jsx`/`Card/StoryContent.jsx` needed no changes - confirmed via direct read they never
+had card-date UI. Kept `common.startDate`/`common.dueDate` i18n keys (also used by `EditDueDateStep`'s
+still-live tab labels) while removing the 4 now-dead `userSet.../userRemoved...` activity-text keys
+- caught by grepping for other usages before deleting anything, not assumed safe.
+
+**Two real gaps found via a from-scratch grep sweep, missed by the initial research pass:**
+- **`CardActionsStep.jsx`** (the board-level card 3-dot menu) had its own, separate "Edit Due Date"
+  menu item + `EditDueDateStep cardId={...}` step, entangled into a shared `menuItemsTotal`/
+  `hasTopSection` layout-counting calculation alongside several unrelated `can*` flags - removed
+  cleanly by deleting just the `canEditDueDate`-gated contributions, not touching the others.
+- **The Gantt "Tasks" tab (`Tasks.jsx`)** genuinely has its own card-level date UI (`item.
+  startDate`/`dueDate`, a date-chip row, `EditDatesPopup cardId={item.cardId}` wrapping the card
+  header) - this directly contradicted an initial assumption (carried from a first-pass read) that
+  it was already checklist-only like `Timeline.jsx`; caught by reading the file directly rather
+  than trusting the earlier summary, matching this deployment's own repeated "verify, don't trust a
+  summary" lesson.
+- Also found and removed a **third, unrelated exposure of card due dates**: a list's own "Sort by
+  due date" feature (`SortStep.jsx`'s `Types.BY_DUE_DATE`, `List.SortFieldNames.DUE_DATE` on both
+  client and server, `lists/sort-one.js`'s sort comparator) - not part of the Gantt modal at all,
+  found only via a final broad `grep` sweep for `card.*dueDate` patterns across the whole tree
+  after believing the removal was complete. A genuine instance of "safely remove any instances of
+  that in the code" that the itemized plan hadn't enumerated.
+
+`GanttChart/Row.jsx`/`GanttChart.jsx`'s `cardId` prop plumbing (feeds `EditDueDateStep` for a
+card-level bar click) was also fully removed, not just left as harmless dead weight - confirmed via
+grep that no row-building code (`Timeline.jsx`, `TeamWorkload.jsx`) ever populated a real `cardId`
+on a row object after the Feature 4 changes (only used it for React `key` strings), so the prop
+could never carry a real value again.
+
+Patch: `planka-custom/patches/0036-deadline-notifications-status-coloring-remove-card-dates.patch`.
+**Deployed and live-verified 2026-08-13**, all in one isolated sandbox (project/board/throwaway
+user fully deleted afterward, confirmed via direct Postgres count returning zero across every
+table touched): due-soon/overdue notification firing + idempotency + reset-on-change + deactivated-
+user-skip, all 4 real hex color states on the date chips, card-face title coloring on both a
+checklist and its sub-task independently, a direct `PATCH /api/cards/:id` with `dueDate` in the
+body silently ignored (200, not 400, value never persisted), and a full regression pass against the
+real "Yapmaster Media" board's existing checklists and all 4 Gantt tabs (Timeline/Tasks/Team
+Workload/Schedule) - zero visual or functional breakage, confirmed via live screenshots not just
+"the build succeeded." Final real-data check: still exactly 31/231 cards with `due_date` set,
+byte-for-byte the same count as before this work started.
