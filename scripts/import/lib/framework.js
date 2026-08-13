@@ -8,14 +8,25 @@
 // four of these unchanged.
 const db = require('./db');
 
-function matchMembers(model, plankaUsers) {
+// aliases: { sourceEmail: plankaEmail } - manual override for a person who
+// signed up to Planka with a different email than the one they used in the
+// source system (Taiga), so a plain email === email match can never find
+// them automatically. Deliberately explicit/manual (see
+// email-aliases.json) rather than any kind of fuzzy name matching - same
+// "resolve manually, no auto-create" philosophy as the rest of this tool.
+function matchMembers(model, plankaUsers, aliases = {}) {
   const byEmail = new Map(plankaUsers.map((u) => [String(u.email || '').toLowerCase(), u]));
+  const normalizedAliases = new Map(
+    Object.entries(aliases).map(([from, to]) => [from.toLowerCase(), to.toLowerCase()]),
+  );
   const matched = [];
   const unmatched = [];
   for (const m of model.members) {
-    const u = byEmail.get(m.email.toLowerCase());
+    const sourceEmail = m.email.toLowerCase();
+    const aliasEmail = normalizedAliases.get(sourceEmail);
+    const u = byEmail.get(sourceEmail) || (aliasEmail && byEmail.get(aliasEmail));
     if (u) {
-      matched.push({ email: m.email, name: m.name, plankaId: u.id, plankaName: u.name });
+      matched.push({ email: m.email, name: m.name, plankaId: u.id, plankaName: u.name, viaAlias: !!aliasEmail && !byEmail.get(sourceEmail) });
     } else {
       unmatched.push(m);
     }
@@ -23,8 +34,8 @@ function matchMembers(model, plankaUsers) {
   return { matched, unmatched };
 }
 
-function gapAnalysis(model, plankaUsers) {
-  const memberMatches = matchMembers(model, plankaUsers);
+function gapAnalysis(model, plankaUsers, aliases = {}) {
+  const memberMatches = matchMembers(model, plankaUsers, aliases);
 
   const cardsWithUnmatchedAssignee = model.cards.filter((c) =>
     c.assigneeEmails.some((e) => memberMatches.unmatched.some((u) => u.email === e)),
@@ -41,6 +52,13 @@ function gapAnalysis(model, plankaUsers) {
   lines.push(`- Checklist items: ${model.stats.totalChecklistItems}`);
   lines.push(`- Move-history events (for cycle-time seeding): ${model.stats.totalMoveEvents}`);
   lines.push(`- Members referenced: ${model.members.length} (${memberMatches.matched.length} matched to existing PLANKA accounts, ${memberMatches.unmatched.length} unmatched)`);
+  const aliasMatches = memberMatches.matched.filter((m) => m.viaAlias);
+  if (aliasMatches.length > 0) {
+    lines.push(
+      `  (${aliasMatches.length} matched via a manual email alias in email-aliases.json: ` +
+        `${aliasMatches.map((m) => `${m.email} -> ${m.plankaName}`).join(', ')})`,
+    );
+  }
   lines.push('');
   lines.push('## Columns, in order');
   for (const c of model.columns) {

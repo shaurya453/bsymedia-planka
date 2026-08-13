@@ -57,15 +57,22 @@ async function main() {
   const token = await planka.login(process.env.PLANKA_SERVICE_EMAIL, process.env.PLANKA_SERVICE_PASSWORD);
   const plankaUsers = await planka.listUsers(token);
 
+  // Manual sourceEmail -> plankaEmail overrides for people who signed up
+  // with a different email than the one they used in Taiga - see the file
+  // itself for the current entries. Optional; an empty/missing file is
+  // fine (existing deployments before this file existed behave unchanged).
+  const aliasesPath = path.join(__dirname, 'email-aliases.json');
+  const aliases = fs.existsSync(aliasesPath) ? JSON.parse(fs.readFileSync(aliasesPath, 'utf8')) : {};
+
   if (opts.mode === 'gap-analysis') {
-    const { reportText } = framework.gapAnalysis(model, plankaUsers);
+    const { reportText } = framework.gapAnalysis(model, plankaUsers, aliases);
     console.log(reportText);
     writeReport(`${opts.adapterName}-gap-analysis.md`, reportText);
     return;
   }
 
   if (opts.mode === 'dry-run') {
-    const { memberMatches } = framework.gapAnalysis(model, plankaUsers);
+    const { memberMatches } = framework.gapAnalysis(model, plankaUsers, aliases);
     const { reportText } = framework.planDryRun(model, memberMatches);
     console.log(reportText);
     writeReport(`${opts.adapterName}-dry-run.md`, reportText);
@@ -73,7 +80,7 @@ async function main() {
   }
 
   if (opts.mode === 'apply') {
-    const { memberMatches } = framework.gapAnalysis(model, plankaUsers);
+    const { memberMatches } = framework.gapAnalysis(model, plankaUsers, aliases);
     const pool = await db.connect();
     try {
       const { result, boardId } = await framework.apply(model, memberMatches, { plankaClient: planka, token, pool });
@@ -99,7 +106,7 @@ async function main() {
   }
 
   if (opts.mode === 'reauthor-comments') {
-    const { memberMatches } = framework.gapAnalysis(model, plankaUsers);
+    const { memberMatches } = framework.gapAnalysis(model, plankaUsers, aliases);
     const pool = await db.connect();
     try {
       const result = await framework.reauthorComments(model, memberMatches, { plankaClient: planka, token, pool });
