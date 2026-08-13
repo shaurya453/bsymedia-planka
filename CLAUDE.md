@@ -1527,3 +1527,86 @@ text and correct attribution, verified byte-for-byte against a sample. Final boa
 runs = 332, the exact original Taiga total, plus 2 extra organic comments staff posted through the
 live UI during the same window, confirmed via timestamp clustering and zero duplicate
 `(card_id, text)` pairs — not an artifact of this process).
+
+## Checklist (main TaskList) manual status field: To Do / In Progress / Completed (2026-08-13)
+
+Client asked for a three-state workflow status on the **main checklist** (`TaskList`) — explicitly
+not on sub-tasks (`Task`) — with a notification when it's toggled. Confirmed with the client up
+front: notifications go to everyone subscribed to the card (not just the checklist's assignee),
+the toggle lives both as an icon+popup in the checklist header and as a badge on the Kanban card
+face, and it's manual-only (no auto-transition from sub-task completion % or from the pre-existing
+`isDueCompleted` due-date flag, which is a different, unrelated concept).
+
+- **Migration**: `status` (plain string, nullable, no backfill default) added to `task_list` —
+  mirrors the most recent precedent (`20260813150000_add_type_to_comment.js`) except deliberately
+  has no default value. Unlike `Comment.type` (which had an obvious backfill, `'update'`), there
+  was no correct default status to silently assign every pre-existing checklist, so existing rows
+  stay `null`/unset until a user explicitly picks one — same `allowNull: true`-with-no-default
+  precedent `TaskList.isDueCompleted` already established. `TaskList.Statuses` const (`todo`/
+  `inProgress`/`completed`, lower-camelCase values) exported the same way `Card.Types` is.
+- **Notification mechanism reused, not rebuilt**: read `api/helpers/actions/create-one.js` live
+  and confirmed exactly how `MOVE_CARD` already fans a notification out to every card+board
+  subscriber with self-skip built in (`Action.INTERNAL_NOTIFIABLE_TYPES` branch, unions
+  `sails.helpers.cards.getSubscriptionUserIds` + `sails.helpers.boards.getSubscriptionUserIds`,
+  excludes the actor via the same call's second param) — this is a *different* branch from the
+  single-targeted-recipient one `ASSIGN_TASK_LIST`/`ASSIGN_TASK` use
+  (`Action.PERSONAL_NOTIFIABLE_TYPES`). The new `Action.Types.CHANGE_TASK_LIST_STATUS` was added
+  to `INTERNAL_NOTIFIABLE_TYPES` only, deliberately **not** to `PERSONAL_NOTIFIABLE_TYPES` — the
+  single highest-risk line in this change, since getting it backwards would've both broken the
+  "notify everyone" requirement and thrown (the personal branch hard-requires
+  `action.data.user.id`, which a status-change payload has no reason to carry). Verified directly
+  against real DB rows: a subscriber got exactly one notification per real status change made by
+  someone else, and zero when they made the change themselves (self-skip) or resubmitted the same
+  value (no-op guard).
+- **Real bug caught before shipping, not after**: the original plan was to also add `status` to
+  `update-one.js`'s existing hardcoded `isLoggableChange` field list (the same one `name`/
+  `startDate`/`dueDate`/`isDueCompleted` already use for the generic "updated checklist" Activity
+  entry). Doing that would have logged **two** Action rows per status change — the generic
+  `UPDATE_TASK_LIST` one, plus the new `CHANGE_TASK_LIST_STATUS` one — and the second would have
+  rendered as a blank, content-less row in the Activity tab, since `ActivityTypes` (the client's
+  Activity-tab rendering enum) never included `assignTaskList`/`assignTask` either, confirmed by
+  reading `CardActivities/Item.jsx`'s `default: contentNode = null` fallback. Fixed by *not* adding
+  `status` to `isLoggableChange` (matching the pre-existing `assigneeUserId` exclusion, which has
+  the same reasoning) and instead giving `CHANGE_TASK_LIST_STATUS` its own real
+  `ActivityTypes`/`CardActivities/Item.jsx` case — one Action row now serves double duty as both
+  the notification trigger and a proper, single, informative Activity-tab entry ("X changed
+  checklist Y status to Z" / "X cleared the status of checklist Y"), the same pattern `MOVE_CARD`
+  and `COMPLETE_TASK` already use. Verified live: exactly one clean Activity-tab row per status
+  change, no blank duplicates.
+- **Client UI**: checklist header (`CardModal/TaskLists/Item.jsx`) gained a 4th always-visible
+  editor icon (was assignee+dates+pencil, now status+assignee+dates+pencil — `visibleActionsCount`
+  padding-class progression extended to a new `.five` at 152px, continuing the existing
+  `.two`/`.three`/`.four` +30px-per-icon pattern), opening a new `SelectStatusStep.jsx` (mirrors
+  `GanttModal/GanttChart/ColorPickerStep.jsx`'s Popup.Header/Content + clear-button shape, but a
+  labeled 3-row list instead of a color-swatch grid). Non-editors see a plain read-only dot only
+  when a status is actually set, same rule the assignee avatar already follows. Card face
+  (`Card/TaskList/TaskList.jsx`, shared by both Project- and Story-type cards, confirmed via the
+  2026-08-10 story-card-face-checklists fix) gained a small colored badge next to the checklist
+  name, shown only when the checklist has ≥1 sub-task (the same existing `tasks.length === 0 →
+  render nothing` gate the progress bar itself already has — there's nowhere to put a badge "next
+  to the progress bar" when there is no progress bar). Fixed 3-color legend
+  (`constants/TaskListStatusColors.js`: grey/blue/green) reuses hex values already present in
+  `GanttTaskListColors.js` rather than inventing new ones.
+- **No client saga/API/reducer changes needed** — `entryActions.updateTaskList(id, { anyField })`
+  was already fully generic (proven by patch 0029's `assigneeUserId` usage), so the new `status`
+  field just rides the existing update path; only `status: attr()` was added to the client
+  `TaskList` model. Deliberately excluded from `TaskList.duplicate()`, matching how
+  `startDate`/`dueDate`/`isDueCompleted`/`assigneeUserId` are already excluded there — a duplicated
+  checklist shouldn't inherit the original's in-flight workflow state.
+
+Patch: `planka-custom/patches/0035-checklist-status-field.patch`. **Deployed and live-verified
+2026-08-13** end-to-end in an isolated sandbox project (created and fully deleted via the API
+afterward, confirmed zero trace left in `project`/`board`/`card`/`task_list`/`user_account`/
+`action`/`notification`): real Postgres checks confirmed exactly one `changeTaskListStatus` Action
+row per genuine change and zero for a same-value resubmit; a subscribed second user received
+exactly one notification per change made by someone else and zero for their own changes; a
+non-editor board member got a real 403 attempting the same API call, proving the existing
+board-editor gate covers the new field automatically; a headless-browser pass confirmed the header
+popup, the card-face badge, the notification-bell text, and the Activity-tab entry all render
+correctly, and — the most important regression check given the explicit scoping requirement —
+confirmed the status control never appears on `Task` (sub-task) rows, only on the parent
+`TaskList` header. Also regression-checked against real production data (the "Yapmaster Media"
+board's existing "Scriptwriting"/"Video Editing" checklists, which already carry real dates/
+assignees/colors from prior sessions) and the Gantt Timeline tab — both rendered correctly
+alongside the new status icon with no visual or functional breakage, and zero rows were touched in
+the unrelated `planka_ops.gantt_task_list_colors` table.

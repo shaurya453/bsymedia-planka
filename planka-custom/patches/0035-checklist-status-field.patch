@@ -1,0 +1,803 @@
+diff --git a/client/src/components/activities/CardActivities/Item.jsx b/client/src/components/activities/CardActivities/Item.jsx
+index 3bd55cd..c48629e 100755
+--- a/client/src/components/activities/CardActivities/Item.jsx
++++ b/client/src/components/activities/CardActivities/Item.jsx
+@@ -204,6 +204,42 @@ const Item = React.memo(({ id }) => {
+       );
+ 
+       break;
++    case ActivityTypes.CHANGE_TASK_LIST_STATUS: {
++      const { status, taskList } = activity.data;
++
++      contentNode = status ? (
++        <Trans
++          i18nKey="common.userChangedChecklistStatusOnThisCard"
++          values={{
++            user: userName,
++            taskList: taskList.name,
++            status: t(`common.taskListStatus_${status}`),
++          }}
++        >
++          <span className={styles.author}>{userName}</span>
++          {' changed checklist '}
++          {taskList.name}
++          {' status to '}
++          {t(`common.taskListStatus_${status}`)}
++          {' on this card'}
++        </Trans>
++      ) : (
++        <Trans
++          i18nKey="common.userClearedChecklistStatusOnThisCard"
++          values={{
++            user: userName,
++            taskList: taskList.name,
++          }}
++        >
++          <span className={styles.author}>{userName}</span>
++          {' cleared the status of checklist '}
++          {taskList.name}
++          {' on this card'}
++        </Trans>
++      );
++
++      break;
++    }
+     case ActivityTypes.DELETE_TASK_LIST:
+       contentNode = (
+         <Trans
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.jsx b/client/src/components/cards/Card/TaskList/TaskList.jsx
+index 1a11dcc..9baaee8 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.jsx
++++ b/client/src/components/cards/Card/TaskList/TaskList.jsx
+@@ -7,10 +7,12 @@ import React, { useCallback, useMemo } from 'react';
+ import PropTypes from 'prop-types';
+ import classNames from 'classnames';
+ import { useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
+ import { Progress } from 'semantic-ui-react';
+ import { useDidUpdate, useToggle } from '../../../../lib/hooks';
+ 
+ import selectors from '../../../../selectors';
++import TaskListStatusColors from '../../../../constants/TaskListStatusColors';
+ import Task from './Task';
+ 
+ import styles from './TaskList.module.scss';
+@@ -22,6 +24,8 @@ const TaskList = React.memo(({ id }) => {
+   const taskLists = useSelector((state) => selectTaskListById(state, id));
+   const tasks = useSelector((state) => selectTasksByTaskListId(state, id));
+ 
++  const [t] = useTranslation();
++
+   const defaultIsOpened = useSelector(
+     (state) => selectors.selectCurrentBoard(state).expandTaskListsByDefault,
+   );
+@@ -61,7 +65,17 @@ const TaskList = React.memo(({ id }) => {
+ 
+   return (
+     <>
+-      <div className={styles.name}>{taskLists.name}</div>
++      <div className={styles.nameRow}>
++        <div className={styles.name}>{taskLists.name}</div>
++        {taskLists.status && (
++          <span
++            className={styles.statusBadge}
++            style={{ background: TaskListStatusColors[taskLists.status] }}
++          >
++            {t(`common.taskListStatus_${taskLists.status}`)}
++          </span>
++        )}
++      </div>
+       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events,
+                                    jsx-a11y/no-static-element-interactions */}
+       <div className={styles.progressRow} onClick={handleToggleClick}>
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.module.scss b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+index 7c2856c..3415ba9 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.module.scss
++++ b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+@@ -35,17 +35,38 @@
+     padding: 0 6px 6px;
+   }
+ 
++  .nameRow {
++    align-items: center;
++    display: flex;
++    gap: 6px;
++    margin: 0 -8px -2px;
++    padding: 0 8px;
++  }
++
+   .name {
+     color: #6b808c;
++    flex: 1 1 auto;
+     font-size: 12px;
+     font-weight: bold;
+-    margin: 0 -8px -2px;
++    min-width: 0;
+     overflow: hidden;
+-    padding: 0 8px;
+     text-overflow: ellipsis;
+     white-space: nowrap;
+   }
+ 
++  // BSY Media: manual checklist status badge, shown next to the checklist
++  // name whenever a status is set (todo/inProgress/completed).
++  .statusBadge {
++    border-radius: 3px;
++    color: #fff;
++    flex: none;
++    font-size: 10px;
++    font-weight: bold;
++    line-height: 14px;
++    padding: 0 6px;
++    text-transform: uppercase;
++  }
++
+   .progress {
+     margin: 0;
+   }
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.jsx b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+index 32d619f..a85d000 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.jsx
++++ b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+@@ -8,6 +8,7 @@ import ReactDOM from 'react-dom';
+ import PropTypes from 'prop-types';
+ import classNames from 'classnames';
+ import { useDispatch, useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
+ import { Draggable } from 'react-beautiful-dnd';
+ import { Button, Icon } from 'semantic-ui-react';
+ import { useToggle } from '../../../../lib/hooks';
+@@ -16,7 +17,9 @@ import selectors from '../../../../selectors';
+ import entryActions from '../../../../entry-actions';
+ import { usePopupInClosableContext } from '../../../../hooks';
+ import { BoardMembershipRoles } from '../../../../constants/Enums';
++import TaskListStatusColors from '../../../../constants/TaskListStatusColors';
+ import EditStep from './EditStep';
++import SelectStatusStep from './SelectStatusStep';
+ import TaskList from '../../../task-lists/TaskList';
+ import SelectAssigneeStep from '../../../task-lists/TaskList/Task/SelectAssigneeStep';
+ import DueDateChip from '../../DueDateChip';
+@@ -37,6 +40,8 @@ const Item = React.memo(({ id, index }) => {
+ 
+   const dispatch = useDispatch();
+ 
++  const [t] = useTranslation();
++
+   const [isCompletedVisible, toggleCompletedVisible] = useToggle();
+ 
+   const handleToggleCompletedVisibleClick = useCallback(() => {
+@@ -54,18 +59,33 @@ const Item = React.memo(({ id, index }) => {
+     dispatch(entryActions.updateTaskList(taskList.id, { assigneeUserId: null }));
+   }, [taskList.id, dispatch]);
+ 
++  const handleStatusSelect = useCallback(
++    (status) => {
++      dispatch(entryActions.updateTaskList(taskList.id, { status }));
++    },
++    [taskList.id, dispatch],
++  );
++
++  const handleStatusClear = useCallback(() => {
++    dispatch(entryActions.updateTaskList(taskList.id, { status: null }));
++  }, [taskList.id, dispatch]);
++
+   const EditPopup = usePopupInClosableContext(EditStep);
+   const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
+   const SelectAssigneePopup = usePopupInClosableContext(SelectAssigneeStep);
+-
+-  // BSY Media: canEdit shows three always-visible icons (assignee + dates +
+-  // pencil); a non-editor still sees a plain assignee avatar if one is set.
+-  // The hide-completed toggle is a fourth, hover-only one, shown to everyone
+-  // (not gated by canEdit) whenever the checklist has it enabled - header
+-  // padding needs to account for however many are actually visible.
+-  const withActions = taskList.hideCompletedTasks || canEdit || !!taskList.assigneeUserId;
++  const SelectStatusPopup = usePopupInClosableContext(SelectStatusStep);
++
++  // BSY Media: canEdit shows four always-visible icons (status + assignee +
++  // dates + pencil); a non-editor still sees a plain status dot/assignee
++  // avatar for whichever of those are actually set. The hide-completed
++  // toggle is a fifth, hover-only one, shown to everyone (not gated by
++  // canEdit) whenever the checklist has it enabled - header padding needs
++  // to account for however many are actually visible.
++  const withActions =
++    taskList.hideCompletedTasks || canEdit || !!taskList.assigneeUserId || !!taskList.status;
+   const visibleActionsCount =
+-    (taskList.hideCompletedTasks ? 1 : 0) + (canEdit ? 3 : Number(!!taskList.assigneeUserId));
++    (taskList.hideCompletedTasks ? 1 : 0) +
++    (canEdit ? 4 : Number(!!taskList.assigneeUserId) + Number(!!taskList.status));
+ 
+   return (
+     <Draggable
+@@ -91,6 +111,7 @@ const Item = React.memo(({ id, index }) => {
+                     visibleActionsCount === 2 && styles.two,
+                     visibleActionsCount === 3 && styles.three,
+                     visibleActionsCount === 4 && styles.four,
++                    visibleActionsCount === 5 && styles.five,
+                   )}
+                 >
+                   {taskList.isPersisted && withActions && (
+@@ -107,6 +128,35 @@ const Item = React.memo(({ id, index }) => {
+                           />
+                         </Button>
+                       )}
++                      {canEdit ? (
++                        <SelectStatusPopup
++                          status={taskList.status}
++                          onSelect={handleStatusSelect}
++                          onClear={handleStatusClear}
++                        >
++                          <Button className={styles.editButton}>
++                            <span
++                              className={classNames(
++                                styles.statusDot,
++                                !taskList.status && styles.statusDotEmpty,
++                              )}
++                              style={
++                                taskList.status
++                                  ? { background: TaskListStatusColors[taskList.status] }
++                                  : undefined
++                              }
++                            />
++                          </Button>
++                        </SelectStatusPopup>
++                      ) : (
++                        taskList.status && (
++                          <span
++                            className={styles.statusDot}
++                            style={{ background: TaskListStatusColors[taskList.status] }}
++                            title={t(`common.taskListStatus_${taskList.status}`)}
++                          />
++                        )
++                      )}
+                       {canEdit ? (
+                         <SelectAssigneePopup
+                           currentUserId={taskList.assigneeUserId}
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.module.scss b/client/src/components/cards/CardModal/TaskLists/Item.module.scss
+index 56a20af..42c7143 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.module.scss
++++ b/client/src/components/cards/CardModal/TaskLists/Item.module.scss
+@@ -16,6 +16,22 @@
+     padding: 2px;
+   }
+ 
++  // BSY Media: checklist status dot (editor button icon, and the read-only
++  // marker shown to viewers once a status is set).
++  .statusDot {
++    border-radius: 50%;
++    box-shadow: inset 0 0 0 1px rgba(9, 30, 66, 0.13);
++    display: inline-block;
++    flex: none;
++    height: 12px;
++    margin: 8px;
++    width: 12px;
++  }
++
++  .statusDotEmpty {
++    background: transparent;
++  }
++
+   .button {
+     background: transparent;
+     box-shadow: none;
+@@ -78,6 +94,10 @@
+     &.four {
+       padding-right: 122px;
+     }
++
++    &.five {
++      padding-right: 152px;
++    }
+   }
+ 
+   .moduleHeaderTitle {
+diff --git a/client/src/components/cards/CardModal/TaskLists/SelectStatusStep.jsx b/client/src/components/cards/CardModal/TaskLists/SelectStatusStep.jsx
+new file mode 100644
+index 0000000..d2d6406
+--- /dev/null
++++ b/client/src/components/cards/CardModal/TaskLists/SelectStatusStep.jsx
+@@ -0,0 +1,83 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useCallback } from 'react';
++import PropTypes from 'prop-types';
++import classNames from 'classnames';
++import { Button } from 'semantic-ui-react';
++import { useTranslation } from 'react-i18next';
++import { Popup } from '../../../../lib/custom-ui';
++
++import { TaskListStatuses } from '../../../../constants/Enums';
++import TaskListStatusColors from '../../../../constants/TaskListStatusColors';
++
++import styles from './SelectStatusStep.module.scss';
++
++// BSY Media: manual checklist status toggle - a small fixed 3-option picker,
++// mirrors GanttModal/GanttChart/ColorPickerStep.jsx's Popup.Header/Content +
++// clear-button shape, but a labeled row list rather than a color swatch
++// grid, since the 3 options are text states, not colors.
++const SelectStatusStep = React.memo(({ status, onSelect, onClear, onClose }) => {
++  const [t] = useTranslation();
++
++  const handleSelectClick = useCallback(
++    (_, { value }) => {
++      onSelect(value);
++      onClose();
++    },
++    [onSelect, onClose],
++  );
++
++  const handleClearClick = useCallback(() => {
++    onClear();
++    onClose();
++  }, [onClear, onClose]);
++
++  return (
++    <>
++      <Popup.Header>{t('common.taskListStatus', { context: 'title' })}</Popup.Header>
++      <Popup.Content>
++        <div className={styles.options}>
++          {Object.values(TaskListStatuses).map((value) => (
++            <Button
++              key={value}
++              type="button"
++              value={value}
++              className={classNames(styles.option, value === status && styles.optionActive)}
++              onClick={handleSelectClick}
++            >
++              <span
++                className={styles.dot}
++                style={{ background: TaskListStatusColors[value] }}
++              />
++              {t(`common.taskListStatus_${value}`)}
++            </Button>
++          ))}
++        </div>
++        {status && (
++          <Button
++            fluid
++            content={t('action.removeStatus')}
++            className={styles.clearButton}
++            onClick={handleClearClick}
++          />
++        )}
++      </Popup.Content>
++    </>
++  );
++});
++
++SelectStatusStep.propTypes = {
++  status: PropTypes.string,
++  onSelect: PropTypes.func.isRequired,
++  onClear: PropTypes.func.isRequired,
++  onClose: PropTypes.func.isRequired,
++};
++
++SelectStatusStep.defaultProps = {
++  status: null,
++};
++
++export default SelectStatusStep;
+diff --git a/client/src/components/cards/CardModal/TaskLists/SelectStatusStep.module.scss b/client/src/components/cards/CardModal/TaskLists/SelectStatusStep.module.scss
+new file mode 100644
+index 0000000..375e749
+--- /dev/null
++++ b/client/src/components/cards/CardModal/TaskLists/SelectStatusStep.module.scss
+@@ -0,0 +1,58 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .options {
++    display: flex;
++    flex-direction: column;
++    gap: 2px;
++  }
++
++  .option {
++    align-items: center;
++    background: transparent;
++    box-shadow: none;
++    display: flex;
++    font-weight: normal;
++    gap: 8px;
++    margin: 0 !important;
++    padding: 8px 11px !important;
++    text-align: left;
++    transition: background 0.3s ease;
++
++    &:hover {
++      background: #e9e9e9;
++    }
++  }
++
++  .optionActive {
++    background: rgba(9, 30, 66, 0.08);
++    font-weight: bold;
++  }
++
++  .dot {
++    border-radius: 50%;
++    box-shadow: inset 0 0 0 1px rgba(9, 30, 66, 0.13);
++    flex: none;
++    height: 12px;
++    width: 12px;
++  }
++
++  .clearButton {
++    background: transparent;
++    box-shadow: none;
++    color: #6b808c;
++    font-weight: normal;
++    margin-top: 10px;
++    padding: 6px 11px;
++    text-align: left;
++    text-decoration: underline;
++    transition: background 0.3s ease;
++
++    &:hover {
++      background: #e9e9e9;
++    }
++  }
++}
+diff --git a/client/src/components/notifications/NotificationsStep/Item.jsx b/client/src/components/notifications/NotificationsStep/Item.jsx
+index dfad9ba..ef436d2 100644
+--- a/client/src/components/notifications/NotificationsStep/Item.jsx
++++ b/client/src/components/notifications/NotificationsStep/Item.jsx
+@@ -167,6 +167,44 @@ const Item = React.memo(({ id, onClose }) => {
+ 
+       break;
+     }
++    case NotificationTypes.CHANGE_TASK_LIST_STATUS: {
++      const { status, taskList } = notification.data;
++
++      contentNode = status ? (
++        <Trans
++          i18nKey="common.userChangedTaskListStatus"
++          values={{
++            user: creatorUserName,
++            taskList: taskList.name,
++            status: t(`common.taskListStatus_${status}`),
++            card: cardName,
++          }}
++        >
++          <span className={styles.author}>{creatorUserName}</span>
++          {` changed checklist «${taskList.name}» status to ${t(`common.taskListStatus_${status}`)} on `}
++          <Link to={Paths.CARDS.replace(':id', notification.cardId)} onClick={onClose}>
++            {cardName}
++          </Link>
++        </Trans>
++      ) : (
++        <Trans
++          i18nKey="common.userClearedTaskListStatus"
++          values={{
++            user: creatorUserName,
++            taskList: taskList.name,
++            card: cardName,
++          }}
++        >
++          <span className={styles.author}>{creatorUserName}</span>
++          {` cleared the status of checklist «${taskList.name}» on `}
++          <Link to={Paths.CARDS.replace(':id', notification.cardId)} onClick={onClose}>
++            {cardName}
++          </Link>
++        </Trans>
++      );
++
++      break;
++    }
+     case NotificationTypes.MENTION_IN_COMMENT: {
+       const commentText = truncate(mentionMarkupToText(notification.data.text));
+ 
+diff --git a/client/src/constants/Enums.js b/client/src/constants/Enums.js
+index c5bc183..dbccf6f 100755
+--- a/client/src/constants/Enums.js
++++ b/client/src/constants/Enums.js
+@@ -111,6 +111,7 @@ export const ActivityTypes = {
+   DELETE_TASK: 'deleteTask',
+   SET_CARD_START_DATE: 'setCardStartDate',
+   SET_CARD_DUE_DATE: 'setCardDueDate',
++  CHANGE_TASK_LIST_STATUS: 'changeTaskListStatus',
+ };
+ 
+ export const NotificationTypes = {
+@@ -120,6 +121,13 @@ export const NotificationTypes = {
+   MENTION_IN_COMMENT: 'mentionInComment',
+   ASSIGN_TASK_LIST: 'assignTaskList',
+   ASSIGN_TASK: 'assignTask',
++  CHANGE_TASK_LIST_STATUS: 'changeTaskListStatus',
++};
++
++export const TaskListStatuses = {
++  TODO: 'todo',
++  IN_PROGRESS: 'inProgress',
++  COMPLETED: 'completed',
+ };
+ 
+ export const NotificationServiceFormats = {
+diff --git a/client/src/constants/TaskListStatusColors.js b/client/src/constants/TaskListStatusColors.js
+new file mode 100644
+index 0000000..14693aa
+--- /dev/null
++++ b/client/src/constants/TaskListStatusColors.js
+@@ -0,0 +1,16 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import { TaskListStatuses } from './Enums';
++
++// BSY Media: fixed 3-color legend for the checklist status toggle - reuses
++// hex values already present in this app's palette (see
++// GanttTaskListColors.js) rather than inventing new ones, so the status
++// dot/badge reads consistently with existing color language elsewhere.
++export default {
++  [TaskListStatuses.TODO]: '#8590a2',
++  [TaskListStatuses.IN_PROGRESS]: '#0c66e4',
++  [TaskListStatuses.COMPLETED]: '#4bce97',
++};
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 9b34cd5..f0ebdb5 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -345,6 +345,10 @@ export default {
+       taskActions_title: 'Task Actions',
+       taskAssignmentAndProjectCompletion: 'Task assignment and project completion.',
+       taskListActions_title: 'Task List Actions',
++      taskListStatus_completed: 'Completed',
++      taskListStatus_inProgress: 'In Progress',
++      taskListStatus_title: 'Checklist Status',
++      taskListStatus_todo: 'To Do',
+       taskList_title: 'Task List',
+       tasks: 'Tasks',
+       team: 'Team',
+@@ -383,6 +387,14 @@ export default {
+         '<0>{{user}}</0> assigned you to sub-task «{{task}}» in checklist «{{taskList}}» on <2>{{card}}</2>',
+       userAssignedYouToTaskList:
+         '<0>{{user}}</0> assigned you to checklist «{{taskList}}» on <2>{{card}}</2>',
++      userChangedChecklistStatusOnThisCard:
++        '<0>{{user}}</0> changed checklist {{taskList}} status to {{status}} on this card',
++      userChangedTaskListStatus:
++        '<0>{{user}}</0> changed checklist «{{taskList}}» status to {{status}} on <2>{{card}}</2>',
++      userClearedChecklistStatusOnThisCard:
++        '<0>{{user}}</0> cleared the status of checklist {{taskList}} on this card',
++      userClearedTaskListStatus:
++        '<0>{{user}}</0> cleared the status of checklist «{{taskList}}» on <2>{{card}}</2>',
+       userCompletedTaskOnCard: '<0>{{user}}</0> completed {{task}} on <4>{{card}}</4>',
+       userCompletedTaskOnThisCard: '<0>{{user}}</0> completed {{task}} on this card',
+       userDeletedChecklistFromThisCard:
+@@ -542,6 +554,7 @@ export default {
+       removeFromProject: 'Remove from project',
+       removeManager: 'Remove manager',
+       removeMember: 'Remove member',
++      removeStatus: 'Remove status',
+       restore: 'Restore',
+       restoreToList: 'Restore to {{list}}',
+       returnToBoard: 'Return to board',
+diff --git a/client/src/models/TaskList.js b/client/src/models/TaskList.js
+index ecee804..ba75db4 100755
+--- a/client/src/models/TaskList.js
++++ b/client/src/models/TaskList.js
+@@ -20,6 +20,7 @@ export default class extends BaseModel {
+     startDate: attr(),
+     dueDate: attr(),
+     isDueCompleted: attr(),
++    status: attr(),
+     cardId: fk({
+       to: 'Card',
+       as: 'card',
+diff --git a/server/api/controllers/task-lists/update.js b/server/api/controllers/task-lists/update.js
+index e0a739f..2dbf2df 100755
+--- a/server/api/controllers/task-lists/update.js
++++ b/server/api/controllers/task-lists/update.js
+@@ -67,6 +67,12 @@
+  *                 nullable: true
+  *                 description: ID of the user assigned as the owner of this task list (null to unassign)
+  *                 example: "1357158568008091268"
++ *               status:
++ *                 type: string
++ *                 enum: [todo, inProgress, completed]
++ *                 nullable: true
++ *                 description: Workflow status of the task list (null to clear)
++ *                 example: todo
+  *     responses:
+  *       200:
+  *         description: Task list updated successfully
+@@ -143,6 +149,11 @@ module.exports = {
+       ...idInput,
+       allowNull: true,
+     },
++    status: {
++      type: 'string',
++      isIn: Object.values(TaskList.Statuses),
++      allowNull: true,
++    },
+   },
+ 
+   exits: {
+@@ -198,6 +209,7 @@ module.exports = {
+       'dueDate',
+       'isDueCompleted',
+       'assigneeUserId',
++      'status',
+     ]);
+ 
+     taskList = await sails.helpers.taskLists.updateOne.with({
+diff --git a/server/api/helpers/task-lists/update-one.js b/server/api/helpers/task-lists/update-one.js
+index c357eef..eb3f184 100644
+--- a/server/api/helpers/task-lists/update-one.js
++++ b/server/api/helpers/task-lists/update-one.js
+@@ -117,6 +117,12 @@ module.exports = {
+       // pre-update one (both DB-shaped) rather than the raw input values, so
+       // a same-value resubmit or a Date-vs-ISO-string type mismatch can't
+       // cause a false positive.
++      // BSY Media: 'status' is deliberately excluded here, same as
++      // 'assigneeUserId' - it gets its own dedicated Action type below
++      // (CHANGE_TASK_LIST_STATUS), which doubles as both the card-activity
++      // entry and the subscriber-notification trigger. Including it here
++      // too would log a second, redundant "updated checklist" entry
++      // alongside it for every status change.
+       const isLoggableChange = ['name', 'startDate', 'dueDate', 'isDueCompleted'].some((key) => {
+         const prevValue = inputs.record[key];
+         const nextValue = taskList[key];
+@@ -171,6 +177,33 @@ module.exports = {
+           list: inputs.list,
+         });
+       }
++
++      // BSY Media: notify everyone subscribed to the card on an explicit
++      // status change (manual toggle only - no auto-transition from
++      // isDueCompleted or sub-task completion %). Unlike ASSIGN_TASK_LIST
++      // this type is NOT in Action.PERSONAL_NOTIFIABLE_TYPES, so
++      // actions/create-one.js's INTERNAL_NOTIFIABLE_TYPES branch fans this
++      // out to every card/board subscriber via
++      // sails.helpers.cards.getSubscriptionUserIds, self-skipping the actor
++      // automatically - same pathway MOVE_CARD already uses.
++      if (values.status !== undefined && taskList.status !== inputs.record.status) {
++        await sails.helpers.actions.createOne.with({
++          webhooks,
++          values: {
++            type: Action.Types.CHANGE_TASK_LIST_STATUS,
++            data: {
++              status: taskList.status,
++              card: _.pick(inputs.card, ['name']),
++              taskList: _.pick(taskList, ['id', 'name']),
++            },
++            user: inputs.actorUser,
++            card: inputs.card,
++          },
++          project: inputs.project,
++          board: inputs.board,
++          list: inputs.list,
++        });
++      }
+     }
+ 
+     return taskList;
+diff --git a/server/api/models/Action.js b/server/api/models/Action.js
+index 9db2808..6fa6cbe 100755
+--- a/server/api/models/Action.js
++++ b/server/api/models/Action.js
+@@ -46,7 +46,7 @@
+  *           example: "1357158568008091267"
+  *         type:
+  *           type: string
+- *           enum: [createCard, moveCard, addMemberToCard, removeMemberFromCard, completeTask, uncompleteTask, createTaskList, updateTaskList, deleteTaskList, createTask, deleteTask, setCardStartDate, setCardDueDate]
++ *           enum: [createCard, moveCard, addMemberToCard, removeMemberFromCard, completeTask, uncompleteTask, createTaskList, updateTaskList, deleteTaskList, createTask, deleteTask, setCardStartDate, setCardDueDate, assignTaskList, assignTask, changeTaskListStatus]
+  *           description: Type of the action
+  *           example: moveCard
+  *         data:
+@@ -89,6 +89,14 @@ const Types = {
+   // assignee is set - task-lists/update-one.js, tasks/update-one.js.
+   ASSIGN_TASK_LIST: 'assignTaskList',
+   ASSIGN_TASK: 'assignTask',
++  // BSY Media: manual three-state checklist status toggle
++  // (todo/inProgress/completed) - task-lists/update-one.js. Deliberately
++  // NOT added to PERSONAL_NOTIFIABLE_TYPES below: it needs to reach every
++  // card subscriber, not one targeted assignee, so it stays only in
++  // INTERNAL_NOTIFIABLE_TYPES - actions/create-one.js then takes the
++  // subscriber-broadcast branch (same one MOVE_CARD already uses) instead
++  // of the single-recipient one.
++  CHANGE_TASK_LIST_STATUS: 'changeTaskListStatus',
+ };
+ 
+ const INTERNAL_NOTIFIABLE_TYPES = [
+@@ -96,6 +104,7 @@ const INTERNAL_NOTIFIABLE_TYPES = [
+   Types.ADD_MEMBER_TO_CARD,
+   Types.ASSIGN_TASK_LIST,
+   Types.ASSIGN_TASK,
++  Types.CHANGE_TASK_LIST_STATUS,
+ ];
+ const EXTERNAL_NOTIFIABLE_TYPES = [Types.CREATE_CARD, Types.MOVE_CARD];
+ const PERSONAL_NOTIFIABLE_TYPES = [
+diff --git a/server/api/models/Notification.js b/server/api/models/Notification.js
+index 0da872c..0f905fb 100755
+--- a/server/api/models/Notification.js
++++ b/server/api/models/Notification.js
+@@ -63,7 +63,7 @@
+  *           example: "1357158568008091270"
+  *         type:
+  *           type: string
+- *           enum: [moveCard, commentCard, addMemberToCard, mentionInComment, assignTaskList, assignTask]
++ *           enum: [moveCard, commentCard, addMemberToCard, mentionInComment, assignTaskList, assignTask, changeTaskListStatus]
+  *           description: Type of the notification
+  *           example: commentCard
+  *         data:
+@@ -97,6 +97,8 @@ const Types = {
+   // BSY Media: ping notifications for checklist owner / sub-task assignee
+   ASSIGN_TASK_LIST: 'assignTaskList',
+   ASSIGN_TASK: 'assignTask',
++  // BSY Media: manual checklist status toggle (todo/inProgress/completed)
++  CHANGE_TASK_LIST_STATUS: 'changeTaskListStatus',
+ };
+ 
+ module.exports = {
+diff --git a/server/api/models/TaskList.js b/server/api/models/TaskList.js
+index 432d161..964315a 100644
+--- a/server/api/models/TaskList.js
++++ b/server/api/models/TaskList.js
+@@ -74,6 +74,12 @@
+  *           nullable: true
+  *           description: ID of the user assigned as the owner of this task list
+  *           example: "1357158568008091268"
++ *         status:
++ *           type: string
++ *           enum: [todo, inProgress, completed]
++ *           nullable: true
++ *           description: Workflow status of the task list
++ *           example: todo
+  *         createdAt:
+  *           type: string
+  *           format: date-time
+@@ -88,7 +94,15 @@
+  *           example: 2024-01-01T00:00:00.000Z
+  */
+ 
++const Statuses = {
++  TODO: 'todo',
++  IN_PROGRESS: 'inProgress',
++  COMPLETED: 'completed',
++};
++
+ module.exports = {
++  Statuses,
++
+   attributes: {
+     //  ╔═╗╦═╗╦╔╦╗╦╔╦╗╦╦  ╦╔═╗╔═╗
+     //  ╠═╝╠╦╝║║║║║ ║ ║╚╗╔╝║╣ ╚═╗
+@@ -125,6 +139,11 @@ module.exports = {
+       allowNull: true,
+       columnName: 'is_due_completed',
+     },
++    status: {
++      type: 'string',
++      isIn: Object.values(Statuses),
++      allowNull: true,
++    },
+ 
+     //  ╔═╗╔╦╗╔╗ ╔═╗╔╦╗╔═╗
+     //  ║╣ ║║║╠╩╗║╣  ║║╚═╗
+diff --git a/server/db/migrations/20260813160000_add_status_to_task_list.js b/server/db/migrations/20260813160000_add_status_to_task_list.js
+new file mode 100644
+index 0000000..7cba393
+--- /dev/null
++++ b/server/db/migrations/20260813160000_add_status_to_task_list.js
+@@ -0,0 +1,14 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++module.exports.up = (knex) =>
++  knex.schema.alterTable('task_list', (table) => {
++    table.string('status');
++  });
++
++module.exports.down = (knex) =>
++  knex.schema.alterTable('task_list', (table) => {
++    table.dropColumn('status');
++  });
