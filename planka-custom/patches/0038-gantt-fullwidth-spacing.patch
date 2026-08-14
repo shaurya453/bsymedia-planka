@@ -1,0 +1,102 @@
+diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
+index 48aeae2..1e3d9bf 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
++++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
+@@ -21,7 +21,7 @@
+     display: flex;
+     flex: 0 0 auto;
+     justify-content: flex-end;
+-    padding: 0 0 8px;
++    padding: 4px 0 14px;
+   }
+ 
+   .scaleControl {
+@@ -66,10 +66,10 @@
+     border-bottom: 1px solid rgba(9, 30, 66, 0.13);
+     box-sizing: border-box;
+     color: #17394d;
+-    font-size: 12px;
++    font-size: 13px;
+     font-weight: bold;
+     overflow: hidden;
+-    padding: 4px 8px;
++    padding: 8px 8px;
+     text-overflow: ellipsis;
+     white-space: nowrap;
+   }
+@@ -84,7 +84,7 @@
+     color: rgba(9, 30, 66, 0.6);
+     flex: 0 0 auto;
+     font-size: 11px;
+-    padding: 4px 0;
++    padding: 6px 0;
+     text-align: center;
+   }
+ 
+diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
+index 3893714..6ec6fa2 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
++++ b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
+@@ -10,7 +10,7 @@
+   // static-flow content regardless of DOM order.
+   .row {
+     display: flex;
+-    min-height: 26px;
++    min-height: 32px;
+     position: relative;
+     z-index: 1;
+   }
+@@ -29,7 +29,7 @@
+     font-size: 12px;
+     left: 0;
+     overflow: hidden;
+-    padding: 3px 12px;
++    padding: 6px 16px;
+     position: sticky;
+     width: 320px;
+     z-index: 2;
+@@ -69,7 +69,7 @@
+     border-radius: 5px;
+     box-sizing: border-box;
+     display: flex;
+-    height: 16px;
++    height: 18px;
+     margin: 0;
+     overflow: hidden;
+     padding: 0;
+@@ -107,7 +107,7 @@
+   .barLabelOutside {
+     color: #17394d;
+     font-size: 11px;
+-    line-height: 16px;
++    line-height: 18px;
+     pointer-events: none;
+     position: absolute;
+     top: 50%;
+diff --git a/client/src/components/boards/GanttModal/GanttModal.module.scss b/client/src/components/boards/GanttModal/GanttModal.module.scss
+index 7aac2d9..8571bf7 100644
+--- a/client/src/components/boards/GanttModal/GanttModal.module.scss
++++ b/client/src/components/boards/GanttModal/GanttModal.module.scss
+@@ -4,11 +4,22 @@
+  */
+ 
+ :global(#app) {
++  // Semantic UI's own .ui.fullscreen.modal rule caps width at 95% while
++  // also forcing left: 0 !important - the two combine into a flush-left
++  // modal with a permanent 5vw gap stuck on the right instead of a
++  // centered margin, which reads as "the chart doesn't reach the edge of
++  // the window". Both properties need overriding together, at higher
++  // specificity than Semantic's own 2-class selector.
++  :global(.ui.fullscreen.modal) {
++    width: 100% !important;
++  }
++
+   .wrapper {
+     display: flex;
+     flex-direction: column;
+     height: calc(100vh - 120px);
+     overflow: hidden;
++    padding: 0 8px;
+   }
+ 
+   .tab {

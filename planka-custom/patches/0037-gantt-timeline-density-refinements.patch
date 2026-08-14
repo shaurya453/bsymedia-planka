@@ -1,0 +1,782 @@
+diff --git a/client/src/components/boards/GanttModal/GanttChart/ColorPickerStep.jsx b/client/src/components/boards/GanttModal/GanttChart/ColorPickerStep.jsx
+deleted file mode 100644
+index f3ac9f4..0000000
+--- a/client/src/components/boards/GanttModal/GanttChart/ColorPickerStep.jsx
++++ /dev/null
+@@ -1,78 +0,0 @@
+-/*!
+- * Copyright (c) 2024 PLANKA Software GmbH
+- * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+- */
+-
+-import React, { useCallback } from 'react';
+-import PropTypes from 'prop-types';
+-import classNames from 'classnames';
+-import { Button } from 'semantic-ui-react';
+-import { useTranslation } from 'react-i18next';
+-import { Popup } from '../../../../lib/custom-ui';
+-
+-import GANTT_TASK_LIST_COLORS from '../../../../constants/GanttTaskListColors';
+-
+-import styles from './ColorPickerStep.module.scss';
+-
+-// BSY Media: Tier 3 per-checklist color picker for the Timeline tab -
+-// mirrors lists/List/EditColorStep.jsx's shape (a Popup.Header/Content pair
+-// with a swatch grid + a clear button) but selects a raw hex value instead
+-// of one of Planka's own named ListColors, since the choice here is saved
+-// to invite-service/planka_ops, not to a Planka record.
+-const ColorPickerStep = React.memo(({ color, onSelect, onClear, onClose }) => {
+-  const [t] = useTranslation();
+-
+-  const handleSelectClick = useCallback(
+-    (_, { value }) => {
+-      onSelect(value);
+-      onClose();
+-    },
+-    [onSelect, onClose],
+-  );
+-
+-  const handleClearClick = useCallback(() => {
+-    onClear();
+-    onClose();
+-  }, [onClear, onClose]);
+-
+-  return (
+-    <>
+-      <Popup.Header>{t('common.checklistColor', { context: 'title' })}</Popup.Header>
+-      <Popup.Content>
+-        <div className={styles.swatches}>
+-          {GANTT_TASK_LIST_COLORS.map((swatch) => (
+-            <Button
+-              key={swatch}
+-              type="button"
+-              value={swatch}
+-              className={classNames(styles.swatch, swatch === color && styles.swatchActive)}
+-              style={{ background: swatch }}
+-              onClick={handleSelectClick}
+-            />
+-          ))}
+-        </div>
+-        {color && (
+-          <Button
+-            fluid
+-            content={t('action.removeColor')}
+-            className={styles.clearButton}
+-            onClick={handleClearClick}
+-          />
+-        )}
+-      </Popup.Content>
+-    </>
+-  );
+-});
+-
+-ColorPickerStep.propTypes = {
+-  color: PropTypes.string,
+-  onSelect: PropTypes.func.isRequired,
+-  onClear: PropTypes.func.isRequired,
+-  onClose: PropTypes.func.isRequired,
+-};
+-
+-ColorPickerStep.defaultProps = {
+-  color: null,
+-};
+-
+-export default ColorPickerStep;
+diff --git a/client/src/components/boards/GanttModal/GanttChart/ColorPickerStep.module.scss b/client/src/components/boards/GanttModal/GanttChart/ColorPickerStep.module.scss
+deleted file mode 100644
+index b1e917f..0000000
+--- a/client/src/components/boards/GanttModal/GanttChart/ColorPickerStep.module.scss
++++ /dev/null
+@@ -1,46 +0,0 @@
+-/*!
+- * Copyright (c) 2024 PLANKA Software GmbH
+- * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+- */
+-
+-:global(#app) {
+-  .swatches {
+-    display: flex;
+-    flex-wrap: wrap;
+-    gap: 6px;
+-  }
+-
+-  .swatch {
+-    border-radius: 50%;
+-    box-shadow: inset 0 0 0 1px rgba(9, 30, 66, 0.13) !important;
+-    height: 28px;
+-    margin: 0 !important;
+-    padding: 0 !important;
+-    position: relative;
+-    width: 28px;
+-
+-    &:hover {
+-      opacity: 0.85;
+-    }
+-  }
+-
+-  .swatchActive {
+-    box-shadow: inset 0 0 0 2px #fff, 0 0 0 2px #17394d !important;
+-  }
+-
+-  .clearButton {
+-    background: transparent;
+-    box-shadow: none;
+-    color: #6b808c;
+-    font-weight: normal;
+-    margin-top: 10px;
+-    padding: 6px 11px;
+-    text-align: left;
+-    text-decoration: underline;
+-    transition: background 0.3s ease;
+-
+-    &:hover {
+-      background: #e9e9e9;
+-    }
+-  }
+-}
+diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+index ce3db6f..307fc45 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
++++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+@@ -17,7 +17,7 @@ import Row from './Row';
+ 
+ import styles from './GanttChart.module.scss';
+ 
+-const LABEL_WIDTH = 260;
++const LABEL_WIDTH = 320;
+ 
+ // BSY Media: three zoom presets - pixels-per-day plus a minimum auto-fit
+ // span sized for that zoom - so the same auto-fit chart works for "this
+@@ -32,12 +32,50 @@ const SCALES = {
+ 
+ const SCALE_KEYS = Object.keys(SCALES);
+ 
++// BSY Media: pick the zoom level that frames the *actual* spread of dated
++// work instead of always landing on Day - a board whose dated checklists
++// span a couple of months looks like a near-empty wall of grid at Day scale
++// (32px/day) until the user manually zooms out. Uses the raw min/max span
++// (not yet clamped to any scale's minRangeDays) so the choice reflects the
++// real data, not a scale's own minimum window.
++const getDefaultScaleKey = (rows) => {
++  const dates = [];
++
++  rows.forEach((row) => {
++    if (row.startDate) {
++      dates.push(row.startDate);
++    }
++
++    if (row.dueDate) {
++      dates.push(row.dueDate);
++    }
++  });
++
++  if (dates.length === 0) {
++    return 'day';
++  }
++
++  const minDate = Math.min(...dates.map((date) => date.getTime()));
++  const maxDate = Math.max(...dates.map((date) => date.getTime()));
++  const spanDays = differenceInCalendarDays(new Date(maxDate), new Date(minDate)) + 1;
++
++  if (spanDays <= 21) {
++    return 'day';
++  }
++
++  if (spanDays <= 120) {
++    return 'week';
++  }
++
++  return 'month';
++};
++
+ // BSY Media: shared horizontal Gantt renderer used by both the Timeline tab
+ // (grouped by card) and the Team workload tab (grouped by member) - see
+ // GanttModal.jsx.
+-const GanttChart = React.memo(({ rows, canEdit, emptyMessage, onColorChange }) => {
++const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+   const scrollerRef = useRef(null);
+-  const [scaleKey, setScaleKey] = useState('day');
++  const [scaleKey, setScaleKey] = useState(() => getDefaultScaleKey(rows));
+   const { dayWidth, minRangeDays } = SCALES[scaleKey];
+ 
+   const range = useMemo(() => {
+@@ -256,13 +294,12 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage, onColorChange }) =
+                 isGroupBoundary={row.isGroupBoundary}
+                 startDate={row.startDate}
+                 dueDate={row.dueDate}
++                isDueCompleted={row.isDueCompleted}
+                 taskListId={row.taskListId}
+                 taskId={row.taskId}
+                 rangeStart={range.start}
+                 dayWidth={dayWidth}
+                 canEdit={canEdit}
+-                color={row.color}
+-                onColorChange={onColorChange}
+               />
+             ))}
+           </div>
+@@ -281,18 +318,13 @@ GanttChart.propTypes = {
+       isGroupBoundary: PropTypes.bool.isRequired,
+       startDate: PropTypes.instanceOf(Date),
+       dueDate: PropTypes.instanceOf(Date),
++      isDueCompleted: PropTypes.bool,
+       taskListId: PropTypes.string,
+       taskId: PropTypes.string,
+-      color: PropTypes.string,
+     }),
+   ).isRequired,
+   canEdit: PropTypes.bool.isRequired,
+   emptyMessage: PropTypes.string.isRequired,
+-  onColorChange: PropTypes.func,
+-};
+-
+-GanttChart.defaultProps = {
+-  onColorChange: undefined,
+ };
+ 
+ export default GanttChart;
+diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
+index ad91ac0..48aeae2 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
++++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
+@@ -97,7 +97,7 @@
+   // the header. Sit behind row content (see Row.module.scss's .row z-index)
+   // but above the todayLine so the "today" marker still reads clearly.
+   .monthShade {
+-    background: rgba(9, 30, 66, 0.03);
++    background: rgba(9, 30, 66, 0.045);
+     bottom: 0;
+     position: absolute;
+     top: 0;
+@@ -105,7 +105,7 @@
+   }
+ 
+   .weekendShade {
+-    background: rgba(9, 30, 66, 0.05);
++    background: rgba(9, 30, 66, 0.07);
+     bottom: 0;
+     position: absolute;
+     top: 0;
+diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.jsx b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
+index f99cb79..960e5be 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/Row.jsx
++++ b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
+@@ -3,14 +3,14 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useCallback, useMemo } from 'react';
++import React, { useMemo } from 'react';
+ import PropTypes from 'prop-types';
+ import classNames from 'classnames';
+ import differenceInCalendarDays from 'date-fns/differenceInCalendarDays';
+ 
+ import { usePopupInClosableContext } from '../../../../hooks';
+ import EditDueDateStep from '../../../cards/EditDueDateStep';
+-import ColorPickerStep from './ColorPickerStep';
++import getDueDateStatus, { DueDateStatuses } from '../../../../utils/get-due-date-status';
+ 
+ import styles from './Row.module.scss';
+ 
+@@ -19,6 +19,17 @@ import styles from './Row.module.scss';
+ // sliver.
+ const MIN_BAR_WIDTH = 6;
+ 
++// BSY Media: bars are colored by deadline urgency (same thresholds/hex
++// values as the card-face title coloring and DueDateChip - see
++// get-due-date-status.js) rather than a manually-picked per-checklist
++// color, so a glance at the chart tells you what needs attention without a
++// separate legend to maintain.
++const STATUS_COLORS = {
++  [DueDateStatuses.OVERDUE]: '#db2828',
++  [DueDateStatuses.DUE_SOON]: '#f2711c',
++  [DueDateStatuses.COMPLETED]: '#4bce97',
++};
++
+ // BSY Media: one bar/label row of the Gantt chart. Bar geometry is computed
+ // from the shared rangeStart + dayWidth passed down by GanttChart so every
+ // row lines up under the same day-scale header. Clicking a bar reuses the
+@@ -31,16 +42,14 @@ const Row = React.memo(
+     isGroupBoundary,
+     startDate,
+     dueDate,
++    isDueCompleted,
+     taskListId,
+     taskId,
+     rangeStart,
+     dayWidth,
+     canEdit,
+-    color,
+-    onColorChange,
+   }) => {
+     const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
+-    const EditColorPopup = usePopupInClosableContext(ColorPickerStep);
+ 
+     const bar = useMemo(() => {
+       if (!startDate && !dueDate) {
+@@ -50,20 +59,18 @@ const Row = React.memo(
+       const anchorDate = startDate || dueDate;
+       const left = differenceInCalendarDays(anchorDate, rangeStart) * dayWidth;
+ 
+-      // A manually-chosen checklist color (Tier 3) is a stage identifier,
+-      // not a start/due indicator - it replaces the default blue-start/
+-      // orange-due language entirely rather than blending with it.
+-      if (color) {
+-        const width = startDate && dueDate
+-          ? (differenceInCalendarDays(dueDate, startDate) + 1) * dayWidth
+-          : dayWidth;
++      const width = startDate && dueDate
++        ? (differenceInCalendarDays(dueDate, startDate) + 1) * dayWidth
++        : dayWidth;
++
++      const status = dueDate && getDueDateStatus(dueDate, isDueCompleted);
++      const statusColor = status && STATUS_COLORS[status];
+ 
+-        return { left, width: Math.max(width, MIN_BAR_WIDTH), background: color };
++      if (statusColor) {
++        return { left, width: Math.max(width, MIN_BAR_WIDTH), background: statusColor };
+       }
+ 
+       if (startDate && dueDate) {
+-        const width = (differenceInCalendarDays(dueDate, startDate) + 1) * dayWidth;
+-
+         return {
+           left,
+           width: Math.max(width, MIN_BAR_WIDTH),
+@@ -76,20 +83,7 @@ const Row = React.memo(
+         width: Math.max(dayWidth, MIN_BAR_WIDTH),
+         background: startDate ? '#2185d0' : '#e8632c',
+       };
+-    }, [startDate, dueDate, rangeStart, dayWidth, color]);
+-
+-    const handleColorSelect = useCallback(
+-      (newColor) => {
+-        if (onColorChange && taskListId) {
+-          onColorChange(taskListId, newColor);
+-        }
+-      },
+-      [onColorChange, taskListId],
+-    );
+-
+-    const handleColorClear = useCallback(() => {
+-      handleColorSelect(null);
+-    }, [handleColorSelect]);
++    }, [startDate, dueDate, isDueCompleted, rangeStart, dayWidth]);
+ 
+     const barStyle = bar && {
+       left: bar.left,
+@@ -112,16 +106,6 @@ const Row = React.memo(
+       <span className={styles.barLabel}>{barLabelText}</span>
+     ) : null;
+ 
+-    // BSY Media: Tier 3 color picker - only offered where the caller (the
+-    // Timeline tab) passes onColorChange, and only for checklist rows
+-    // (taskListId), never card header rows or Team workload (which never
+-    // passes this prop, so its own rows are untouched). Editors get a
+-    // clickable swatch (even with no color chosen yet, as an affordance);
+-    // viewers see a plain dot only once a color has actually been set, so
+-    // the whole team reads the same choice without being offered a control
+-    // they can't use.
+-    const showColorControl = !!onColorChange && !!taskListId && !isGroupHeader;
+-
+     return (
+       <div
+         className={classNames(
+@@ -135,18 +119,6 @@ const Row = React.memo(
+           title={typeof label === 'string' ? label : undefined}
+         >
+           <span className={styles.labelText}>{label}</span>
+-          {showColorControl &&
+-            (canEdit ? (
+-              <EditColorPopup color={color} onSelect={handleColorSelect} onClear={handleColorClear}>
+-                <button
+-                  type="button"
+-                  className={styles.colorSwatch}
+-                  style={{ background: color || undefined }}
+-                />
+-              </EditColorPopup>
+-            ) : (
+-              color && <span className={styles.colorSwatch} style={{ background: color }} />
+-            ))}
+         </div>
+         <div className={styles.track}>
+           {bar &&
+@@ -181,22 +153,20 @@ Row.propTypes = {
+   isGroupBoundary: PropTypes.bool.isRequired,
+   startDate: PropTypes.instanceOf(Date),
+   dueDate: PropTypes.instanceOf(Date),
++  isDueCompleted: PropTypes.bool,
+   taskListId: PropTypes.string,
+   taskId: PropTypes.string,
+   rangeStart: PropTypes.instanceOf(Date).isRequired,
+   dayWidth: PropTypes.number.isRequired,
+   canEdit: PropTypes.bool.isRequired,
+-  color: PropTypes.string,
+-  onColorChange: PropTypes.func,
+ };
+ 
+ Row.defaultProps = {
+   startDate: null,
+   dueDate: null,
++  isDueCompleted: false,
+   taskListId: undefined,
+   taskId: undefined,
+-  color: null,
+-  onColorChange: undefined,
+ };
+ 
+ export default Row;
+diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
+index eb8dc15..3893714 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
++++ b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
+@@ -10,7 +10,7 @@
+   // static-flow content regardless of DOM order.
+   .row {
+     display: flex;
+-    height: 36px;
++    min-height: 26px;
+     position: relative;
+     z-index: 1;
+   }
+@@ -25,28 +25,27 @@
+     box-sizing: border-box;
+     color: #17394d;
+     display: flex;
+-    flex: 0 0 260px;
++    flex: 0 0 320px;
+     font-size: 12px;
+     left: 0;
+     overflow: hidden;
+-    padding: 0 12px;
++    padding: 3px 12px;
+     position: sticky;
+-    width: 260px;
++    width: 320px;
+     z-index: 2;
+   }
+ 
+   // Long client card/checklist titles have their distinguishing part at
+-  // the end, so end-truncation to one line hides exactly the part that
+-  // matters - wrap to two lines instead, with the full title still
+-  // available via the native title-attribute tooltip on .label.
++  // the end, so end-truncation hides exactly the part that matters - wrap
++  // freely instead (no line clamp), letting the row grow taller to fit.
++  // Rows stack in normal document flow (see GanttChart.module.scss's .body)
++  // so a taller label row doesn't disturb any other row's bar geometry.
+   .labelText {
+-    -webkit-box-orient: vertical;
+-    -webkit-line-clamp: 2;
+-    display: -webkit-box;
+     flex: 1 1 auto;
+-    line-height: 13px;
++    line-height: 14px;
+     min-width: 0;
+-    overflow: hidden;
++    overflow-wrap: break-word;
++    white-space: normal;
+     word-break: break-word;
+   }
+ 
+@@ -59,28 +58,6 @@
+     padding-left: 28px;
+   }
+ 
+-  // Tier 3 per-checklist color dot/button - see Row.jsx.
+-  .colorSwatch {
+-    background-color: #dfe1e6;
+-    border: none;
+-    border-radius: 50%;
+-    box-shadow: inset 0 0 0 1px rgba(9, 30, 66, 0.25);
+-    cursor: pointer;
+-    flex: 0 0 auto;
+-    height: 12px;
+-    margin: 0 0 0 6px;
+-    padding: 0;
+-    width: 12px;
+-
+-    &:hover {
+-      box-shadow: inset 0 0 0 1px rgba(9, 30, 66, 0.4);
+-    }
+-  }
+-
+-  span.colorSwatch {
+-    cursor: default;
+-  }
+-
+   .track {
+     flex: 0 0 auto;
+     position: relative;
+@@ -89,15 +66,16 @@
+   .bar,
+   .barButton {
+     align-items: center;
+-    border-radius: 6px;
++    border-radius: 5px;
+     box-sizing: border-box;
+     display: flex;
+-    height: 20px;
++    height: 16px;
+     margin: 0;
+     overflow: hidden;
+     padding: 0;
+     position: absolute;
+-    top: 8px;
++    top: 50%;
++    transform: translateY(-50%);
+   }
+ 
+   .barButton {
+@@ -129,10 +107,11 @@
+   .barLabelOutside {
+     color: #17394d;
+     font-size: 11px;
+-    line-height: 20px;
++    line-height: 16px;
+     pointer-events: none;
+     position: absolute;
+-    top: 8px;
++    top: 50%;
++    transform: translateY(-50%);
+     white-space: nowrap;
+   }
+ }
+diff --git a/client/src/components/boards/GanttModal/GanttModal.module.scss b/client/src/components/boards/GanttModal/GanttModal.module.scss
+index 4321304..7aac2d9 100644
+--- a/client/src/components/boards/GanttModal/GanttModal.module.scss
++++ b/client/src/components/boards/GanttModal/GanttModal.module.scss
+@@ -17,12 +17,17 @@
+     flex-direction: column;
+     min-height: 0;
+ 
++    // overflow: hidden (not auto) - each tab pane's own content (GanttChart's
++    // .scroller) is the intended single scrolling container. A second
++    // overflow: auto here would fight it for scroll ownership and break
++    // position: sticky, which sticks relative to its *nearest* scrolling
++    // ancestor - not necessarily the one you meant.
+     :global(.tab) {
+       display: flex;
+       flex: 1 1 auto;
+       flex-direction: column;
+       min-height: 0;
+-      overflow: auto;
++      overflow: hidden;
+     }
+   }
+ 
+diff --git a/client/src/components/boards/GanttModal/Schedule/Schedule.module.scss b/client/src/components/boards/GanttModal/Schedule/Schedule.module.scss
+index 967d93a..dda3138 100644
+--- a/client/src/components/boards/GanttModal/Schedule/Schedule.module.scss
++++ b/client/src/components/boards/GanttModal/Schedule/Schedule.module.scss
+@@ -5,6 +5,8 @@
+ 
+ :global(#app) {
+   .wrapper {
++    height: 100%;
++    overflow-y: auto;
+     padding: 8px 4px;
+   }
+ 
+diff --git a/client/src/components/boards/GanttModal/Tasks/Tasks.module.scss b/client/src/components/boards/GanttModal/Tasks/Tasks.module.scss
+index 6236cb5..7e40421 100644
+--- a/client/src/components/boards/GanttModal/Tasks/Tasks.module.scss
++++ b/client/src/components/boards/GanttModal/Tasks/Tasks.module.scss
+@@ -5,6 +5,8 @@
+ 
+ :global(#app) {
+   .wrapper {
++    height: 100%;
++    overflow-y: auto;
+     padding: 8px 4px;
+   }
+ 
+diff --git a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
+index 37e92e1..8eb5f02 100644
+--- a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
++++ b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
+@@ -77,6 +77,7 @@ const TeamWorkload = React.memo(() => {
+           isGroupBoundary: false,
+           startDate: taskList.startDate,
+           dueDate: taskList.dueDate,
++          isDueCompleted: taskList.isDueCompleted,
+           taskListId: taskList.id,
+         });
+         memberRowsTotal += 1;
+@@ -96,6 +97,7 @@ const TeamWorkload = React.memo(() => {
+               isGroupBoundary: false,
+               startDate: task.startDate,
+               dueDate: task.dueDate,
++              isDueCompleted: task.isDueCompleted,
+               taskId: task.id,
+             });
+             memberRowsTotal += 1;
+diff --git a/client/src/components/boards/GanttModal/Timeline/Timeline.jsx b/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
+index ce1ad1f..499847c 100644
+--- a/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
++++ b/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
+@@ -3,40 +3,16 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useCallback, useEffect, useMemo, useState } from 'react';
++import React, { useMemo } from 'react';
+ import { useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+ 
+ import selectors from '../../../../selectors';
+ import { BoardMembershipRoles } from '../../../../constants/Enums';
+-import { getAccessToken } from '../../../../utils/access-token-storage';
+ import GanttChart from '../GanttChart';
+ 
+ import styles from './Timeline.module.scss';
+ 
+-// BSY Media: Tier 3 per-checklist bar color, shared board-wide (not a
+-// per-browser preference) - persisted via invite-service's own JSON API
+-// (same-origin, Bearer-authenticated with this user's own PLANKA access
+-// token, identical pattern to the Share modal's InviteByEmail.jsx) against
+-// a table in planka_ops, never Planka's own schema.
+-const fetchColors = (boardId) =>
+-  fetch(`/invite/api/gantt-colors?boardId=${boardId}`, {
+-    headers: { Authorization: `Bearer ${getAccessToken()}` },
+-  })
+-    .then((response) => response.json().then((body) => ({ ok: response.ok, body })))
+-    .then(({ ok, body }) => (ok ? body.colors : {}))
+-    .catch(() => ({}));
+-
+-const saveColor = (boardId, taskListId, color) =>
+-  fetch('/invite/api/gantt-colors', {
+-    method: 'POST',
+-    headers: {
+-      'Content-Type': 'application/json',
+-      Authorization: `Bearer ${getAccessToken()}`,
+-    },
+-    body: JSON.stringify({ boardId, taskListId, color }),
+-  }).catch(() => {});
+-
+ // BSY Media: rows are checklists (Planka's TaskList - the client calls
+ // these "tasks"), not cards and not individual checklist items. A card
+ // never gets its own bar here; it only gets a plain (bar-less) header row
+@@ -48,7 +24,6 @@ const saveColor = (boardId, taskListId, color) =>
+ // individual checklist-item dates are deliberately not plotted here.
+ const Timeline = React.memo(() => {
+   const items = useSelector(selectors.selectGanttItemsForCurrentBoard);
+-  const boardId = useSelector((state) => selectors.selectCurrentBoard(state).id);
+ 
+   const canEdit = useSelector((state) => {
+     const boardMembership = selectors.selectCurrentUserMembershipForCurrentBoard(state);
+@@ -57,47 +32,14 @@ const Timeline = React.memo(() => {
+ 
+   const [t] = useTranslation();
+ 
+-  // Sequence order (Tier 3): rows already follow each card's own checklist
+-  // order for free - Card.getTaskListsQuerySet() (feeding
++  // Sequence order: rows already follow each card's own checklist order
++  // for free - Card.getTaskListsQuerySet() (feeding
+   // selectGanttItemsForCurrentBoard) already sorts by `position`, the same
+   // field the checklist drag-and-drop in the card modal uses, and this
+   // loop below preserves that array order as-is. Confirmed against real
+   // data, not just the code: on the one card with two checklists,
+   // "Scriptwriting" (position 65536) sorts before "Video Editing"
+   // (position 131072), matching the order shown in the card itself.
+-  const [colors, setColors] = useState({});
+-
+-  useEffect(() => {
+-    let isCancelled = false;
+-
+-    fetchColors(boardId).then((fetchedColors) => {
+-      if (!isCancelled) {
+-        setColors(fetchedColors || {});
+-      }
+-    });
+-
+-    return () => {
+-      isCancelled = true;
+-    };
+-  }, [boardId]);
+-
+-  const handleColorChange = useCallback(
+-    (taskListId, color) => {
+-      setColors((current) => {
+-        const next = { ...current };
+-        if (color) {
+-          next[taskListId] = color;
+-        } else {
+-          delete next[taskListId];
+-        }
+-        return next;
+-      });
+-
+-      saveColor(boardId, taskListId, color);
+-    },
+-    [boardId],
+-  );
+-
+   const rows = useMemo(() => {
+     const result = [];
+ 
+@@ -127,14 +69,14 @@ const Timeline = React.memo(() => {
+           isGroupBoundary: false,
+           startDate: taskList.startDate,
+           dueDate: taskList.dueDate,
++          isDueCompleted: taskList.isDueCompleted,
+           taskListId: taskList.id,
+-          color: colors[taskList.id] || null,
+         });
+       });
+     });
+ 
+     return result;
+-  }, [items, colors]);
++  }, [items]);
+ 
+   return (
+     <div className={styles.wrapper}>
+@@ -142,7 +84,6 @@ const Timeline = React.memo(() => {
+         rows={rows}
+         canEdit={canEdit}
+         emptyMessage={t('common.noDatedCardsOrChecklistsYet')}
+-        onColorChange={handleColorChange}
+       />
+     </div>
+   );
+diff --git a/client/src/constants/GanttTaskListColors.js b/client/src/constants/GanttTaskListColors.js
+deleted file mode 100644
+index e4d5a4e..0000000
+--- a/client/src/constants/GanttTaskListColors.js
++++ /dev/null
+@@ -1,23 +0,0 @@
+-/*!
+- * Copyright (c) 2024 PLANKA Software GmbH
+- * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+- */
+-
+-// BSY Media: palette for the Timeline tab's per-checklist color picker
+-// (Tier 3). Standalone hex values rather than Planka's own named
+-// ListColors/LabelColors - those map to SCSS background-* utility classes
+-// designed for solid chips, not the inline `style={{ background }}` a Gantt
+-// bar needs, and this is BSY-Media-specific state stored outside Planka's
+-// schema anyway (see invite-service's gantt_task_list_colors table).
+-export default [
+-  '#c9372c',
+-  '#e56910',
+-  '#e2b203',
+-  '#4bce97',
+-  '#0c66e4',
+-  '#6e5dc6',
+-  '#cd519d',
+-  '#8590a2',
+-  '#227d51',
+-  '#5e4db2',
+-];
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index fea4e09..07ddd9e 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -125,7 +125,6 @@ export default {
+       cardsOnThisListAreCompleteAndReadyToBeArchived:
+         'Cards on this list are complete and ready to be archived.',
+       cardsOnThisListAreReadyToBeWorkedOn: 'Cards on this list are ready to be worked on.',
+-      checklistColor_title: 'Checklist Color',
+       checklists: 'Checklists',
+       clickHereOrRefreshPageToUpdate: '<0>Click here</0> or refresh the page to update.',
+       clientHostnameInEhlo: 'Client hostname in EHLO',

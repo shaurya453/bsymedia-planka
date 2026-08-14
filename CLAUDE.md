@@ -1816,3 +1816,125 @@ real "Yapmaster Media" board's existing checklists and all 4 Gantt tabs (Timelin
 Workload/Schedule) - zero visual or functional breakage, confirmed via live screenshots not just
 "the build succeeded." Final real-data check: still exactly 31/231 cards with `due_date` set,
 byte-for-byte the same count as before this work started.
+
+## Gantt Timeline density/refinement round (2026-08-14)
+
+Follow-up round on the shared `GanttModal/GanttChart` renderer (used by both the Timeline and Team
+Workload tabs). The bones from the prior rounds (0031-0033) were right - bars, labels, today
+marker, Day/Week/Month zoom, weekend/month shading, sticky-positioned header/label CSS - but the
+chart still felt sparse and some of that CSS wasn't actually taking effect in practice. Six
+concrete fixes, plus one explicit removal:
+
+- **Smart default scale** - `GanttChart.jsx` used to hardcode `useState('day')`. New
+  `getDefaultScaleKey(rows)` computes the *raw* min/max span across all row dates (unclamped by any
+  scale's own `minRangeDays`) and picks Day (<=21 days), Week (<=120 days), or Month (>120 days) as
+  the initial `useState` lazy initializer - so a board whose dated checklists span months no longer
+  opens to a near-empty 14-day window at 32px/day.
+- **Row density** - `.row` went from a fixed `height: 36px` to `min-height: 26px` (with `height:
+  auto`, so a wrapped long label can still grow a specific row without disturbing any other row's
+  bar geometry - rows stack in normal flow, and the month/weekend-shade/today-line overlays are
+  `.body`-relative, not per-row). Bar height 20px -> 16px, `top: 8px` -> `top: 50%; transform:
+  translateY(-50%)` (needed once row height became variable, so a bar always self-centers instead
+  of relying on a row-height constant baked into a fixed `top`).
+- **Wider label column, real wrapping** - `LABEL_WIDTH` 260px -> 320px; `.labelText` dropped
+  `-webkit-line-clamp: 2` (which was hard-truncating a long title's third+ line with an ellipsis)
+  in favor of plain `white-space: normal` wrapping with no line cap.
+- **Weekend/month shading intensified slightly** - already existed from 0032, just bumped from
+  `rgba(9,30,66,0.03/0.05)` to `0.045/0.07` for better visibility; no structural change needed.
+- **Sticky headers - found and fixed a real bug, not just a tuning pass.** `GanttChart.module.scss`
+  already had `.header`/`.headerLabel`/`.label` all set to `position: sticky` - but
+  `GanttModal.module.scss`'s outer Semantic `Tab` pane wrapper also had `overflow: auto`, making
+  it, not GanttChart's own `.scroller`, the browser's chosen "nearest scrolling ancestor" for
+  sticky purposes on Timeline/Team Workload. Fix: outer `:global(.tab)` -> `overflow: hidden`, so
+  `.scroller` becomes the sole scroll container everywhere. Since Schedule.jsx/Tasks.jsx (the other
+  2 Gantt tabs) have no inner scroller of their own and relied entirely on that outer `overflow:
+  auto` to scroll their own (potentially long) list content, both gained their own `height: 100%;
+  overflow-y: auto` on `.wrapper` first, confirmed via direct read of both files' `.module.scss`
+  before making the outer change, so this wasn't a blind global flip.
+- **Full-height today marker** - `.todayLine`'s `top: 0; bottom: 0` inside `.body` (position:
+  relative) was already correct; it only *looked* like it stopped at one bar because the live test
+  board had exactly one dated checklist at the time. Live-verified with 8 populated rows: today
+  line height matched the full `.body` height (224px), not a single row's height (26px).
+
+**Removed entirely, per explicit instruction ("no need for a checklist color selector - use the
+deadline colors"):** the Tier-3 per-checklist manual color picker (`ColorPickerStep.jsx` + its
+`.module.scss`, `constants/GanttTaskListColors.js`, the `invite-service`-backed `fetchColors`/
+`saveColor`/`colors` state in `Timeline.jsx`, `onColorChange`/`color` prop plumbing through
+`GanttChart.jsx`/`Row.jsx`). Replaced with automatic deadline-status coloring: `Row.jsx` now calls
+the same shared `getDueDateStatus()` (from `utils/get-due-date-status.js`, the utility already
+extracted for the card-face title-coloring feature) and maps `OVERDUE`/`DUE_SOON`/`COMPLETED` to
+the exact same hex values used everywhere else in the app (`#db2828`/`#f2711c`/`#4bce97`), falling
+back to the pre-existing blue-start/orange-due gradient/solid coloring when no status applies. This
+needed `isDueCompleted` threaded onto every row object in both `Timeline.jsx` and `TeamWorkload.jsx`
+(previously only `startDate`/`dueDate` were passed) since the status calculation needs it. Also
+removed the now-orphaned `checklistColor_title` i18n key (grepped first to confirm no other call
+site referenced it - `action.removeColor` stayed, shared with `lists/List/EditColorStep.jsx`).
+
+**Live-verified end to end** (5 throwaway checklists created via the real API on a real board card,
+one each: overdue, due-soon <24h, normal future dated with a deliberately 128-char-limit-testing
+long name, far-future for Month-scale testing, and `isDueCompleted: true` - all deleted via the API
+afterward, confirmed 200 on each delete): default scale correctly landed on Month for a ~130-day
+spread; row height measured 26px; label column measured 320px; the long title wrapped to 2 lines
+inside the label instead of truncating; 6 month-shade bands rendered; today-line height matched the
+full 8-row body (224px) not a single row; bar colors matched exactly -
+`rgb(219,40,40)`/overdue, `rgb(242,113,28)`/due-soon, `rgb(75,206,151)`/completed, blue-to-orange
+gradient for plain dated rows; zero `colorSwatch` elements remained on Timeline; zero console
+errors on Timeline or Team Workload. Confirmed via computed style (not just visual inspection) that
+the real GanttChart header (`.header`) and row label (`.label`) both report `position: sticky` (an
+early check mis-fired by matching an unrelated Semantic UI element also named `.header` in the DOM
+- corrected by disambiguating on a Gantt-specific sibling class before trusting the result).
+
+Patch: `planka-custom/patches/0037-gantt-timeline-density-refinements.patch`.
+
+## Gantt modal full-width fix + spacing polish (2026-08-14)
+
+Immediate follow-up: the Gantt modal wasn't actually covering the full window width - a
+permanent gap sat flush against the right edge. Root cause found via direct inspection of the
+live page's applied stylesheets (`document.styleSheets`, not guessing): Semantic UI's own built-in
+rule is `.ui.fullscreen.modal { margin: 1em auto; width: 95% !important; left: 0px !important; }`.
+The `left: 0 !important` pins the box's left edge while `width: 95%` leaves the remaining 5% (96px
+at 1920px wide) stuck on the right - `margin: auto` never gets a chance to center it because
+`left` is forced. Fixed with a single higher-specificity override in `GanttModal.module.scss`:
+`:global(#app) :global(.ui.fullscreen.modal) { width: 100% !important; }` (2 classes + 1 ID beats
+Semantic's 2-class rule, no need to touch the component itself). Live-verified via
+`getBoundingClientRect()`: modal width now measures exactly the window's `innerWidth` (1920px ==
+1920px), where it previously measured 1824px.
+
+Also added general breathing room per explicit feedback ("spaced out and easier to look at"),
+since the prior round's density pass (0037) had gone tight enough to feel cramped once the
+chart actually had room to spread out: `.wrapper` gained horizontal padding, the toolbar's
+bottom padding grew (8px -> 14px), month/day header cells got slightly larger font/padding, and
+`Row.module.scss`'s row `min-height` went 26px -> 32px (bar height 16px -> 18px, label padding
+12px -> 16px) - still meaningfully denser than the original 36px/20px round, just not knife-edge
+tight now that width is no longer the constraint it was.
+
+Patch: `planka-custom/patches/0038-gantt-fullwidth-spacing.patch`.
+
+## Gantt chart stretch-to-fill (2026-08-14, same day)
+
+Clarifying follow-up: 0038 fixed the *modal* to span the full window, but the calendar grid
+*inside* it still didn't - measured live at 1920px wide, the modal/scroller correctly filled to
+1904px available, but the actual rendered grid (`.inner`, label column + day/week/month columns)
+only came out to 768px (Day), 1160px (Week), or 1415px (Month), leaving several hundred px of
+blank white space stranded to the right of the last date column. Root cause: `dayWidth` was a
+flat per-scale constant (32/10/3 px) - `chartWidth = totalDays * dayWidth` had no relationship to
+the container's actual size, so a data span short enough to fit inside `minRangeDays` just... ran
+out of columns before running out of screen.
+
+Fix in `GanttChart.jsx`: a `ResizeObserver` on `scrollerRef` tracks the scroller's live
+`contentRect.width` in `containerWidth` state. A new `dayWidth` (renaming the old per-scale
+constant to `baseDayWidth`) is derived: if `containerWidth - LABEL_WIDTH` (the space actually
+available for the grid) is wider than `totalDays * baseDayWidth` (what the grid would naturally
+need), stretch each day's width up to fill it exactly (`availableChartWidth / totalDays`);
+otherwise fall back to `baseDayWidth` unchanged and let the scroller handle genuine horizontal
+overflow as before. Every downstream consumer (day/week header cells, month/weekend shade bands,
+the today line, `Row.jsx`'s bar geometry via its `dayWidth` prop, the scroll-to-today effect) reads
+this same derived `dayWidth`, so the whole grid stretches or scrolls as one coherent unit - no
+separate "visual" vs. "geometry" width to keep in sync.
+
+Live-verified via `getBoundingClientRect()`/`clientWidth` at 1920px: `.inner` now measures exactly
+1904px (== the scroller's own `clientWidth`) at Day, Week, *and* Month scale, where it previously
+measured 768/1160/1415px respectively. Confirmed with real screenshots at all 3 scales and a
+console-error sweep across all 4 Gantt tabs x all 3 scales (12 combinations, zero errors).
+
+Patch: `planka-custom/patches/0039-gantt-stretch-to-fill-width.patch`.

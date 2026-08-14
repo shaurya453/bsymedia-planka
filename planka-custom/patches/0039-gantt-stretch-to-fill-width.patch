@@ -1,0 +1,62 @@
+diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+index 307fc45..0cf0871 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
++++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+@@ -76,7 +76,27 @@ const getDefaultScaleKey = (rows) => {
+ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+   const scrollerRef = useRef(null);
+   const [scaleKey, setScaleKey] = useState(() => getDefaultScaleKey(rows));
+-  const { dayWidth, minRangeDays } = SCALES[scaleKey];
++  const [containerWidth, setContainerWidth] = useState(0);
++  const { dayWidth: baseDayWidth, minRangeDays } = SCALES[scaleKey];
++
++  // BSY Media: track the scroller's own visible width (not the modal's -
++  // that includes the label column and any scrollbar gutter) so the day
++  // columns can stretch to fill it. Without this, a data span shorter than
++  // the screen renders its fixed-px-per-day grid then just... stops, with
++  // the rest of a fullscreen modal left blank to the right.
++  useEffect(() => {
++    const scroller = scrollerRef.current;
++    if (!scroller) {
++      return undefined;
++    }
++
++    const observer = new ResizeObserver((entries) => {
++      setContainerWidth(entries[0].contentRect.width);
++    });
++    observer.observe(scroller);
++
++    return () => observer.disconnect();
++  }, []);
+ 
+   const range = useMemo(() => {
+     const dates = [];
+@@ -165,6 +185,28 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+     };
+   }, [rows, minRangeDays]);
+ 
++  // BSY Media: stretch each day's column width so totalDays * dayWidth
++  // fills the measured available space whenever the natural (fixed
++  // px-per-day) grid would be narrower than that - e.g. a 14-day Day-scale
++  // minimum window is only ~450px at the base 32px/day, a fraction of a
++  // fullscreen modal. Once the natural grid is already wider than the
++  // available space (a genuinely long span), fall back to the scale's own
++  // fixed width and let the scroller handle horizontal scrolling as before.
++  const dayWidth = useMemo(() => {
++    if (!range || !containerWidth) {
++      return baseDayWidth;
++    }
++
++    const availableChartWidth = Math.max(0, containerWidth - LABEL_WIDTH);
++    const naturalChartWidth = range.totalDays * baseDayWidth;
++
++    if (availableChartWidth <= naturalChartWidth) {
++      return baseDayWidth;
++    }
++
++    return availableChartWidth / range.totalDays;
++  }, [range, baseDayWidth, containerWidth]);
++
+   // BSY Media: at Day scale, a wide board date-spread means the chart can
+   // render 500+ days wide - left un-scrolled, that's a wall of empty grid
+   // with the actual bars scrolled far off to the right, indistinguishable
