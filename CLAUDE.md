@@ -2153,3 +2153,37 @@ confirmed programmatically; Team Workload's bar rendered real visible text ("Onl
 it previously rendered none; Tasks tab confirmed showing only the card with a checklist, not the
 bare one; tab order confirmed via the rendered menu items; zero console errors across the full pass.
 
+## Gantt divider genuinely single line, checklist task indentation (2026-08-15, deployed later same week)
+
+Two small fixes that were built and committed ahead of time, held back at the client's explicit
+request ("don't deploy, we'll batch it with more changes"), then deployed together once asked to
+ship a new version:
+
+- **Gantt label/chart divider fix** - the "bolder divider" from the round-6 entry above was
+  actually two disconnected pieces (a border on the sticky header's own label cell, plus a
+  separate `.body`-only div) with a real latent bug: the body-only div used plain
+  `position: absolute`, so it scrolled away horizontally with the rest of the wide chart while the
+  header's own sticky border stayed pinned - looked disconnected depending on scroll position.
+  Replaced with `.labelDividerTrack` (plain absolute, `top`/`bottom: 0`, sized to `.inner`'s real
+  full height for free) wrapping `.labelDivider` (the actual 3px line, `position: sticky` on the
+  *left* axis only, pinned at the `LABEL_WIDTH` offset - same mechanism `.headerLabel`/`.label`
+  already use pinned at `left: 0`). A `position: sticky` element can't be auto-sized by opposing
+  `top`/`bottom` offsets the way absolute/fixed can, hence the two-element split.
+- **Checklist task indentation** (`CardModal`'s Tasks/Checklists tab) - `Task.module.scss`'s
+  `.wrapper` used `margin-left: -40px` specifically to cancel out the 40px indent its checklist
+  ancestor (`CardModal/TaskLists/Item.jsx`'s `.moduleWrapper`) already applies, pulling every
+  task's checkbox and name flush to the exact same x position as the checklist's own
+  checkbox/title - looked like one flat list, no parent/child hierarchy. Reduced the negative
+  margin to `-20px` (width bleed compensation matched, `calc(100% + 20px)`) so only the left edge
+  moves, giving tasks a clear visual indent under their checklist. Confirmed via grep that
+  `task-lists/TaskList/Task.jsx` is only ever imported by `CardModal/TaskLists/Item.jsx` - not the
+  Kanban card face, not the Gantt view - so this couldn't affect anything else.
+
+**Deployed and live-verified 2026-08-15**: divider's on-screen `left` position measured identical
+before and after scrolling the chart horizontally 500px (`328` both times), confirming it's now
+genuinely sticky and a single element; checklist task indentation confirmed visually on a real
+card (`Task one` checkbox clearly offset right of `Checklist A`'s own checkbox) and via
+`getBoundingClientRect()` on both checkboxes. Zero console errors, zero startup errors in the
+container logs. Verified in a throwaway sandbox project, deleted afterward (board/project delete
+both confirmed 200).
+
