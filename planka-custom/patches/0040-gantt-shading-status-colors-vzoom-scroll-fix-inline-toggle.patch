@@ -298,7 +298,7 @@ index 0cf0871..86b7f6e 100644
        taskId: PropTypes.string,
      }),
 diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
-index 1e3d9bf..37e6f68 100644
+index 1e3d9bf..a3a2f7f 100644
 --- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
 +++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
 @@ -20,6 +20,7 @@
@@ -309,7 +309,15 @@ index 1e3d9bf..37e6f68 100644
      justify-content: flex-end;
      padding: 4px 0 14px;
    }
-@@ -89,14 +90,22 @@
+@@ -48,6 +49,7 @@
+ 
+   .headerLabel {
+     background: #fff;
++    border-right: 2px solid #c1c7d0;
+     flex: 0 0 auto;
+     left: 0;
+     position: sticky;
+@@ -89,14 +91,24 @@
    }
  
    .body {
@@ -318,8 +326,10 @@ index 1e3d9bf..37e6f68 100644
 +    // that same edge on a wide date range) - on boards with enough rows to
 +    // actually need scrolling (e.g. Team Workload with several members),
 +    // the last row otherwise reads as visually cut off regardless of window
-+    // size, since it's a padding gap, not a viewport-size problem.
-+    padding-bottom: 24px;
++    // size, since it's a padding gap, not a viewport-size problem. Bumped
++    // from an initial 24px to a more generous, unmistakable buffer per
++    // direct client feedback that 24px still wasn't enough breathing room.
++    padding-bottom: 60px;
      position: relative;
    }
  
@@ -421,7 +431,7 @@ index 960e5be..266e540 100644
    taskId: undefined,
  };
 diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
-index 6ec6fa2..fb99a9d 100644
+index 6ec6fa2..dc83a31 100644
 --- a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
 +++ b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
 @@ -10,7 +10,10 @@
@@ -436,7 +446,15 @@ index 6ec6fa2..fb99a9d 100644
      position: relative;
      z-index: 1;
    }
-@@ -69,7 +72,10 @@
+@@ -22,6 +25,7 @@
+   .label {
+     align-items: center;
+     background: #fff;
++    border-right: 2px solid #c1c7d0;
+     box-sizing: border-box;
+     color: #17394d;
+     display: flex;
+@@ -69,7 +73,10 @@
      border-radius: 5px;
      box-sizing: border-box;
      display: flex;
@@ -610,17 +628,152 @@ index 8571bf7..0000000
 -  }
 -}
 diff --git a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
-index 8eb5f02..7d2baf4 100644
+index 8eb5f02..3c254ec 100644
 --- a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
 +++ b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
-@@ -78,6 +78,7 @@ const TeamWorkload = React.memo(() => {
+@@ -24,6 +24,12 @@ import styles from './TeamWorkload.module.scss';
+ // (regardless of the checklist's own assignee) or because the checklist
+ // itself - or one of its dated items - is directly assigned to them;
+ // pushTaskListRow dedupes so it never renders twice for the same member.
++// BSY Media: members with zero dated items are left out entirely (client's
++// explicit call) rather than shown with a "No scheduled items" placeholder
++// row - each member's rows are built into a scratch array first and only
++// spliced into the real result once memberRowsTotal confirms there's
++// something to show, so a board with mostly-unassigned members isn't
++// padded out with empty group headers nobody asked to see.
+ const TeamWorkload = React.memo(() => {
+   const items = useSelector(selectors.selectGanttItemsForCurrentBoard);
+   const memberships = useSelector(selectors.selectMembershipsForCurrentBoard);
+@@ -40,22 +46,8 @@ const TeamWorkload = React.memo(() => {
+ 
+     memberships.forEach((membership) => {
+       const { userId } = membership;
++      const memberRows = [];
+ 
+-      result.push({
+-        key: `member:${userId}`,
+-        label: (
+-          <span className={styles.member}>
+-            <UserAvatar id={userId} size="tiny" />
+-            <span className={styles.memberName}>{membership.user.name}</span>
+-          </span>
+-        ),
+-        isGroupHeader: true,
+-        isGroupBoundary: result.length > 0,
+-        startDate: null,
+-        dueDate: null,
+-      });
+-
+-      let memberRowsTotal = 0;
+       const pushedTaskListIds = new Set();
+ 
+       const pushTaskListRow = (taskList) => {
+@@ -65,7 +57,7 @@ const TeamWorkload = React.memo(() => {
+ 
+         pushedTaskListIds.add(taskList.id);
+ 
+-        result.push({
++        memberRows.push({
+           key: `${userId}:taskList:${taskList.id}`,
+           label: (
+             <span className={styles.itemLabelChecklist}>
+@@ -78,14 +70,14 @@ const TeamWorkload = React.memo(() => {
            startDate: taskList.startDate,
            dueDate: taskList.dueDate,
            isDueCompleted: taskList.isDueCompleted,
 +          status: taskList.status,
            taskListId: taskList.id,
          });
-         memberRowsTotal += 1;
+-        memberRowsTotal += 1;
+ 
+         taskList.tasks
+           .filter((task) => task.assigneeUserId === userId)
+           .forEach((task) => {
+-            result.push({
++            memberRows.push({
+               key: `${userId}:task:${task.id}`,
+               label: (
+                 <span className={styles.itemLabelTask}>
+@@ -100,7 +92,6 @@ const TeamWorkload = React.memo(() => {
+               isDueCompleted: task.isDueCompleted,
+               taskId: task.id,
+             });
+-            memberRowsTotal += 1;
+           });
+       };
+ 
+@@ -120,7 +111,7 @@ const TeamWorkload = React.memo(() => {
+             return;
+           }
+ 
+-          result.push({
++          memberRows.push({
+             key: `${userId}:card:${item.cardId}`,
+             label: (
+               <span className={styles.itemLabel}>
+@@ -133,7 +124,6 @@ const TeamWorkload = React.memo(() => {
+             startDate: null,
+             dueDate: null,
+           });
+-          memberRowsTotal += 1;
+ 
+           datedTaskLists.forEach(pushTaskListRow);
+         });
+@@ -152,20 +142,29 @@ const TeamWorkload = React.memo(() => {
+           .forEach(pushTaskListRow);
+       });
+ 
+-      if (memberRowsTotal === 0) {
+-        result.push({
+-          key: `${userId}:empty`,
+-          label: <span className={styles.emptyLabel}>{t('common.noScheduledItems')}</span>,
+-          isGroupHeader: false,
+-          isGroupBoundary: false,
+-          startDate: null,
+-          dueDate: null,
+-        });
++      if (memberRows.length === 0) {
++        return;
+       }
++
++      result.push({
++        key: `member:${userId}`,
++        label: (
++          <span className={styles.member}>
++            <UserAvatar id={userId} size="tiny" />
++            <span className={styles.memberName}>{membership.user.name}</span>
++          </span>
++        ),
++        isGroupHeader: true,
++        isGroupBoundary: result.length > 0,
++        startDate: null,
++        dueDate: null,
++      });
++
++      result.push(...memberRows);
+     });
+ 
+     return result;
+-  }, [items, memberships, t]);
++  }, [items, memberships]);
+ 
+   return (
+     <div className={styles.wrapper}>
+diff --git a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.module.scss b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.module.scss
+index e3854ef..70350a0 100644
+--- a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.module.scss
++++ b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.module.scss
+@@ -46,10 +46,4 @@
+     color: rgba(9, 30, 66, 0.4);
+     flex: 0 0 auto;
+   }
+-
+-  .emptyLabel {
+-    color: rgba(9, 30, 66, 0.4);
+-    font-size: 12px;
+-    font-style: italic;
+-  }
+ }
 diff --git a/client/src/components/boards/GanttModal/Timeline/Timeline.jsx b/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
 index 499847c..9d1f43a 100644
 --- a/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
@@ -956,6 +1109,18 @@ index 0f7f473..f373b35 100755
 -  openBoardGanttModal,
    closeModal,
  };
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 07ddd9e..3b41675 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -275,7 +275,6 @@ export default {
+       noDateSet: 'No date set',
+       noLists: 'No lists',
+       noProjects: 'No projects',
+-      noScheduledItems: 'No scheduled items',
+       noUnreadNotifications: 'No unread notifications.',
+       notifications: 'Notifications',
+       oldestFirst: 'Oldest first',
 diff --git a/client/src/reducers/core.js b/client/src/reducers/core.js
 index 409c36b..e95dfc5 100755
 --- a/client/src/reducers/core.js
