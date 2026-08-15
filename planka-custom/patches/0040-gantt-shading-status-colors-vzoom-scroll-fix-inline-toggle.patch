@@ -113,7 +113,7 @@ index 23e6c82..db0acbf 100644
        onClick={handleClick}
      />
 diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
-index 0cf0871..86b7f6e 100644
+index 0cf0871..3f1d506 100644
 --- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
 +++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
 @@ -32,6 +32,24 @@ const SCALES = {
@@ -240,7 +240,7 @@ index 0cf0871..86b7f6e 100644
          <div className={styles.empty}>{emptyMessage}</div>
        </div>
      );
-@@ -256,9 +320,24 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+@@ -256,9 +320,41 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
  
    const chartWidth = range.totalDays * dayWidth;
  
@@ -256,6 +256,23 @@ index 0cf0871..86b7f6e 100644
 +    bandSegments = range.weekShadeSegments;
 +  }
 +
++  // BSY Media: band shading and weekend shading are two independent rgba
++  // overlays that both used to paint unconditionally, so a weekend day
++  // landing on an already-shaded band compounded into a third, accidental
++  // tone - confusing, not a deliberate 3-tier design (confirmed with the
++  // client). Weekend shading is now mutually exclusive with band shading -
++  // skipped on any day already covered by a band segment - and both use
++  // the identical color (see .bandShade/.weekendShade in the stylesheet),
++  // so the chart only ever shows exactly two tones: white, or "shaded" -
++  // never a double-strength third one.
++  const bandedDayOffsets = new Set();
++  bandSegments.forEach((segment) => {
++    for (let i = 0; i < segment.days; i += 1) {
++      bandedDayOffsets.add(segment.dayOffset + i);
++    }
++  });
++  const weekendOffsets = range.weekendOffsets.filter((offset) => !bandedDayOffsets.has(offset));
++
    return (
      <div className={styles.wrapper}>
 -      <div className={styles.toolbar}>{scaleControl}</div>
@@ -266,7 +283,7 @@ index 0cf0871..86b7f6e 100644
        <div className={styles.scroller} ref={scrollerRef}>
          <div className={styles.inner} style={{ width: LABEL_WIDTH + chartWidth }}>
            <div className={styles.header}>
-@@ -303,11 +382,11 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+@@ -303,11 +399,11 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
                )}
              </div>
            </div>
@@ -281,7 +298,16 @@ index 0cf0871..86b7f6e 100644
                  style={{
                    left: LABEL_WIDTH + segment.dayOffset * dayWidth,
                    width: segment.days * dayWidth,
-@@ -337,6 +416,7 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+@@ -315,7 +411,7 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+               />
+             ))}
+             {scaleKey !== 'month' &&
+-              range.weekendOffsets.map((offset) => (
++              weekendOffsets.map((offset) => (
+                 <div
+                   key={offset}
+                   className={styles.weekendShade}
+@@ -337,6 +433,7 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
                  startDate={row.startDate}
                  dueDate={row.dueDate}
                  isDueCompleted={row.isDueCompleted}
@@ -289,7 +315,7 @@ index 0cf0871..86b7f6e 100644
                  taskListId={row.taskListId}
                  taskId={row.taskId}
                  rangeStart={range.start}
-@@ -361,6 +441,7 @@ GanttChart.propTypes = {
+@@ -361,6 +458,7 @@ GanttChart.propTypes = {
        startDate: PropTypes.instanceOf(Date),
        dueDate: PropTypes.instanceOf(Date),
        isDueCompleted: PropTypes.bool,
@@ -298,7 +324,7 @@ index 0cf0871..86b7f6e 100644
        taskId: PropTypes.string,
      }),
 diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
-index 1e3d9bf..a3a2f7f 100644
+index 1e3d9bf..2e1145e 100644
 --- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
 +++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
 @@ -20,6 +20,7 @@
@@ -317,7 +343,7 @@ index 1e3d9bf..a3a2f7f 100644
      flex: 0 0 auto;
      left: 0;
      position: sticky;
-@@ -89,14 +91,24 @@
+@@ -89,23 +91,31 @@
    }
  
    .body {
@@ -340,10 +366,25 @@ index 1e3d9bf..a3a2f7f 100644
    // the header. Sit behind row content (see Row.module.scss's .row z-index)
    // but above the todayLine so the "today" marker still reads clearly.
 -  .monthShade {
-+  .bandShade {
-     background: rgba(9, 30, 66, 0.045);
+-    background: rgba(9, 30, 66, 0.045);
+-    bottom: 0;
+-    position: absolute;
+-    top: 0;
+-    z-index: 0;
+-  }
+-
++  // BSY Media: both use the exact same tone deliberately - GanttChart.jsx
++  // also makes them mutually exclusive per day (a weekend day already
++  // covered by a shaded band never gets a second weekendShade div) - so the
++  // chart only ever shows two tones total (white or shaded), never a
++  // double-strength third one from two different-opacity layers stacking.
++  .bandShade,
+   .weekendShade {
+-    background: rgba(9, 30, 66, 0.07);
++    background: rgba(9, 30, 66, 0.06);
      bottom: 0;
      position: absolute;
+     top: 0;
 diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.jsx b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
 index 960e5be..266e540 100644
 --- a/client/src/components/boards/GanttModal/GanttChart/Row.jsx
