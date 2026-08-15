@@ -1,0 +1,1066 @@
+diff --git a/client/src/actions/core.js b/client/src/actions/core.js
+index 85182ff..677c895 100644
+--- a/client/src/actions/core.js
++++ b/client/src/actions/core.js
+@@ -81,6 +81,13 @@ const toggleEditMode = (isEnabled) => ({
+   },
+ });
+ 
++const toggleGanttView = (isActive) => ({
++  type: ActionTypes.GANTT_VIEW_TOGGLE,
++  payload: {
++    isActive,
++  },
++});
++
+ const updateHomeView = (value) => ({
+   type: ActionTypes.HOME_VIEW_UPDATE,
+   payload: {
+@@ -102,6 +109,7 @@ export default {
+   initializeCore,
+   toggleFavorites,
+   toggleEditMode,
++  toggleGanttView,
+   updateHomeView,
+   logout,
+ };
+diff --git a/client/src/components/boards/Board/Board.jsx b/client/src/components/boards/Board/Board.jsx
+index 282d6ae..7a0cbe5 100644
+--- a/client/src/components/boards/Board/Board.jsx
++++ b/client/src/components/boards/Board/Board.jsx
+@@ -17,15 +17,22 @@ import CardModal from '../../cards/CardModal';
+ import BoardActivitiesModal from '../../activities/BoardActivitiesModal';
+ import ShareModal from '../../board-memberships/ShareModal';
+ import ArchivedListsModal from '../../lists/ArchivedListsModal';
+-import GanttModal from '../GanttModal';
++import GanttView from '../GanttView';
+ 
+ const Board = React.memo(() => {
+   const board = useSelector(selectors.selectCurrentBoard);
+   const modal = useSelector(selectors.selectCurrentModal);
+   const isCardModalOpened = useSelector((state) => !!selectors.selectPath(state).cardId);
++  const isGanttViewActive = useSelector(selectors.selectIsGanttViewActive);
+ 
+   let Content;
+-  if (board.view === BoardViews.KANBAN) {
++  // BSY Media: the inline Gantt view replaces whatever Content would
++  // otherwise render, in the exact same slot - gated to the normal board
++  // context to match GanttButton's own existing archive/trash gating, so
++  // the toggle can never apply somewhere the button isn't even shown.
++  if (isGanttViewActive && board.context === BoardContexts.BOARD) {
++    Content = GanttView;
++  } else if (board.view === BoardViews.KANBAN) {
+     Content = KanbanContent;
+   } else {
+     switch (board.context) {
+@@ -58,10 +65,6 @@ const Board = React.memo(() => {
+       case ModalTypes.ARCHIVED_LISTS:
+         modalNode = <ArchivedListsModal />;
+ 
+-        break;
+-      case ModalTypes.BOARD_GANTT:
+-        modalNode = <GanttModal />;
+-
+         break;
+       default:
+     }
+diff --git a/client/src/components/boards/GanttButton/GanttButton.jsx b/client/src/components/boards/GanttButton/GanttButton.jsx
+index 23e6c82..db0acbf 100644
+--- a/client/src/components/boards/GanttButton/GanttButton.jsx
++++ b/client/src/components/boards/GanttButton/GanttButton.jsx
+@@ -4,29 +4,35 @@
+  */
+ 
+ import React, { useCallback } from 'react';
+-import { useDispatch } from 'react-redux';
++import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+ import { Button } from 'semantic-ui-react';
+ 
++import selectors from '../../../selectors';
+ import entryActions from '../../../entry-actions';
+ 
+ import styles from './GanttButton.module.scss';
+ 
+-// BSY Media: opens the board-wide Gantt view (Timeline / Tasks / Team
+-// workload / Schedule), mirrors the Share button trigger next to it -
+-// BoardMemberships/BoardMemberships.jsx.
++// BSY Media: toggles the board area between the Kanban list and the inline
++// Gantt view (Timeline / Tasks / Team workload / Schedule) - mirrors the
++// Share button trigger next to it (BoardMemberships/BoardMemberships.jsx).
++// Used to open a fullscreen modal; now swaps Board.jsx's Content slot in
++// place instead, and the button itself flips into a "Board" button to
++// switch back - see reducers/core.js's isGanttViewActive.
+ const GanttButton = React.memo(() => {
++  const isGanttViewActive = useSelector(selectors.selectIsGanttViewActive);
++
+   const dispatch = useDispatch();
+   const [t] = useTranslation();
+ 
+   const handleClick = useCallback(() => {
+-    dispatch(entryActions.openBoardGanttModal());
+-  }, [dispatch]);
++    dispatch(entryActions.toggleGanttView(!isGanttViewActive));
++  }, [dispatch, isGanttViewActive]);
+ 
+   return (
+     <Button
+-      icon="chart bar"
+-      content={t('action.gantt')}
++      icon={isGanttViewActive ? 'columns' : 'chart bar'}
++      content={isGanttViewActive ? t('common.board') : t('action.gantt')}
+       className={styles.addButton}
+       onClick={handleClick}
+     />
+diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+index 0cf0871..86b7f6e 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
++++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
+@@ -32,6 +32,24 @@ const SCALES = {
+ 
+ const SCALE_KEYS = Object.keys(SCALES);
+ 
++// BSY Media: vertical zoom preset ladder (row height in px) - a small,
++// bounded set of steps rather than free-form dragging, mirroring the
++// horizontal Day/Week/Month scale control's own preset-based approach. 32px
++// is the existing default row height from the prior density round, kept as
++// the starting point so untouched boards look unchanged until someone
++// actually clicks +/-. Floor is 26px, not lower - confirmed live that a
++// smaller value is a dead step: Row.module.scss's .label has a fixed 12px
++// vertical padding + 14px line-height (26px total) that a smaller
++// min-height can never actually shrink below, so the row would silently
++// stick at 26px while the state (and the disabled +/- button) believed it
++// had reached the lower value. 26px is also not an arbitrary choice - it's
++// the exact tightest density this app has already shipped and lived with
++// (the 2026-08-14 density round). Ceiling of 64px is a judgment call: it's
++// generous without wasting space relative to what the density rounds were
++// tuned for.
++const ROW_HEIGHTS = [26, 32, 40, 48, 56, 64];
++const DEFAULT_ROW_HEIGHT_INDEX = ROW_HEIGHTS.indexOf(32);
++
+ // BSY Media: pick the zoom level that frames the *actual* spread of dated
+ // work instead of always landing on Day - a board whose dated checklists
+ // span a couple of months looks like a near-empty wall of grid at Day scale
+@@ -72,12 +90,22 @@ const getDefaultScaleKey = (rows) => {
+ 
+ // BSY Media: shared horizontal Gantt renderer used by both the Timeline tab
+ // (grouped by card) and the Team workload tab (grouped by member) - see
+-// GanttModal.jsx.
++// GanttView.jsx.
+ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+   const scrollerRef = useRef(null);
+   const [scaleKey, setScaleKey] = useState(() => getDefaultScaleKey(rows));
+   const [containerWidth, setContainerWidth] = useState(0);
++  const [rowHeightIndex, setRowHeightIndex] = useState(DEFAULT_ROW_HEIGHT_INDEX);
+   const { dayWidth: baseDayWidth, minRangeDays } = SCALES[scaleKey];
++  const rowHeight = ROW_HEIGHTS[rowHeightIndex];
++
++  const handleRowHeightDecreaseClick = () => {
++    setRowHeightIndex((currentIndex) => Math.max(0, currentIndex - 1));
++  };
++
++  const handleRowHeightIncreaseClick = () => {
++    setRowHeightIndex((currentIndex) => Math.min(ROW_HEIGHTS.length - 1, currentIndex + 1));
++  };
+ 
+   // BSY Media: track the scroller's own visible width (not the modal's -
+   // that includes the label column and any scrollbar gutter) so the day
+@@ -157,7 +185,7 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+       if (lastWeekSegment && lastWeekSegment.key === weekKey) {
+         lastWeekSegment.days += 1;
+       } else {
+-        weekSegments.push({ key: weekKey, label: format(date, 'MMM d'), days: 1 });
++        weekSegments.push({ key: weekKey, label: format(date, 'MMM d'), dayOffset: index, days: 1 });
+       }
+ 
+       if (isWeekend(date)) {
+@@ -165,8 +193,17 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+       }
+     });
+ 
+-    // Alternate a faint shade on every other month so a long row is easier
+-    // to track across without counting grid lines back to a date header.
++    // Alternate a faint shade on every other unit of whichever scale is
++    // currently active (day/week/month), so the "regularly spaced" banding
++    // that used to only exist for Month scale is consistent at every zoom
++    // level - each array reuses the same dayOffset/days shape and the same
++    // index%2 alternation as the original month-only version. A day segment
++    // is already exactly 1 day wide by construction, so it needs no
++    // grouping pass the way month/week segments do.
++    const dayShadeSegments = dayCells
++      .map((date, index) => ({ key: date.toISOString(), dayOffset: index, days: 1 }))
++      .filter((_segment, index) => index % 2 === 1);
++    const weekShadeSegments = weekSegments.filter((_segment, index) => index % 2 === 1);
+     const monthShadeSegments = monthSegments.filter((_segment, index) => index % 2 === 1);
+ 
+     const today = startOfDay(new Date());
+@@ -180,6 +217,8 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+       monthSegments,
+       weekSegments,
+       weekendOffsets,
++      dayShadeSegments,
++      weekShadeSegments,
+       monthShadeSegments,
+       todayOffset,
+     };
+@@ -245,10 +284,35 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+     </Button.Group>
+   );
+ 
++  // BSY Media: vertical zoom (row height) - independent of the horizontal
++  // Day/Week/Month scale above, so either can be adjusted without affecting
++  // the other.
++  const rowHeightControl = (
++    <Button.Group size="tiny" className={styles.scaleControl}>
++      <Button
++        type="button"
++        icon="minus"
++        disabled={rowHeightIndex === 0}
++        onClick={handleRowHeightDecreaseClick}
++        title="Zoom out"
++      />
++      <Button
++        type="button"
++        icon="plus"
++        disabled={rowHeightIndex === ROW_HEIGHTS.length - 1}
++        onClick={handleRowHeightIncreaseClick}
++        title="Zoom in"
++      />
++    </Button.Group>
++  );
++
+   if (!range) {
+     return (
+       <div className={styles.wrapper}>
+-        <div className={styles.toolbar}>{scaleControl}</div>
++        <div className={styles.toolbar}>
++          {rowHeightControl}
++          {scaleControl}
++        </div>
+         <div className={styles.empty}>{emptyMessage}</div>
+       </div>
+     );
+@@ -256,9 +320,24 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+ 
+   const chartWidth = range.totalDays * dayWidth;
+ 
++  // BSY Media: the alternating band always matches the currently active
++  // scale's own unit (single days at Day scale, single weeks at Week scale,
++  // months at Month scale) instead of always being month-sized regardless
++  // of zoom - see the dayShadeSegments/weekShadeSegments/monthShadeSegments
++  // computation above.
++  let bandSegments = range.monthShadeSegments;
++  if (scaleKey === 'day') {
++    bandSegments = range.dayShadeSegments;
++  } else if (scaleKey === 'week') {
++    bandSegments = range.weekShadeSegments;
++  }
++
+   return (
+     <div className={styles.wrapper}>
+-      <div className={styles.toolbar}>{scaleControl}</div>
++      <div className={styles.toolbar}>
++        {rowHeightControl}
++        {scaleControl}
++      </div>
+       <div className={styles.scroller} ref={scrollerRef}>
+         <div className={styles.inner} style={{ width: LABEL_WIDTH + chartWidth }}>
+           <div className={styles.header}>
+@@ -303,11 +382,11 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+               )}
+             </div>
+           </div>
+-          <div className={styles.body}>
+-            {range.monthShadeSegments.map((segment) => (
++          <div className={styles.body} style={{ '--row-height': `${rowHeight}px` }}>
++            {bandSegments.map((segment) => (
+               <div
+                 key={segment.key}
+-                className={styles.monthShade}
++                className={styles.bandShade}
+                 style={{
+                   left: LABEL_WIDTH + segment.dayOffset * dayWidth,
+                   width: segment.days * dayWidth,
+@@ -337,6 +416,7 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+                 startDate={row.startDate}
+                 dueDate={row.dueDate}
+                 isDueCompleted={row.isDueCompleted}
++                status={row.status}
+                 taskListId={row.taskListId}
+                 taskId={row.taskId}
+                 rangeStart={range.start}
+@@ -361,6 +441,7 @@ GanttChart.propTypes = {
+       startDate: PropTypes.instanceOf(Date),
+       dueDate: PropTypes.instanceOf(Date),
+       isDueCompleted: PropTypes.bool,
++      status: PropTypes.string,
+       taskListId: PropTypes.string,
+       taskId: PropTypes.string,
+     }),
+diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
+index 1e3d9bf..37e6f68 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
++++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
+@@ -20,6 +20,7 @@
+     align-items: center;
+     display: flex;
+     flex: 0 0 auto;
++    gap: 8px;
+     justify-content: flex-end;
+     padding: 4px 0 14px;
+   }
+@@ -89,14 +90,22 @@
+   }
+ 
+   .body {
++    // Bottom breathing room so the last row never sits flush against the
++    // scroll container's edge (or a horizontal scrollbar sitting right at
++    // that same edge on a wide date range) - on boards with enough rows to
++    // actually need scrolling (e.g. Team Workload with several members),
++    // the last row otherwise reads as visually cut off regardless of window
++    // size, since it's a padding gap, not a viewport-size problem.
++    padding-bottom: 24px;
+     position: relative;
+   }
+ 
+-  // Faint alternating month bands and weekend columns, so a long row can be
++  // Faint alternating bands (day/week/month, whichever scale is active - see
++  // GanttChart.jsx's bandSegments) and weekend columns, so a long row can be
+   // tracked across to the right date without counting grid lines back to
+   // the header. Sit behind row content (see Row.module.scss's .row z-index)
+   // but above the todayLine so the "today" marker still reads clearly.
+-  .monthShade {
++  .bandShade {
+     background: rgba(9, 30, 66, 0.045);
+     bottom: 0;
+     position: absolute;
+diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.jsx b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
+index 960e5be..266e540 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/Row.jsx
++++ b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
+@@ -11,6 +11,7 @@ import differenceInCalendarDays from 'date-fns/differenceInCalendarDays';
+ import { usePopupInClosableContext } from '../../../../hooks';
+ import EditDueDateStep from '../../../cards/EditDueDateStep';
+ import getDueDateStatus, { DueDateStatuses } from '../../../../utils/get-due-date-status';
++import TaskListStatusColors from '../../../../constants/TaskListStatusColors';
+ 
+ import styles from './Row.module.scss';
+ 
+@@ -19,11 +20,13 @@ import styles from './Row.module.scss';
+ // sliver.
+ const MIN_BAR_WIDTH = 6;
+ 
+-// BSY Media: bars are colored by deadline urgency (same thresholds/hex
+-// values as the card-face title coloring and DueDateChip - see
+-// get-due-date-status.js) rather than a manually-picked per-checklist
+-// color, so a glance at the chart tells you what needs attention without a
+-// separate legend to maintain.
++// BSY Media: bars are colored by deadline urgency first (same thresholds/
++// hex values as the card-face title coloring and DueDateChip - see
++// get-due-date-status.js), then by the checklist's own workflow status
++// (constants/TaskListStatusColors.js, the same palette already used for the
++// checklist header chip and card-face status dot) when it isn't currently
++// overdue/due-soon, so a glance at the chart tells you what needs attention
++// first and what stage everything else is at, without a separate legend.
+ const STATUS_COLORS = {
+   [DueDateStatuses.OVERDUE]: '#db2828',
+   [DueDateStatuses.DUE_SOON]: '#f2711c',
+@@ -43,6 +46,7 @@ const Row = React.memo(
+     startDate,
+     dueDate,
+     isDueCompleted,
++    status,
+     taskListId,
+     taskId,
+     rangeStart,
+@@ -63,11 +67,17 @@ const Row = React.memo(
+         ? (differenceInCalendarDays(dueDate, startDate) + 1) * dayWidth
+         : dayWidth;
+ 
+-      const status = dueDate && getDueDateStatus(dueDate, isDueCompleted);
+-      const statusColor = status && STATUS_COLORS[status];
++      const dueDateStatus = dueDate && getDueDateStatus(dueDate, isDueCompleted);
++      const dueDateStatusColor = dueDateStatus && STATUS_COLORS[dueDateStatus];
+ 
+-      if (statusColor) {
+-        return { left, width: Math.max(width, MIN_BAR_WIDTH), background: statusColor };
++      if (dueDateStatusColor) {
++        return { left, width: Math.max(width, MIN_BAR_WIDTH), background: dueDateStatusColor };
++      }
++
++      const taskListStatusColor = status && TaskListStatusColors[status];
++
++      if (taskListStatusColor) {
++        return { left, width: Math.max(width, MIN_BAR_WIDTH), background: taskListStatusColor };
+       }
+ 
+       if (startDate && dueDate) {
+@@ -83,7 +93,7 @@ const Row = React.memo(
+         width: Math.max(dayWidth, MIN_BAR_WIDTH),
+         background: startDate ? '#2185d0' : '#e8632c',
+       };
+-    }, [startDate, dueDate, isDueCompleted, rangeStart, dayWidth]);
++    }, [startDate, dueDate, isDueCompleted, status, rangeStart, dayWidth]);
+ 
+     const barStyle = bar && {
+       left: bar.left,
+@@ -154,6 +164,7 @@ Row.propTypes = {
+   startDate: PropTypes.instanceOf(Date),
+   dueDate: PropTypes.instanceOf(Date),
+   isDueCompleted: PropTypes.bool,
++  status: PropTypes.string,
+   taskListId: PropTypes.string,
+   taskId: PropTypes.string,
+   rangeStart: PropTypes.instanceOf(Date).isRequired,
+@@ -165,6 +176,7 @@ Row.defaultProps = {
+   startDate: null,
+   dueDate: null,
+   isDueCompleted: false,
++  status: null,
+   taskListId: undefined,
+   taskId: undefined,
+ };
+diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
+index 6ec6fa2..fb99a9d 100644
+--- a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
++++ b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
+@@ -10,7 +10,10 @@
+   // static-flow content regardless of DOM order.
+   .row {
+     display: flex;
+-    min-height: 32px;
++    // BSY Media: driven by the --row-height custom property set once on
++    // GanttChart.jsx's .body wrapper (vertical zoom control) - falls back
++    // to the pre-zoom-feature 32px default when unset.
++    min-height: var(--row-height, 32px);
+     position: relative;
+     z-index: 1;
+   }
+@@ -69,7 +72,10 @@
+     border-radius: 5px;
+     box-sizing: border-box;
+     display: flex;
+-    height: 18px;
++    // BSY Media: same ratio to row height as the pre-zoom-feature fixed
++    // 18px/32px (0.5625), so the bar keeps a consistent proportion to its
++    // row at every zoom step instead of a fixed pixel size.
++    height: calc(var(--row-height, 32px) * 0.5625);
+     margin: 0;
+     overflow: hidden;
+     padding: 0;
+diff --git a/client/src/components/boards/GanttModal/GanttModal.jsx b/client/src/components/boards/GanttModal/GanttModal.jsx
+deleted file mode 100644
+index 96efd53..0000000
+--- a/client/src/components/boards/GanttModal/GanttModal.jsx
++++ /dev/null
+@@ -1,101 +0,0 @@
+-/*!
+- * Copyright (c) 2024 PLANKA Software GmbH
+- * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+- */
+-
+-import React, { useCallback } from 'react';
+-import { useDispatch, useSelector } from 'react-redux';
+-import { useTranslation } from 'react-i18next';
+-import { Menu, Tab } from 'semantic-ui-react';
+-
+-import selectors from '../../../selectors';
+-import entryActions from '../../../entry-actions';
+-import { useClosableModal } from '../../../hooks';
+-import Timeline from './Timeline';
+-import Tasks from './Tasks';
+-import TeamWorkload from './TeamWorkload';
+-import Schedule from './Schedule';
+-
+-import styles from './GanttModal.module.scss';
+-
+-// BSY Media: board-wide Gantt view, opened via GanttButton next to Share -
+-// same modal-type-driven mount pattern as ShareModal/BoardActivitiesModal
+-// (see Board.jsx), just fullscreen since it needs room for a wide chart.
+-const GanttModal = React.memo(() => {
+-  const board = useSelector(selectors.selectCurrentBoard);
+-
+-  const dispatch = useDispatch();
+-  const [t] = useTranslation();
+-
+-  const handleClose = useCallback(() => {
+-    dispatch(entryActions.closeModal());
+-  }, [dispatch]);
+-
+-  const [ClosableModal] = useClosableModal();
+-
+-  const panes = [
+-    {
+-      menuItem: (
+-        <Menu.Item key="timeline" className={styles.menuItem}>
+-          {t('common.timeline', {
+-            context: 'title',
+-          })}
+-        </Menu.Item>
+-      ),
+-      render: () => <Timeline />,
+-    },
+-    {
+-      menuItem: (
+-        <Menu.Item key="tasks" className={styles.menuItem}>
+-          {t('common.tasks', {
+-            context: 'title',
+-          })}
+-        </Menu.Item>
+-      ),
+-      render: () => <Tasks />,
+-    },
+-    {
+-      menuItem: (
+-        <Menu.Item key="teamWorkload" className={styles.menuItem}>
+-          {t('common.teamWorkload', {
+-            context: 'title',
+-          })}
+-        </Menu.Item>
+-      ),
+-      render: () => <TeamWorkload />,
+-    },
+-    {
+-      menuItem: (
+-        <Menu.Item key="schedule" className={styles.menuItem}>
+-          {t('common.schedule', {
+-            context: 'title',
+-          })}
+-        </Menu.Item>
+-      ),
+-      render: () => <Schedule />,
+-    },
+-  ];
+-
+-  return (
+-    <ClosableModal closeIcon size="fullscreen" centered={false} onClose={handleClose}>
+-      <ClosableModal.Header>
+-        {t('common.gantt', {
+-          context: 'title',
+-        })}{' '}
+-        &mdash; {board.name}
+-      </ClosableModal.Header>
+-      <ClosableModal.Content className={styles.wrapper}>
+-        <Tab
+-          menu={{
+-            secondary: true,
+-            pointing: true,
+-          }}
+-          panes={panes}
+-          className={styles.tab}
+-        />
+-      </ClosableModal.Content>
+-    </ClosableModal>
+-  );
+-});
+-
+-export default GanttModal;
+diff --git a/client/src/components/boards/GanttModal/GanttModal.module.scss b/client/src/components/boards/GanttModal/GanttModal.module.scss
+deleted file mode 100644
+index 8571bf7..0000000
+--- a/client/src/components/boards/GanttModal/GanttModal.module.scss
++++ /dev/null
+@@ -1,48 +0,0 @@
+-/*!
+- * Copyright (c) 2024 PLANKA Software GmbH
+- * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+- */
+-
+-:global(#app) {
+-  // Semantic UI's own .ui.fullscreen.modal rule caps width at 95% while
+-  // also forcing left: 0 !important - the two combine into a flush-left
+-  // modal with a permanent 5vw gap stuck on the right instead of a
+-  // centered margin, which reads as "the chart doesn't reach the edge of
+-  // the window". Both properties need overriding together, at higher
+-  // specificity than Semantic's own 2-class selector.
+-  :global(.ui.fullscreen.modal) {
+-    width: 100% !important;
+-  }
+-
+-  .wrapper {
+-    display: flex;
+-    flex-direction: column;
+-    height: calc(100vh - 120px);
+-    overflow: hidden;
+-    padding: 0 8px;
+-  }
+-
+-  .tab {
+-    display: flex;
+-    flex: 1 1 auto;
+-    flex-direction: column;
+-    min-height: 0;
+-
+-    // overflow: hidden (not auto) - each tab pane's own content (GanttChart's
+-    // .scroller) is the intended single scrolling container. A second
+-    // overflow: auto here would fight it for scroll ownership and break
+-    // position: sticky, which sticks relative to its *nearest* scrolling
+-    // ancestor - not necessarily the one you meant.
+-    :global(.tab) {
+-      display: flex;
+-      flex: 1 1 auto;
+-      flex-direction: column;
+-      min-height: 0;
+-      overflow: hidden;
+-    }
+-  }
+-
+-  .menuItem {
+-    font-weight: bold;
+-  }
+-}
+diff --git a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
+index 8eb5f02..7d2baf4 100644
+--- a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
++++ b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
+@@ -78,6 +78,7 @@ const TeamWorkload = React.memo(() => {
+           startDate: taskList.startDate,
+           dueDate: taskList.dueDate,
+           isDueCompleted: taskList.isDueCompleted,
++          status: taskList.status,
+           taskListId: taskList.id,
+         });
+         memberRowsTotal += 1;
+diff --git a/client/src/components/boards/GanttModal/Timeline/Timeline.jsx b/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
+index 499847c..9d1f43a 100644
+--- a/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
++++ b/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
+@@ -70,6 +70,7 @@ const Timeline = React.memo(() => {
+           startDate: taskList.startDate,
+           dueDate: taskList.dueDate,
+           isDueCompleted: taskList.isDueCompleted,
++          status: taskList.status,
+           taskListId: taskList.id,
+         });
+       });
+diff --git a/client/src/components/boards/GanttView/GanttView.jsx b/client/src/components/boards/GanttView/GanttView.jsx
+new file mode 100644
+index 0000000..710dc99
+--- /dev/null
++++ b/client/src/components/boards/GanttView/GanttView.jsx
+@@ -0,0 +1,146 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useEffect, useMemo, useRef, useState } from 'react';
++import { useTranslation } from 'react-i18next';
++import { Menu, Tab } from 'semantic-ui-react';
++
++import { useClosable } from '../../../hooks';
++import { ClosableContext } from '../../../contexts';
++import Timeline from '../GanttModal/Timeline';
++import Tasks from '../GanttModal/Tasks';
++import TeamWorkload from '../GanttModal/TeamWorkload';
++import Schedule from '../GanttModal/Schedule';
++
++import styles from './GanttView.module.scss';
++
++// BSY Media: inline board-area replacement for the old fullscreen
++// GanttModal - mounted directly in Board.jsx's Content slot (in place of
++// KanbanContent) instead of as a modal overlay, toggled by GanttButton. The
++// 4 tabs (Timeline/Tasks/TeamWorkload/Schedule) and the shared GanttChart
++// they render are otherwise completely unchanged, reused straight from
++// GanttModal/ rather than duplicated.
++//
++// One real coupling has to be handled here that GanttModal used to provide
++// for free: Row.jsx/Tasks.jsx/Schedule.jsx's click-to-edit date popups go
++// through usePopupInClosableContext, which reads ClosableContext via
++// useContext - GanttModal got a working context value bundled together
++// with its Modal wrapper via useClosableModal(). Without a provider here,
++// ClosableContext falls back to its default [null, null, null] and calling
++// activateClosable() would throw. Fixed by calling the lower-level
++// useClosable() hook directly (the same one useClosableModal itself calls
++// internally) and providing the identical 3-value context shape, with no
++// Modal involved.
++const GanttView = React.memo(() => {
++  const [, activateClosable, deactivateClosable, setIsClosableActive] = useClosable();
++
++  const closableContextValue = useMemo(
++    () => [activateClosable, deactivateClosable, setIsClosableActive],
++    [activateClosable, deactivateClosable, setIsClosableActive],
++  );
++
++  const [t] = useTranslation();
++
++  // BSY Media: Board.jsx's own content slot (Static.module.scss's outer
++  // .wrapper) is deliberately taller than the viewport for Kanban's sake -
++  // "height: 100%" plus a fixed header "margin-top" that's meant to
++  // overflow off-screen and let the *page* scroll, since Kanban's own
++  // content (cards inside each list) never needs a single bounded vertical
++  // scroller of its own. Confirmed live via getBoundingClientRect(): this
++  // wrapper's own cross-axis stretch just faithfully inherits that same
++  // oversized height, which is wrong for Gantt - a genuinely tall single
++  // list of rows that needs its own .scroller (GanttChart.module.scss) to
++  // be the *only* scroll container, not a second one stacked underneath a
++  // page-level scroll. There's no pure-CSS "100vh minus wherever I actually
++  // ended up" primitive here (the exact offset already varies by
++  // favorites-panel state and the promo banner, so hardcoding a calc()
++  // constant the way the old fullscreen GanttModal did would be wrong in at
++  // least one of those states) - so this measures its own real top offset
++  // directly, the same ResizeObserver-driven approach GanttChart.jsx
++  // already uses for the analogous horizontal stretch-to-fill problem.
++  const wrapperRef = useRef(null);
++  const [wrapperHeight, setWrapperHeight] = useState(null);
++
++  useEffect(() => {
++    const wrapper = wrapperRef.current;
++    if (!wrapper) {
++      return undefined;
++    }
++
++    const updateHeight = () => {
++      const { top } = wrapper.getBoundingClientRect();
++      setWrapperHeight(Math.max(240, window.innerHeight - top));
++    };
++
++    updateHeight();
++    window.addEventListener('resize', updateHeight);
++
++    return () => window.removeEventListener('resize', updateHeight);
++  }, []);
++
++  const panes = [
++    {
++      menuItem: (
++        <Menu.Item key="timeline" className={styles.menuItem}>
++          {t('common.timeline', {
++            context: 'title',
++          })}
++        </Menu.Item>
++      ),
++      render: () => <Timeline />,
++    },
++    {
++      menuItem: (
++        <Menu.Item key="tasks" className={styles.menuItem}>
++          {t('common.tasks', {
++            context: 'title',
++          })}
++        </Menu.Item>
++      ),
++      render: () => <Tasks />,
++    },
++    {
++      menuItem: (
++        <Menu.Item key="teamWorkload" className={styles.menuItem}>
++          {t('common.teamWorkload', {
++            context: 'title',
++          })}
++        </Menu.Item>
++      ),
++      render: () => <TeamWorkload />,
++    },
++    {
++      menuItem: (
++        <Menu.Item key="schedule" className={styles.menuItem}>
++          {t('common.schedule', {
++            context: 'title',
++          })}
++        </Menu.Item>
++      ),
++      render: () => <Schedule />,
++    },
++  ];
++
++  return (
++    <ClosableContext.Provider value={closableContextValue}>
++      <div
++        ref={wrapperRef}
++        className={styles.wrapper}
++        style={wrapperHeight ? { height: wrapperHeight } : undefined}
++      >
++        <Tab
++          menu={{
++            secondary: true,
++            pointing: true,
++          }}
++          panes={panes}
++          className={styles.tab}
++        />
++      </div>
++    </ClosableContext.Provider>
++  );
++});
++
++export default GanttView;
+diff --git a/client/src/components/boards/GanttView/GanttView.module.scss b/client/src/components/boards/GanttView/GanttView.module.scss
+new file mode 100644
+index 0000000..aad85fd
+--- /dev/null
++++ b/client/src/components/boards/GanttView/GanttView.module.scss
+@@ -0,0 +1,56 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .wrapper {
++    // BSY Media: this is a flex item of Board.jsx's own content slot
++    // (Static.module.scss's row-direction ".wrapper.wrapperBoard.wrapperFlex"),
++    // not just a plain block box - without flex: 1 1 auto it only claims its
++    // own content's natural width as a row-flex item (confirmed live via
++    // getBoundingClientRect: 912px instead of the full 1600px viewport) and
++    // never grows to fill the row. min-width: 0 is the standard flex-item
++    // companion fix - without it a flex item's default min-width: auto can
++    // refuse to shrink below its content's intrinsic width in the other
++    // direction.
++    background: #fff;
++    display: flex;
++    flex: 1 1 auto;
++    flex-direction: column;
++    min-width: 0;
++    // height is set inline from GanttView.jsx once the wrapper's real
++    // top offset is measured - see that file's comment for why a plain
++    // "height: 100%" or a hardcoded calc(100vh - Npx) both fall short here.
++    // This 100% is only the pre-measurement fallback for the very first
++    // paint.
++    height: 100%;
++    overflow: hidden;
++    padding: 0 8px;
++  }
++
++  .tab {
++    display: flex;
++    flex: 1 1 auto;
++    flex-direction: column;
++    min-height: 0;
++
++    // overflow: hidden (not auto) - each tab pane's own content (GanttChart's
++    // .scroller) is the intended single scrolling container. A second
++    // overflow: auto here would fight it for scroll ownership and break
++    // position: sticky, which sticks relative to its *nearest* scrolling
++    // ancestor - not necessarily the one you meant. Same fix as
++    // GanttModal.module.scss's identical rule.
++    :global(.tab) {
++      display: flex;
++      flex: 1 1 auto;
++      flex-direction: column;
++      min-height: 0;
++      overflow: hidden;
++    }
++  }
++
++  .menuItem {
++    font-weight: bold;
++  }
++}
+diff --git a/client/src/components/boards/GanttModal/index.js b/client/src/components/boards/GanttView/index.js
+similarity index 69%
+rename from client/src/components/boards/GanttModal/index.js
+rename to client/src/components/boards/GanttView/index.js
+index e8d85c0..b9c59b4 100644
+--- a/client/src/components/boards/GanttModal/index.js
++++ b/client/src/components/boards/GanttView/index.js
+@@ -3,6 +3,6 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import GanttModal from './GanttModal';
++import GanttView from './GanttView';
+ 
+-export default GanttModal;
++export default GanttView;
+diff --git a/client/src/constants/ActionTypes.js b/client/src/constants/ActionTypes.js
+index b087f7c..afa5f1f 100644
+--- a/client/src/constants/ActionTypes.js
++++ b/client/src/constants/ActionTypes.js
+@@ -47,6 +47,7 @@ export default {
+   CORE_INITIALIZE__BOOTSTRAP_FETCH: 'CORE_INITIALIZE__BOOTSTRAP_FETCH',
+   FAVORITES_TOGGLE: 'FAVORITES_TOGGLE',
+   EDIT_MODE_TOGGLE: 'EDIT_MODE_TOGGLE',
++  GANTT_VIEW_TOGGLE: 'GANTT_VIEW_TOGGLE',
+   HOME_VIEW_UPDATE: 'HOME_VIEW_UPDATE',
+   LOGOUT: 'LOGOUT',
+   LOGOUT__ACCESS_TOKEN_REVOKE: 'LOGOUT__ACCESS_TOKEN_REVOKE',
+diff --git a/client/src/constants/EntryActionTypes.js b/client/src/constants/EntryActionTypes.js
+index 44e8dee..70bcc33 100755
+--- a/client/src/constants/EntryActionTypes.js
++++ b/client/src/constants/EntryActionTypes.js
+@@ -30,6 +30,7 @@ export default {
+ 
+   FAVORITES_TOGGLE: `${PREFIX}/FAVORITES_TOGGLE`,
+   EDIT_MODE_TOGGLE: `${PREFIX}/EDIT_MODE_TOGGLE`,
++  GANTT_VIEW_TOGGLE: `${PREFIX}/GANTT_VIEW_TOGGLE`,
+   HOME_VIEW_UPDATE: `${PREFIX}/HOME_VIEW_UPDATE`,
+   LOGOUT: `${PREFIX}/LOGOUT`,
+ 
+diff --git a/client/src/constants/ModalTypes.js b/client/src/constants/ModalTypes.js
+index 758f46b..461b574 100755
+--- a/client/src/constants/ModalTypes.js
++++ b/client/src/constants/ModalTypes.js
+@@ -13,7 +13,6 @@ const BOARD_SETTINGS = 'BOARD_SETTINGS';
+ const BOARD_ACTIVITIES = 'BOARD_ACTIVITIES';
+ const BOARD_SHARE = 'BOARD_SHARE';
+ const ARCHIVED_LISTS = 'ARCHIVED_LISTS';
+-const BOARD_GANTT = 'BOARD_GANTT';
+ 
+ export default {
+   ADMINISTRATION,
+@@ -26,5 +25,4 @@ export default {
+   BOARD_ACTIVITIES,
+   BOARD_SHARE,
+   ARCHIVED_LISTS,
+-  BOARD_GANTT,
+ };
+diff --git a/client/src/entry-actions/core.js b/client/src/entry-actions/core.js
+index 62b7de3..77e7859 100644
+--- a/client/src/entry-actions/core.js
++++ b/client/src/entry-actions/core.js
+@@ -19,6 +19,13 @@ const toggleEditMode = (isEnabled) => ({
+   },
+ });
+ 
++const toggleGanttView = (isActive) => ({
++  type: EntryActionTypes.GANTT_VIEW_TOGGLE,
++  payload: {
++    isActive,
++  },
++});
++
+ const updateHomeView = (value) => ({
+   type: EntryActionTypes.HOME_VIEW_UPDATE,
+   payload: {
+@@ -36,6 +43,7 @@ const logout = (revokeAccessToken = true) => ({
+ export default {
+   toggleFavorites,
+   toggleEditMode,
++  toggleGanttView,
+   updateHomeView,
+   logout,
+ };
+diff --git a/client/src/entry-actions/modals.js b/client/src/entry-actions/modals.js
+index 0f7f473..f373b35 100755
+--- a/client/src/entry-actions/modals.js
++++ b/client/src/entry-actions/modals.js
+@@ -82,13 +82,6 @@ const openArchivedListsModal = () => ({
+   },
+ });
+ 
+-const openBoardGanttModal = () => ({
+-  type: EntryActionTypes.MODAL_OPEN,
+-  payload: {
+-    type: ModalTypes.BOARD_GANTT,
+-  },
+-});
+-
+ const closeModal = () => ({
+   type: EntryActionTypes.MODAL_CLOSE,
+   payload: {},
+@@ -105,6 +98,5 @@ export default {
+   openBoardActivitiesModal,
+   openBoardShareModal,
+   openArchivedListsModal,
+-  openBoardGanttModal,
+   closeModal,
+ };
+diff --git a/client/src/reducers/core.js b/client/src/reducers/core.js
+index 409c36b..e95dfc5 100755
+--- a/client/src/reducers/core.js
++++ b/client/src/reducers/core.js
+@@ -18,6 +18,10 @@ const initialState = {
+   // drag/drop affordances immediately, without an extra lock-icon toggle.
+   // Board/editor role permission checks elsewhere are unaffected.
+   isEditModeEnabled: true,
++  // BSY Media: client-only, non-persisted, resets to false on every board
++  // switch (see LOCATION_CHANGE_HANDLE below) - whether the board area is
++  // currently showing the inline Gantt view instead of the Kanban list.
++  isGanttViewActive: false,
+   modal: null,
+   clipboard: null,
+   config: null,
+@@ -54,6 +58,10 @@ export default (state = initialState, { type, payload }) => {
+         nextState.recentCardId = null;
+       }
+ 
++      if (nextState.boardId !== state.boardId) {
++        nextState.isGanttViewActive = false;
++      }
++
+       if (payload.currentCardId) {
+         if (state.cardId) {
+           nextState.prevCardIds =
+@@ -110,6 +118,11 @@ export default (state = initialState, { type, payload }) => {
+         ...state,
+         isEditModeEnabled: payload.isEnabled,
+       };
++    case ActionTypes.GANTT_VIEW_TOGGLE:
++      return {
++        ...state,
++        isGanttViewActive: payload.isActive,
++      };
+     case ActionTypes.HOME_VIEW_UPDATE:
+       return {
+         ...state,
+diff --git a/client/src/sagas/core/services/core.js b/client/src/sagas/core/services/core.js
+index 7f2e7bb..86260f8 100644
+--- a/client/src/sagas/core/services/core.js
++++ b/client/src/sagas/core/services/core.js
+@@ -101,6 +101,10 @@ export function* toggleEditMode(isEnabled) {
+   yield put(actions.toggleEditMode(isEnabled));
+ }
+ 
++export function* toggleGanttView(isActive) {
++  yield put(actions.toggleGanttView(isActive));
++}
++
+ export function* updateHomeView(value) {
+   yield put(actions.updateHomeView(value));
+ 
+@@ -136,6 +140,7 @@ export default {
+   changeCoreLanguage,
+   toggleFavorites,
+   toggleEditMode,
++  toggleGanttView,
+   updateHomeView,
+   logout,
+ };
+diff --git a/client/src/sagas/core/watchers/core.js b/client/src/sagas/core/watchers/core.js
+index 1cb8651..c39f4f0 100644
+--- a/client/src/sagas/core/watchers/core.js
++++ b/client/src/sagas/core/watchers/core.js
+@@ -16,6 +16,9 @@ export default function* coreWatchers() {
+     takeEvery(EntryActionTypes.EDIT_MODE_TOGGLE, ({ payload: { isEnabled } }) =>
+       services.toggleEditMode(isEnabled),
+     ),
++    takeEvery(EntryActionTypes.GANTT_VIEW_TOGGLE, ({ payload: { isActive } }) =>
++      services.toggleGanttView(isActive),
++    ),
+     takeEvery(EntryActionTypes.HOME_VIEW_UPDATE, ({ payload: { value } }) =>
+       services.updateHomeView(value),
+     ),
+diff --git a/client/src/selectors/core.js b/client/src/selectors/core.js
+index 53b5e03..e17b64e 100644
+--- a/client/src/selectors/core.js
++++ b/client/src/selectors/core.js
+@@ -11,6 +11,8 @@ export const selectIsFavoritesEnabled = ({ core: { isFavoritesEnabled } }) => is
+ 
+ export const selectIsEditModeEnabled = ({ core: { isEditModeEnabled } }) => isEditModeEnabled;
+ 
++export const selectIsGanttViewActive = ({ core: { isGanttViewActive } }) => isGanttViewActive;
++
+ export const selectClipboard = ({ core: { clipboard } }) => clipboard;
+ 
+ export const selectConfig = ({ core: { config } }) => config;
+@@ -33,6 +35,7 @@ export default {
+   selectIsLogouting,
+   selectIsFavoritesEnabled,
+   selectIsEditModeEnabled,
++  selectIsGanttViewActive,
+   selectClipboard,
+   selectConfig,
+   selectRecentCardId,
+diff --git a/client/src/selectors/gantt.js b/client/src/selectors/gantt.js
+index c5c7b63..4cca1f5 100644
+--- a/client/src/selectors/gantt.js
++++ b/client/src/selectors/gantt.js
+@@ -61,6 +61,7 @@ export const selectGanttItemsForCurrentBoard = createSelector(
+             startDate: toDateOrNull(taskListModel.startDate),
+             dueDate: toDateOrNull(taskListModel.dueDate),
+             isDueCompleted: !!taskListModel.isDueCompleted,
++            status: taskListModel.status,
+             assigneeUserId: taskListModel.assigneeUserId,
+             tasksTotal: taskRefs.length,
+             tasksCompletedCount: taskRefs.filter((task) => task.isCompleted).length,
