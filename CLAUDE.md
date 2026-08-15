@@ -1230,6 +1230,38 @@ through the live board on 2026-08-09/11 (using the checklist/comment features fr
 session's work) — not caused by this run, and outside what a Taiga-snapshot comparison can know
 about.
 
+### Members-only companion tool ("apply the board json so newer members get added") — 2026-08-15
+
+Client asked to re-run the member-matching step (more staff have signed up since the last full
+`--apply` on 2026-08-11) but explicitly **not** touch any cards — a real concern, since `--apply`
+bundles membership-granting together with a card-content sync step that has its own documented
+history of risk (see "Re-running against a newer re-export" above, and the card-clobber incident
+noted inline in `framework.js`). There was no existing way to run just the safe half.
+
+Added `scripts/import/add-members-only.js` — reuses `framework.matchMembers` and the exact same
+`assigneeEmailsUsed` criterion (assignees + comment authors) `--apply`'s own membership step
+already uses, so "who needs board access" is still defined in exactly one place. It never calls
+`createCard`/`updateCard`/`createComment`/`createTaskList`/`createTask`/`createFileAttachment` at
+all — not just "skips them if unnecessary," genuinely does not have the code path. Supports
+`--dry-run` to preview before writing (prints matched/unmatched counts and exactly who would be
+granted, same style as the existing `--gap-analysis`/`--dry-run` reports).
+
+Run against all 3 currently-imported Taiga projects (Yapmaster Media, Unindexed Media, Disturbing
+Place / `themaze420-classified`), using each project's latest available export file: **14 new
+board memberships granted**, 3 people who already had access (through some other path) recorded
+into the `import_entities` ledger for consistency. Zero card/comment/checklist/attachment writes —
+confirmed both by the script's own report and by construction, not just by reading the output.
+
+**Real gotcha hit along the way**: granting a board membership requires genuine **project-manager**
+status on that project — not just PLANKA's instance-wide `admin` role, and not just being a board
+editor. `admin@planka.local` was already a project manager on Yapmaster (from the original 2026-08-07
+import gap noted above) but not on the other two projects (only `admin@bsymedia.com` and
+`therealmorim@gmail.com` were) — and `board-memberships/create.js` disguises that authorization
+failure as a plain `404 "Board not found"`, not a clear permission error, exactly the kind of
+misleading-error pattern this deployment has hit before (`comments/create.js`'s similar disguised
+"Card not found"). Fixed by granting `admin@planka.local` project-manager status on the other two
+projects as well (client did this directly), matching what was already done for Yapmaster.
+
 ## Trello import (Phase 2 — not started)
 
 Deferred so far at the client's explicit direction ("leave the trello import" — 2026-08-06). Plan
