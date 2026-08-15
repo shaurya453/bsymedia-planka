@@ -2019,3 +2019,36 @@ toggling Gantt on/off swaps content and button label/icon correctly both directi
 Kanban board's own state intact after toggling back; clicking a bar opens the Dates popup
 correctly. Zero console/page errors across the full pass.
 
+### Round 5 follow-up: bigger scroll buffer, hide empty Team Workload members, label/chart divider (2026-08-15, same day)
+
+Direct client feedback right after the round-5 deploy - the last-row cutoff was still visible
+despite the 24px `padding-bottom` fix above, plus two new asks:
+
+- **Scroll buffer bumped 24px -> 60px** on `GanttChart.module.scss`'s `.body` - the mechanism was
+  already correct (confirmed via a real `getBoundingClientRect()` gap measurement before this
+  change), the client just wanted more unmistakable breathing room than 24px gave.
+- **Team Workload no longer shows members with zero scheduled items at all** - previously every
+  board member got a group header even with nothing under it (a "No scheduled items" placeholder
+  row). `TeamWorkload.jsx`'s row-building loop now accumulates each member's rows into a local
+  scratch array first and only splices the header + rows into the real result once
+  `memberRows.length > 0`; `isGroupBoundary` is computed against the real result's length so
+  boundary borders still land correctly with members skipped. Removed the now-dead
+  `common.noScheduledItems` i18n key and `.emptyLabel` style along with the only place that used
+  them.
+- **2px divider line** (`#c1c7d0`, a standard Trello-style medium grey) between the sticky label
+  column and the chart track - added as `border-right` on both `GanttChart.module.scss`'s
+  `.headerLabel` and `Row.module.scss`'s `.label`, so it reads as one continuous line down the
+  whole column (both are `position: sticky; left: 0` at the same `LABEL_WIDTH`, stacked directly
+  adjacent in normal flow with no gap between them).
+
+**Verified live 2026-08-15** in a fresh single-member sandbox (24 dated checklists all under the
+admin's own card membership, to force genuine scrolling without needing to grant board access to
+other real accounts - deleted afterward, both board/project deletes confirmed 200): scrolled to
+the bottom, measured a real 60px gap between the last row (`Admin item 24`) and the scroller's own
+bottom edge; confirmed the divider line's computed style (`2px solid rgb(193, 199, 208)`); zero
+console errors. The empty-member-hiding change itself is a small, mechanical refactor (same
+`if (nothing) return early` shape already used one line above it for the card-level filter) that
+was reasoned through carefully rather than separately live-tested with a genuinely-empty member -
+doing that specific check would have meant granting board access to another real account, which
+needs its own explicit go-ahead first.
+
