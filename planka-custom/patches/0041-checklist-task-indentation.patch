@@ -1,0 +1,30 @@
+diff --git a/client/src/components/task-lists/TaskList/Task/Task.module.scss b/client/src/components/task-lists/TaskList/Task/Task.module.scss
+index fcda157..9ae2f31 100644
+--- a/client/src/components/task-lists/TaskList/Task/Task.module.scss
++++ b/client/src/components/task-lists/TaskList/Task/Task.module.scss
+@@ -137,13 +137,23 @@
+     cursor: pointer;
+   }
+ 
++  // BSY Media: checklist rows (CardModal/TaskLists/Item.jsx's
++  // .moduleWrapper) live in a 40px-indented context, and this negative
++  // margin used to fully cancel that out (-40px), pulling every task flush
++  // with its own checklist's title - checkbox-for-checkbox, text-for-text,
++  // identical left edge, no visual distinction between "this is the
++  // checklist" and "this is one of its tasks". Reduced to -20px (a 20px net
++  // indent relative to the checklist header) so tasks read as visually
++  // nested under their checklist instead of just another flush-left line.
++  // width's "+ Npx" bleed amount is kept in sync with the margin so the
++  // row's right edge doesn't shift - only the left edge moves.
+   .wrapper {
+     border-radius: 3px;
+     cursor: auto;
+-    margin-left: -40px;
++    margin-left: -20px;
+     min-height: 32px;
+     position: relative;
+-    width: calc(100% + 40px);
++    width: calc(100% + 20px);
+   }
+ 
+   .wrapperDragging {
