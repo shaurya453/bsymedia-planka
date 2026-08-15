@@ -113,7 +113,7 @@ index 23e6c82..db0acbf 100644
        onClick={handleClick}
      />
 diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
-index 0cf0871..bf9ec8d 100644
+index 0cf0871..2737d60 100644
 --- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
 +++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
 @@ -32,6 +32,24 @@ const SCALES = {
@@ -315,7 +315,7 @@ index 0cf0871..bf9ec8d 100644
              <div className={styles.headerLabel} style={{ width: LABEL_WIDTH }} />
              <div className={styles.headerTrack} style={{ width: chartWidth }}>
                <div className={styles.monthRow}>
-@@ -303,25 +394,28 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+@@ -303,25 +394,27 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
                )}
              </div>
            </div>
@@ -356,11 +356,10 @@ index 0cf0871..bf9ec8d 100644
 -                  style={{ left: LABEL_WIDTH + offset * dayWidth, width: dayWidth }}
 -                />
 -              ))}
-+            <div className={styles.labelDivider} style={{ left: LABEL_WIDTH }} />
              {range.todayOffset !== null && (
                <div
                  className={styles.todayLine}
-@@ -332,11 +426,13 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+@@ -332,11 +425,13 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
                <Row
                  key={row.key}
                  label={row.label}
@@ -374,7 +373,34 @@ index 0cf0871..bf9ec8d 100644
                  taskListId={row.taskListId}
                  taskId={row.taskId}
                  rangeStart={range.start}
-@@ -356,11 +452,13 @@ GanttChart.propTypes = {
+@@ -345,6 +440,26 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+               />
+             ))}
+           </div>
++          {/* BSY Media: one single element for the whole label/chart boundary
++              - spans header + body instead of a separate header border plus
++              a separate body-only div, which read as two disconnected line
++              segments rather than one. Two nested divs, not one, because of
++              a real CSS constraint: .labelDividerTrack is plain
++              position: absolute + top/bottom: 0, which sizes it to exactly
++              .inner's own real height (header + body combined) for free,
++              with no JS measurement needed - but a position: sticky element
++              can't be auto-sized by opposing top/bottom offsets the way
++              absolute/fixed can, so the actual visible line
++              (.labelDivider) lives inside that already-correctly-sized
++              track as height: 100%, sticky only on the left axis at the
++              LABEL_WIDTH offset (same mechanism .headerLabel/.label already
++              use pinned at left: 0) so it stays at the correct on-screen
++              position through horizontal scroll of the wide chart, instead
++              of scrolling away with the rest of .inner's content the way a
++              plain absolutely-positioned line would have. */}
++          <div className={styles.labelDividerTrack}>
++            <div className={styles.labelDivider} style={{ left: LABEL_WIDTH }} />
++          </div>
+         </div>
+       </div>
+     </div>
+@@ -356,11 +471,13 @@ GanttChart.propTypes = {
      PropTypes.shape({
        key: PropTypes.string.isRequired,
        label: PropTypes.node.isRequired,
@@ -389,7 +415,7 @@ index 0cf0871..bf9ec8d 100644
        taskId: PropTypes.string,
      }),
 diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
-index 1e3d9bf..825a635 100644
+index 1e3d9bf..326255e 100644
 --- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
 +++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
 @@ -20,6 +20,7 @@
@@ -400,15 +426,7 @@ index 1e3d9bf..825a635 100644
      justify-content: flex-end;
      padding: 4px 0 14px;
    }
-@@ -48,6 +49,7 @@
- 
-   .headerLabel {
-     background: #fff;
-+    border-right: 3px solid #8993a4;
-     flex: 0 0 auto;
-     left: 0;
-     position: sticky;
-@@ -89,29 +91,57 @@
+@@ -89,29 +90,71 @@
    }
  
    .body {
@@ -455,20 +473,34 @@ index 1e3d9bf..825a635 100644
      z-index: 0;
    }
  
-+  // BSY Media: a single full-height element (not a per-row border) so it
-+  // always reaches the true bottom of the chart frame - see .body's
-+  // JS-measured min-height above for why a per-row border couldn't do this
-+  // when there are only a few rows. Bold and z-index above rows/bars
-+  // (matches the .todayLine precedent of intentionally crossing over bar
-+  // content) so it reads as a clear, permanent structural boundary between
-+  // the label column and the calendar, not just another grid line.
++  // BSY Media: two nested elements, not one - see the JSX comment for the
++  // full reasoning. The track is a plain absolute box sized to .inner's
++  // real full height (header + body) for free via top/bottom: 0, no JS
++  // measurement needed; the actual visible line sits inside it at
++  // height: 100% (which only resolves because the track above it has a
++  // real, definite size) and is sticky on the left axis only, so it stays
++  // parked at the correct on-screen x position through horizontal scroll
++  // instead of scrolling away with the rest of the wide chart. Bold and
++  // z-index above the header/rows/bars (matches the .todayLine precedent of
++  // intentionally crossing over bar content) so it reads as one clear,
++  // permanent structural boundary between the label column and the
++  // calendar - not two disconnected segments, and not just another grid
++  // line.
++  .labelDividerTrack {
++    bottom: 0;
++    left: 0;
++    pointer-events: none;
++    position: absolute;
++    right: 0;
++    top: 0;
++    z-index: 5;
++  }
++
 +  .labelDivider {
 +    background: #8993a4;
-+    bottom: 0;
-+    position: absolute;
-+    top: 0;
++    height: 100%;
++    position: sticky;
 +    width: 3px;
-+    z-index: 2;
 +  }
 +
    .todayLine {
