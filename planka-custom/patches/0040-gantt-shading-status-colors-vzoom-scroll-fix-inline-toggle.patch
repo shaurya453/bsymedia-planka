@@ -113,7 +113,7 @@ index 23e6c82..db0acbf 100644
        onClick={handleClick}
      />
 diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
-index 0cf0871..3f1d506 100644
+index 0cf0871..bf9ec8d 100644
 --- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
 +++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.jsx
 @@ -32,6 +32,24 @@ const SCALES = {
@@ -141,7 +141,7 @@ index 0cf0871..3f1d506 100644
  // BSY Media: pick the zoom level that frames the *actual* spread of dated
  // work instead of always landing on Day - a board whose dated checklists
  // span a couple of months looks like a near-empty wall of grid at Day scale
-@@ -72,12 +90,22 @@ const getDefaultScaleKey = (rows) => {
+@@ -72,18 +90,32 @@ const getDefaultScaleKey = (rows) => {
  
  // BSY Media: shared horizontal Gantt renderer used by both the Timeline tab
  // (grouped by card) and the Team workload tab (grouped by member) - see
@@ -149,8 +149,11 @@ index 0cf0871..3f1d506 100644
 +// GanttView.jsx.
  const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
    const scrollerRef = useRef(null);
++  const headerRef = useRef(null);
    const [scaleKey, setScaleKey] = useState(() => getDefaultScaleKey(rows));
    const [containerWidth, setContainerWidth] = useState(0);
++  const [containerHeight, setContainerHeight] = useState(0);
++  const [headerHeight, setHeaderHeight] = useState(0);
 +  const [rowHeightIndex, setRowHeightIndex] = useState(DEFAULT_ROW_HEIGHT_INDEX);
    const { dayWidth: baseDayWidth, minRangeDays } = SCALES[scaleKey];
 +  const rowHeight = ROW_HEIGHTS[rowHeightIndex];
@@ -165,7 +168,58 @@ index 0cf0871..3f1d506 100644
  
    // BSY Media: track the scroller's own visible width (not the modal's -
    // that includes the label column and any scrollbar gutter) so the day
-@@ -157,7 +185,7 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+   // columns can stretch to fill it. Without this, a data span shorter than
+   // the screen renders its fixed-px-per-day grid then just... stops, with
+-  // the rest of a fullscreen modal left blank to the right.
++  // the rest of a fullscreen modal left blank to the right. Also tracks
++  // height, for the body-min-height fix below.
+   useEffect(() => {
+     const scroller = scrollerRef.current;
+     if (!scroller) {
+@@ -92,12 +124,31 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+ 
+     const observer = new ResizeObserver((entries) => {
+       setContainerWidth(entries[0].contentRect.width);
++      setContainerHeight(entries[0].contentRect.height);
+     });
+     observer.observe(scroller);
+ 
+     return () => observer.disconnect();
+   }, []);
+ 
++  // BSY Media: the sticky header's own rendered height varies by scale (Day/
++  // Week show an extra day-number sub-row, Month doesn't) - tracked
++  // separately so the body-min-height calc below can subtract exactly the
++  // right amount regardless of which scale is active.
++  useEffect(() => {
++    const header = headerRef.current;
++    if (!header) {
++      return undefined;
++    }
++
++    const observer = new ResizeObserver((entries) => {
++      setHeaderHeight(entries[0].contentRect.height);
++    });
++    observer.observe(header);
++
++    return () => observer.disconnect();
++  }, []);
++
+   const range = useMemo(() => {
+     const dates = [];
+ 
+@@ -134,6 +185,10 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+ 
+     const monthSegments = [];
+     const weekSegments = [];
++    // BSY Media: every calendar Saturday/Sunday gets the grey background -
++    // irrespective of scale/zoom, holidays aren't modeled - confirmed
++    // protocol with the client: weekday = white, weekend = grey, nothing
++    // else. This replaced an earlier "alternating band" design entirely.
+     const weekendOffsets = [];
+ 
+     dayCells.forEach((date, index) => {
+@@ -157,7 +212,7 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
        if (lastWeekSegment && lastWeekSegment.key === weekKey) {
          lastWeekSegment.days += 1;
        } else {
@@ -174,36 +228,26 @@ index 0cf0871..3f1d506 100644
        }
  
        if (isWeekend(date)) {
-@@ -165,8 +193,17 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+@@ -165,10 +220,6 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
        }
      });
  
 -    // Alternate a faint shade on every other month so a long row is easier
 -    // to track across without counting grid lines back to a date header.
-+    // Alternate a faint shade on every other unit of whichever scale is
-+    // currently active (day/week/month), so the "regularly spaced" banding
-+    // that used to only exist for Month scale is consistent at every zoom
-+    // level - each array reuses the same dayOffset/days shape and the same
-+    // index%2 alternation as the original month-only version. A day segment
-+    // is already exactly 1 day wide by construction, so it needs no
-+    // grouping pass the way month/week segments do.
-+    const dayShadeSegments = dayCells
-+      .map((date, index) => ({ key: date.toISOString(), dayOffset: index, days: 1 }))
-+      .filter((_segment, index) => index % 2 === 1);
-+    const weekShadeSegments = weekSegments.filter((_segment, index) => index % 2 === 1);
-     const monthShadeSegments = monthSegments.filter((_segment, index) => index % 2 === 1);
- 
+-    const monthShadeSegments = monthSegments.filter((_segment, index) => index % 2 === 1);
+-
      const today = startOfDay(new Date());
-@@ -180,6 +217,8 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+     const todayOffset =
+       today >= start && today <= end ? differenceInCalendarDays(today, start) : null;
+@@ -180,7 +231,6 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
        monthSegments,
        weekSegments,
        weekendOffsets,
-+      dayShadeSegments,
-+      weekShadeSegments,
-       monthShadeSegments,
+-      monthShadeSegments,
        todayOffset,
      };
-@@ -245,10 +284,35 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+   }, [rows, minRangeDays]);
+@@ -245,10 +295,35 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
      </Button.Group>
    );
  
@@ -240,38 +284,22 @@ index 0cf0871..3f1d506 100644
          <div className={styles.empty}>{emptyMessage}</div>
        </div>
      );
-@@ -256,9 +320,41 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+@@ -256,12 +331,28 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
  
    const chartWidth = range.totalDays * dayWidth;
  
-+  // BSY Media: the alternating band always matches the currently active
-+  // scale's own unit (single days at Day scale, single weeks at Week scale,
-+  // months at Month scale) instead of always being month-sized regardless
-+  // of zoom - see the dayShadeSegments/weekShadeSegments/monthShadeSegments
-+  // computation above.
-+  let bandSegments = range.monthShadeSegments;
-+  if (scaleKey === 'day') {
-+    bandSegments = range.dayShadeSegments;
-+  } else if (scaleKey === 'week') {
-+    bandSegments = range.weekShadeSegments;
-+  }
-+
-+  // BSY Media: band shading and weekend shading are two independent rgba
-+  // overlays that both used to paint unconditionally, so a weekend day
-+  // landing on an already-shaded band compounded into a third, accidental
-+  // tone - confusing, not a deliberate 3-tier design (confirmed with the
-+  // client). Weekend shading is now mutually exclusive with band shading -
-+  // skipped on any day already covered by a band segment - and both use
-+  // the identical color (see .bandShade/.weekendShade in the stylesheet),
-+  // so the chart only ever shows exactly two tones: white, or "shaded" -
-+  // never a double-strength third one.
-+  const bandedDayOffsets = new Set();
-+  bandSegments.forEach((segment) => {
-+    for (let i = 0; i < segment.days; i += 1) {
-+      bandedDayOffsets.add(segment.dayOffset + i);
-+    }
-+  });
-+  const weekendOffsets = range.weekendOffsets.filter((offset) => !bandedDayOffsets.has(offset));
++  // BSY Media: .body's own box needs to reach the bottom of the visible
++  // frame even when there are only a few rows - otherwise the shading/grid
++  // lines/label divider all stop wherever the last row happens to end,
++  // instead of spanning the full chart area the way a real calendar grid
++  // would. There's no percentage-height CSS shortcut here (.inner's own
++  // height is content-driven, "auto", so a percentage min-height on .body
++  // wouldn't resolve against anything definite) - so this uses the same
++  // ResizeObserver-measured-then-explicit-style approach already
++  // established twice above (dayWidth stretch, GanttView's own wrapper
++  // height), subtracting the header's own real height so .body only fills
++  // the *remaining* frame height, not the whole frame on top of the header.
++  const bodyMinHeight = Math.max(0, containerHeight - headerHeight);
 +
    return (
      <div className={styles.wrapper}>
@@ -282,32 +310,63 @@ index 0cf0871..3f1d506 100644
 +      </div>
        <div className={styles.scroller} ref={scrollerRef}>
          <div className={styles.inner} style={{ width: LABEL_WIDTH + chartWidth }}>
-           <div className={styles.header}>
-@@ -303,11 +399,11 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+-          <div className={styles.header}>
++          <div className={styles.header} ref={headerRef}>
+             <div className={styles.headerLabel} style={{ width: LABEL_WIDTH }} />
+             <div className={styles.headerTrack} style={{ width: chartWidth }}>
+               <div className={styles.monthRow}>
+@@ -303,25 +394,28 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
                )}
              </div>
            </div>
 -          <div className={styles.body}>
 -            {range.monthShadeSegments.map((segment) => (
-+          <div className={styles.body} style={{ '--row-height': `${rowHeight}px` }}>
-+            {bandSegments.map((segment) => (
++          <div
++            className={styles.body}
++            style={{
++              '--row-height': `${rowHeight}px`,
++              minHeight: bodyMinHeight ? `${bodyMinHeight}px` : undefined,
++            }}
++          >
++            {range.weekendOffsets.map((offset) => (
++              <div
++                key={offset}
++                className={styles.weekendShade}
++                style={{ left: LABEL_WIDTH + offset * dayWidth, width: dayWidth }}
++              />
++            ))}
++            {range.dayCells.map((date, index) => (
                <div
-                 key={segment.key}
+-                key={segment.key}
 -                className={styles.monthShade}
-+                className={styles.bandShade}
-                 style={{
-                   left: LABEL_WIDTH + segment.dayOffset * dayWidth,
-                   width: segment.days * dayWidth,
-@@ -315,7 +411,7 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+-                style={{
+-                  left: LABEL_WIDTH + segment.dayOffset * dayWidth,
+-                  width: segment.days * dayWidth,
+-                }}
++                key={date.toISOString()}
++                className={styles.dayGridLine}
++                style={{ left: LABEL_WIDTH + (index + 1) * dayWidth }}
                />
              ))}
-             {scaleKey !== 'month' &&
+-            {scaleKey !== 'month' &&
 -              range.weekendOffsets.map((offset) => (
-+              weekendOffsets.map((offset) => (
-                 <div
-                   key={offset}
-                   className={styles.weekendShade}
-@@ -337,6 +433,7 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+-                <div
+-                  key={offset}
+-                  className={styles.weekendShade}
+-                  style={{ left: LABEL_WIDTH + offset * dayWidth, width: dayWidth }}
+-                />
+-              ))}
++            <div className={styles.labelDivider} style={{ left: LABEL_WIDTH }} />
+             {range.todayOffset !== null && (
+               <div
+                 className={styles.todayLine}
+@@ -332,11 +426,13 @@ const GanttChart = React.memo(({ rows, canEdit, emptyMessage }) => {
+               <Row
+                 key={row.key}
+                 label={row.label}
++                barLabel={row.barLabel}
+                 isGroupHeader={row.isGroupHeader}
+                 isGroupBoundary={row.isGroupBoundary}
                  startDate={row.startDate}
                  dueDate={row.dueDate}
                  isDueCompleted={row.isDueCompleted}
@@ -315,7 +374,13 @@ index 0cf0871..3f1d506 100644
                  taskListId={row.taskListId}
                  taskId={row.taskId}
                  rangeStart={range.start}
-@@ -361,6 +458,7 @@ GanttChart.propTypes = {
+@@ -356,11 +452,13 @@ GanttChart.propTypes = {
+     PropTypes.shape({
+       key: PropTypes.string.isRequired,
+       label: PropTypes.node.isRequired,
++      barLabel: PropTypes.string,
+       isGroupHeader: PropTypes.bool.isRequired,
+       isGroupBoundary: PropTypes.bool.isRequired,
        startDate: PropTypes.instanceOf(Date),
        dueDate: PropTypes.instanceOf(Date),
        isDueCompleted: PropTypes.bool,
@@ -324,7 +389,7 @@ index 0cf0871..3f1d506 100644
        taskId: PropTypes.string,
      }),
 diff --git a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
-index 1e3d9bf..2e1145e 100644
+index 1e3d9bf..825a635 100644
 --- a/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
 +++ b/client/src/components/boards/GanttModal/GanttChart/GanttChart.module.scss
 @@ -20,6 +20,7 @@
@@ -339,11 +404,11 @@ index 1e3d9bf..2e1145e 100644
  
    .headerLabel {
      background: #fff;
-+    border-right: 2px solid #c1c7d0;
++    border-right: 3px solid #8993a4;
      flex: 0 0 auto;
      left: 0;
      position: sticky;
-@@ -89,23 +91,31 @@
+@@ -89,29 +91,57 @@
    }
  
    .body {
@@ -360,33 +425,57 @@ index 1e3d9bf..2e1145e 100644
    }
  
 -  // Faint alternating month bands and weekend columns, so a long row can be
-+  // Faint alternating bands (day/week/month, whichever scale is active - see
-+  // GanttChart.jsx's bandSegments) and weekend columns, so a long row can be
-   // tracked across to the right date without counting grid lines back to
-   // the header. Sit behind row content (see Row.module.scss's .row z-index)
-   // but above the todayLine so the "today" marker still reads clearly.
+-  // tracked across to the right date without counting grid lines back to
+-  // the header. Sit behind row content (see Row.module.scss's .row z-index)
+-  // but above the todayLine so the "today" marker still reads clearly.
 -  .monthShade {
 -    background: rgba(9, 30, 66, 0.045);
--    bottom: 0;
--    position: absolute;
--    top: 0;
--    z-index: 0;
--  }
--
-+  // BSY Media: both use the exact same tone deliberately - GanttChart.jsx
-+  // also makes them mutually exclusive per day (a weekend day already
-+  // covered by a shaded band never gets a second weekendShade div) - so the
-+  // chart only ever shows two tones total (white or shaded), never a
-+  // double-strength third one from two different-opacity layers stacking.
-+  .bandShade,
-   .weekendShade {
--    background: rgba(9, 30, 66, 0.07);
++  // BSY Media: fixed protocol confirmed with the client (replaces an
++  // earlier "alternating band" design entirely) - weekends get a flat grey
++  // background, weekdays stay plain white, and every single day (weekend
++  // or not) gets its own thin, faint separator line. Sits behind row
++  // content (see Row.module.scss's .row z-index) but above the todayLine's
++  // own even-higher tier so the "today" marker still reads clearly.
++  .weekendShade {
 +    background: rgba(9, 30, 66, 0.06);
      bottom: 0;
      position: absolute;
      top: 0;
+     z-index: 0;
+   }
+ 
+-  .weekendShade {
+-    background: rgba(9, 30, 66, 0.07);
++  .dayGridLine {
++    background: rgba(9, 30, 66, 0.13);
+     bottom: 0;
+     position: absolute;
+     top: 0;
++    width: 1px;
+     z-index: 0;
+   }
+ 
++  // BSY Media: a single full-height element (not a per-row border) so it
++  // always reaches the true bottom of the chart frame - see .body's
++  // JS-measured min-height above for why a per-row border couldn't do this
++  // when there are only a few rows. Bold and z-index above rows/bars
++  // (matches the .todayLine precedent of intentionally crossing over bar
++  // content) so it reads as a clear, permanent structural boundary between
++  // the label column and the calendar, not just another grid line.
++  .labelDivider {
++    background: #8993a4;
++    bottom: 0;
++    position: absolute;
++    top: 0;
++    width: 3px;
++    z-index: 2;
++  }
++
+   .todayLine {
+     background: #e0002b;
+     bottom: 0;
 diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.jsx b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
-index 960e5be..266e540 100644
+index 960e5be..d44f903 100644
 --- a/client/src/components/boards/GanttModal/GanttChart/Row.jsx
 +++ b/client/src/components/boards/GanttModal/GanttChart/Row.jsx
 @@ -11,6 +11,7 @@ import differenceInCalendarDays from 'date-fns/differenceInCalendarDays';
@@ -416,7 +505,13 @@ index 960e5be..266e540 100644
  const STATUS_COLORS = {
    [DueDateStatuses.OVERDUE]: '#db2828',
    [DueDateStatuses.DUE_SOON]: '#f2711c',
-@@ -43,6 +46,7 @@ const Row = React.memo(
+@@ -38,11 +41,13 @@ const STATUS_COLORS = {
+ const Row = React.memo(
+   ({
+     label,
++    barLabel,
+     isGroupHeader,
+     isGroupBoundary,
      startDate,
      dueDate,
      isDueCompleted,
@@ -424,7 +519,7 @@ index 960e5be..266e540 100644
      taskListId,
      taskId,
      rangeStart,
-@@ -63,11 +67,17 @@ const Row = React.memo(
+@@ -63,11 +68,17 @@ const Row = React.memo(
          ? (differenceInCalendarDays(dueDate, startDate) + 1) * dayWidth
          : dayWidth;
  
@@ -446,7 +541,7 @@ index 960e5be..266e540 100644
        }
  
        if (startDate && dueDate) {
-@@ -83,7 +93,7 @@ const Row = React.memo(
+@@ -83,7 +94,7 @@ const Row = React.memo(
          width: Math.max(dayWidth, MIN_BAR_WIDTH),
          background: startDate ? '#2185d0' : '#e8632c',
        };
@@ -455,7 +550,38 @@ index 960e5be..266e540 100644
  
      const barStyle = bar && {
        left: bar.left,
-@@ -154,6 +164,7 @@ Row.propTypes = {
+@@ -97,8 +108,13 @@ const Row = React.memo(
+     // left column, so the row's own label is drawn on/next to its bar too.
+     // Wide-enough bars get the label inside them (white, truncated); narrow
+     // ones (e.g. a single day) get it printed just to the right instead,
+-    // since the bar itself has no room for it.
+-    const barLabelText = typeof label === 'string' ? label : null;
++    // since the bar itself has no room for it. Timeline's rows pass a plain
++    // string `label` directly, so `typeof label === 'string'` was enough -
++    // but Team Workload's rows use a richer JSX `label` (icon + name, for
++    // the left column), which silently produced no bar text at all.
++    // `barLabel` is an explicit plain-string override for exactly this
++    // case; falls back to `label` itself when it's already a string.
++    const barLabelText = barLabel || (typeof label === 'string' ? label : null);
+     const barLabelInside = !!bar && barLabelText && bar.width >= 70;
+     const barLabelOutside = !!bar && barLabelText && !barLabelInside;
+ 
+@@ -116,7 +132,7 @@ const Row = React.memo(
+       >
+         <div
+           className={classNames(styles.label, !isGroupHeader && styles.labelIndented)}
+-          title={typeof label === 'string' ? label : undefined}
++          title={barLabel || (typeof label === 'string' ? label : undefined)}
+         >
+           <span className={styles.labelText}>{label}</span>
+         </div>
+@@ -149,11 +165,13 @@ const Row = React.memo(
+ 
+ Row.propTypes = {
+   label: PropTypes.node.isRequired,
++  barLabel: PropTypes.string,
+   isGroupHeader: PropTypes.bool.isRequired,
+   isGroupBoundary: PropTypes.bool.isRequired,
    startDate: PropTypes.instanceOf(Date),
    dueDate: PropTypes.instanceOf(Date),
    isDueCompleted: PropTypes.bool,
@@ -463,7 +589,11 @@ index 960e5be..266e540 100644
    taskListId: PropTypes.string,
    taskId: PropTypes.string,
    rangeStart: PropTypes.instanceOf(Date).isRequired,
-@@ -165,6 +176,7 @@ Row.defaultProps = {
+@@ -162,9 +180,11 @@ Row.propTypes = {
+ };
+ 
+ Row.defaultProps = {
++  barLabel: null,
    startDate: null,
    dueDate: null,
    isDueCompleted: false,
@@ -472,7 +602,7 @@ index 960e5be..266e540 100644
    taskId: undefined,
  };
 diff --git a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
-index 6ec6fa2..dc83a31 100644
+index 6ec6fa2..58e47a8 100644
 --- a/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
 +++ b/client/src/components/boards/GanttModal/GanttChart/Row.module.scss
 @@ -10,7 +10,10 @@
@@ -487,15 +617,18 @@ index 6ec6fa2..dc83a31 100644
      position: relative;
      z-index: 1;
    }
-@@ -22,6 +25,7 @@
+@@ -19,6 +22,10 @@
+     border-top: 1px solid rgba(9, 30, 66, 0.13);
+   }
+ 
++  // BSY Media: no border-right here - the label/chart divider is now a
++  // single full-height element in GanttChart.jsx's .body
++  // (styles.labelDivider) instead of a per-row border, so it reaches the
++  // true bottom of the chart frame even when there are only a few rows.
    .label {
      align-items: center;
      background: #fff;
-+    border-right: 2px solid #c1c7d0;
-     box-sizing: border-box;
-     color: #17394d;
-     display: flex;
-@@ -69,7 +73,10 @@
+@@ -69,7 +76,10 @@
      border-radius: 5px;
      box-sizing: border-box;
      display: flex;
@@ -668,8 +801,76 @@ index 8571bf7..0000000
 -    font-weight: bold;
 -  }
 -}
+diff --git a/client/src/components/boards/GanttModal/Tasks/Tasks.jsx b/client/src/components/boards/GanttModal/Tasks/Tasks.jsx
+index 9792035..2f7bf41 100644
+--- a/client/src/components/boards/GanttModal/Tasks/Tasks.jsx
++++ b/client/src/components/boards/GanttModal/Tasks/Tasks.jsx
+@@ -95,7 +95,10 @@ ChecklistRow.propTypes = {
+ };
+ 
+ // BSY Media: cards have no dates of their own (removed 2026-08-13, see
+-// CLAUDE.md) - the header is plain, unclickable, no date chips.
++// CLAUDE.md) - the header is plain, unclickable, no date chips. Only ever
++// called with an item that has at least one checklist (Tasks.jsx filters
++// out cards with none before rendering), so the checklists block below is
++// unconditional here.
+ const CardGroup = React.memo(({ item, canEdit }) => (
+   <div className={styles.card}>
+     <div className={styles.cardHeader}>
+@@ -107,13 +110,11 @@ const CardGroup = React.memo(({ item, canEdit }) => (
+         </span>
+       )}
+     </div>
+-    {item.taskLists.length > 0 && (
+-      <div className={styles.checklists}>
+-        {item.taskLists.map((taskList) => (
+-          <ChecklistRow key={taskList.id} taskList={taskList} canEdit={canEdit} />
+-        ))}
+-      </div>
+-    )}
++    <div className={styles.checklists}>
++      {item.taskLists.map((taskList) => (
++        <ChecklistRow key={taskList.id} taskList={taskList} canEdit={canEdit} />
++      ))}
++    </div>
+   </div>
+ ));
+ 
+@@ -127,9 +128,11 @@ CardGroup.propTypes = {
+   canEdit: PropTypes.bool.isRequired,
+ };
+ 
+-// BSY Media: full audit view - unlike Timeline/Schedule, lists every card
+-// (and every checklist on it) regardless of whether dates are set, so it
+-// doubles as "what checklists exist on this board at all".
++// BSY Media: audit view of every checklist on the board regardless of
++// whether dates are set (unlike Timeline/Schedule, which only plot dated
++// items) - but only for cards that actually have at least one checklist.
++// Cards with zero checklists are left out entirely (client's call) rather
++// than shown as a bare header with nothing under it.
+ const Tasks = React.memo(() => {
+   const items = useSelector(selectors.selectGanttItemsForCurrentBoard);
+ 
+@@ -140,13 +143,15 @@ const Tasks = React.memo(() => {
+ 
+   const [t] = useTranslation();
+ 
+-  if (items.length === 0) {
++  const itemsWithTaskLists = items.filter((item) => item.taskLists.length > 0);
++
++  if (itemsWithTaskLists.length === 0) {
+     return <div className={styles.empty}>{t('common.noCardsOnThisBoardYet')}</div>;
+   }
+ 
+   return (
+     <div className={styles.wrapper}>
+-      {items.map((item) => (
++      {itemsWithTaskLists.map((item) => (
+         <CardGroup key={item.cardId} item={item} canEdit={canEdit} />
+       ))}
+     </div>
 diff --git a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
-index 8eb5f02..3c254ec 100644
+index 8eb5f02..b2c75f3 100644
 --- a/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
 +++ b/client/src/components/boards/GanttModal/TeamWorkload/TeamWorkload.jsx
 @@ -24,6 +24,12 @@ import styles from './TeamWorkload.module.scss';
@@ -718,7 +919,17 @@ index 8eb5f02..3c254ec 100644
            key: `${userId}:taskList:${taskList.id}`,
            label: (
              <span className={styles.itemLabelChecklist}>
-@@ -78,14 +70,14 @@ const TeamWorkload = React.memo(() => {
+@@ -73,19 +65,24 @@ const TeamWorkload = React.memo(() => {
+               {taskList.name}
+             </span>
+           ),
++          // BSY Media: Row.jsx's bar-text logic only works off a plain
++          // string - `label` here is JSX (icon + name) for the left column,
++          // so without this the bar itself would render with no text at
++          // all. See Row.jsx's own comment for the full explanation.
++          barLabel: taskList.name,
+           isGroupHeader: false,
+           isGroupBoundary: false,
            startDate: taskList.startDate,
            dueDate: taskList.dueDate,
            isDueCompleted: taskList.isDueCompleted,
@@ -735,7 +946,15 @@ index 8eb5f02..3c254ec 100644
                key: `${userId}:task:${task.id}`,
                label: (
                  <span className={styles.itemLabelTask}>
-@@ -100,7 +92,6 @@ const TeamWorkload = React.memo(() => {
+@@ -93,6 +90,7 @@ const TeamWorkload = React.memo(() => {
+                   {task.name}
+                 </span>
+               ),
++              barLabel: task.name,
+               isGroupHeader: false,
+               isGroupBoundary: false,
+               startDate: task.startDate,
+@@ -100,7 +98,6 @@ const TeamWorkload = React.memo(() => {
                isDueCompleted: task.isDueCompleted,
                taskId: task.id,
              });
@@ -743,7 +962,7 @@ index 8eb5f02..3c254ec 100644
            });
        };
  
-@@ -120,7 +111,7 @@ const TeamWorkload = React.memo(() => {
+@@ -120,7 +117,7 @@ const TeamWorkload = React.memo(() => {
              return;
            }
  
@@ -752,7 +971,7 @@ index 8eb5f02..3c254ec 100644
              key: `${userId}:card:${item.cardId}`,
              label: (
                <span className={styles.itemLabel}>
-@@ -133,7 +124,6 @@ const TeamWorkload = React.memo(() => {
+@@ -133,7 +130,6 @@ const TeamWorkload = React.memo(() => {
              startDate: null,
              dueDate: null,
            });
@@ -760,7 +979,7 @@ index 8eb5f02..3c254ec 100644
  
            datedTaskLists.forEach(pushTaskListRow);
          });
-@@ -152,20 +142,29 @@ const TeamWorkload = React.memo(() => {
+@@ -152,20 +148,29 @@ const TeamWorkload = React.memo(() => {
            .forEach(pushTaskListRow);
        });
  
@@ -829,10 +1048,10 @@ index 499847c..9d1f43a 100644
        });
 diff --git a/client/src/components/boards/GanttView/GanttView.jsx b/client/src/components/boards/GanttView/GanttView.jsx
 new file mode 100644
-index 0000000..710dc99
+index 0000000..81daf8f
 --- /dev/null
 +++ b/client/src/components/boards/GanttView/GanttView.jsx
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,148 @@
 +/*!
 + * Copyright (c) 2024 PLANKA Software GmbH
 + * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
@@ -915,6 +1134,8 @@ index 0000000..710dc99
 +    return () => window.removeEventListener('resize', updateHeight);
 +  }, []);
 +
++  // BSY Media: tab order is Timeline, Team Workload, Tasks, Schedule - a
++  // client-requested reorder (was Timeline, Tasks, Team Workload, Schedule).
 +  const panes = [
 +    {
 +      menuItem: (
@@ -928,16 +1149,6 @@ index 0000000..710dc99
 +    },
 +    {
 +      menuItem: (
-+        <Menu.Item key="tasks" className={styles.menuItem}>
-+          {t('common.tasks', {
-+            context: 'title',
-+          })}
-+        </Menu.Item>
-+      ),
-+      render: () => <Tasks />,
-+    },
-+    {
-+      menuItem: (
 +        <Menu.Item key="teamWorkload" className={styles.menuItem}>
 +          {t('common.teamWorkload', {
 +            context: 'title',
@@ -945,6 +1156,16 @@ index 0000000..710dc99
 +        </Menu.Item>
 +      ),
 +      render: () => <TeamWorkload />,
++    },
++    {
++      menuItem: (
++        <Menu.Item key="tasks" className={styles.menuItem}>
++          {t('common.tasks', {
++            context: 'title',
++          })}
++        </Menu.Item>
++      ),
++      render: () => <Tasks />,
 +    },
 +    {
 +      menuItem: (
