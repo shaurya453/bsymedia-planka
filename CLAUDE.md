@@ -2052,3 +2052,20 @@ was reasoned through carefully rather than separately live-tested with a genuine
 doing that specific check would have meant granting board access to another real account, which
 needs its own explicit go-ahead first.
 
+### Round 5 follow-up: shading simplified to 2 tones (2026-08-15, same day)
+
+Client asked why the chart showed what looked like 3 shades of grey. Real answer: `.bandShade`
+(the alternating day/week/month band) and `.weekendShade` were two independent rgba overlays at
+different opacity (`0.045`/`0.07`) that both painted unconditionally - a weekend day landing on an
+already-shaded band compounded the two semi-transparent layers into a third, unintentional tone,
+not a deliberate 3-tier design. Simplified to genuinely 2 tones (white or shaded): both selectors
+now share one `rgba(9, 30, 66, 0.06)` value, and `GanttChart.jsx` computes a `bandedDayOffsets` Set
+from whichever `bandSegments` is active and filters `weekendOffsets` against it before rendering,
+so a day already covered by band shading never also gets a `weekendShade` div - the two are now
+mutually exclusive per day, not just same-colored.
+
+**Verified live 2026-08-15** in a minimal sandbox (one 16-day-spanning checklist, deleted
+afterward): `getComputedStyle` on every `.bandShade`/`.weekendShade` element on the page returned
+exactly one distinct color (`rgba(9, 30, 66, 0.06)`) across all 12 rendered shading divs - confirmed
+programmatically, not just by eye, that no cell is ever double-shaded.
+
