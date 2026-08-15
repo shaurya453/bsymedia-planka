@@ -2069,3 +2069,55 @@ afterward): `getComputedStyle` on every `.bandShade`/`.weekendShade` element on 
 exactly one distinct color (`rgba(9, 30, 66, 0.06)`) across all 12 rendered shading divs - confirmed
 programmatically, not just by eye, that no cell is ever double-shaded.
 
+## Gantt round 6: bolder full-frame divider, day-grid shading protocol, Tasks/Team Workload cleanups, tab reorder (2026-08-15, same day)
+
+Five more changes, same day as the round 5 follow-ups above:
+
+- **Divider replaced with a single full-height element.** The per-row `border-right` (added in
+  round 5) only ever reached as far down as the last real row - fine with lots of rows, but with
+  only a few it stopped well short of the visible chart frame, and the client wanted it bolder
+  besides. Removed the border from `Row.module.scss`'s `.label` entirely; `GanttChart.jsx` now
+  renders one `.labelDivider` div (`3px`, `#8993a4`, matches the header's own now-bolder
+  `.headerLabel` border) with `top: 0; bottom: 0` inside `.body`. For that to actually reach the
+  frame's true bottom regardless of row count, `.body` itself needed an explicit min-height -
+  there's no percentage-height CSS shortcut here (`.inner`'s own height is content-driven `auto`),
+  so this reuses the same "ResizeObserver measures a ref, sets an explicit px style" pattern
+  already established twice in this file (the width stretch-to-fill fix, `GanttView`'s own wrapper
+  height fix): a second `ResizeObserver` watches the sticky header's own rendered height (which
+  varies by scale - Day/Week show an extra day-number sub-row, Month doesn't) so `.body`'s
+  min-height can be computed as exactly `frame height - header height`, not the whole frame on top
+  of the header.
+- **Shading redesigned to a fixed protocol, replacing the round-5 "2-tone alternating band + weekend"
+  design entirely.** Client specified it directly: every calendar day gets a thin, faint separator
+  line (`1px`, `rgba(9, 30, 66, 0.13)` - the same grid-line opacity already used by the header's own
+  `.monthCell`/`.dayCell` borders) regardless of weekend/scale; weekends get a flat grey background
+  (`rgba(9, 30, 66, 0.06)`); weekdays stay plain white. All the `dayShadeSegments`/
+  `weekShadeSegments`/`monthShadeSegments`/`bandSegments`/`bandedDayOffsets` machinery from the
+  last two rounds was removed outright rather than left dormant.
+- **Tasks tab now hides cards with zero checklists** - previously an exhaustive audit of every
+  card on the board (even completely bare ones); `Tasks.jsx` now filters to
+  `item.taskLists.length > 0` before rendering, and `CardGroup`'s own now-always-true checklist
+  block was simplified to unconditional rather than left as dead defensive code.
+- **Team Workload bars were silently rendering with no text at all - a real bug, not a
+  request for a new feature.** `Row.jsx`'s bar-label logic only ever checked
+  `typeof label === 'string'`, which works for `Timeline.jsx` (plain string labels) but not
+  `TeamWorkload.jsx`, whose rows use a richer JSX `label` (an icon + name span) for the left
+  column. Fixed with a new, explicit `barLabel` string prop threaded separately from `label` -
+  `TeamWorkload.jsx` now passes `barLabel: taskList.name`/`task.name` alongside its JSX `label`,
+  and `Row.jsx` prefers `barLabel` when present, falling back to `label` itself when it's already
+  a string (Timeline's existing behavior, unchanged). Also reused for the label column's hover
+  `title` tooltip, which JSX labels never got before either.
+- **Tabs reordered** to Timeline, Team Workload, Tasks, Schedule (was Timeline, Tasks, Team
+  Workload, Schedule) - a one-line reorder of the `panes` array in `GanttView.jsx`.
+
+Patch: `planka-custom/patches/0040-gantt-shading-status-colors-vzoom-scroll-fix-inline-toggle.patch`
+(same patch file, amended in place through this whole day's rounds rather than as separate numbered
+patches, since none of the earlier same-day cuts had shipped to a stable state yet).
+**Verified live 2026-08-15** in a throwaway sandbox (one card with a single dated checklist, one
+card with none, deleted afterward): divider width/color confirmed via `getComputedStyle`, and its
+bottom edge measured exactly equal to the scroller's own bottom edge (`dividerBottom === 
+scrollerBottom`) even with only one row on the board: day-grid-line and weekend-shade counts/colors
+confirmed programmatically; Team Workload's bar rendered real visible text ("Only checklist") where
+it previously rendered none; Tasks tab confirmed showing only the card with a checklist, not the
+bare one; tab order confirmed via the rendered menu items; zero console errors across the full pass.
+
