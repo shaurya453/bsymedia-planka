@@ -1938,3 +1938,84 @@ measured 768/1160/1415px respectively. Confirmed with real screenshots at all 3 
 console-error sweep across all 4 Gantt tabs x all 3 scales (12 combinations, zero errors).
 
 Patch: `planka-custom/patches/0039-gantt-stretch-to-fill-width.patch`.
+
+## Gantt round 5: day/week shading, status-aware bar colors, vertical zoom, Team Workload scroll fix, inline toggle (2026-08-15)
+
+Five more client-requested changes to the board Gantt view, on top of `0028`-`0039`:
+
+1. **Alternating day/week bands.** `GanttChart.jsx`'s alternating shade (`index % 2 === 1`) used
+   to always be month-sized regardless of zoom - only Month scale actually looked "regularly
+   spaced." Added `dayShadeSegments`/`weekShadeSegments` (same pattern as the existing
+   `monthShadeSegments`, `weekSegments` gained the `dayOffset` field it was missing) and a
+   `bandSegments` switch keyed on `scaleKey`, so Day/Week scale now shade by their own unit. CSS
+   class renamed `.monthShade` -> `.bandShade` (scale-neutral now). Weekend shading is unchanged,
+   still layered on top.
+2. **Status-aware bar colors, deadline still wins (confirmed with client).** `Row.jsx` gained a
+   4th precedence tier: `OVERDUE` -> `DUE_SOON` -> `isDueCompleted` (green) -> **`TaskList.status`
+   color** (`constants/TaskListStatusColors.js` - same black/yellow/green palette as the checklist
+   header chip, reused not duplicated) -> the existing blue/orange gradient fallback. `status` had
+   to be threaded onto row objects for the first time - `selectors/gantt.js` didn't actually expose
+   it yet despite the field existing on the model (caught by grepping before trusting the plan's
+   assumption), then `Timeline.jsx`/`TeamWorkload.jsx`/`GanttChart.jsx` each pass it through to
+   `Row`. Sub-task rows have no `status` field (only `TaskList` got one in `0035`) - they fall
+   straight through to the gradient tier unchanged.
+3. **Vertical zoom.** New `+`/`-` toolbar buttons cycle a row-height preset ladder via a
+   `--row-height` CSS custom property (set once on `GanttChart.jsx`'s `.body`, consumed by
+   `Row.module.scss`'s `.row` min-height and `.bar`/`.barButton` height via `calc()`). **Real bug
+   caught during live verification, not code review**: the first ladder (`20-64px`) had a dead
+   floor - `.label`'s fixed 12px padding + 14px line-height forces a real ~26px minimum, so 20px
+   silently never rendered even though the state/disabled-button correctly reached it. Fixed by
+   starting the ladder at 26px (the exact density this app already shipped and lived with in the
+   2026-08-14 round) instead of inventing an unreachable lower bound.
+4. **Team Workload bottom-row cutoff, real bug.** `Timeline.jsx`/`TeamWorkload.jsx` wrap
+   `GanttChart` in *identical* CSS - not a Team-Workload-specific difference - it just has far more
+   rows in practice, long enough to expose that the shared `.body`/`.scroller` had zero bottom
+   padding, so the last row sat flush against the scroll edge (and any horizontal scrollbar).
+   Fixed with `padding-bottom: 24px` on `.body`, shared by both tabs.
+5. **Inline board-area toggle, replacing the fullscreen modal.** Clicking Gantt now swaps
+   `Board.jsx`'s `Content` slot (same one `KanbanContent` occupies) for a new un-modaled
+   `GanttView` component, instead of opening `GanttModal` as an overlay; the button flips into a
+   "Board" button (`common.board` i18n key, already existed) to switch back. New `isGanttViewActive`
+   client-only flag mirrors the existing `isEditModeEnabled` pattern exactly (`reducers`/`actions`/
+   `entry-actions`/`sagas/core/services`+`watchers`/`selectors` all touched, same shape), reset to
+   `false` on board switch via the same `LOCATION_CHANGE_HANDLE` branch that already resets
+   `recentCardId`. `GanttModal.jsx` (and `ModalTypes.BOARD_GANTT`/`openBoardGanttModal`) deleted as
+   dead code - `Timeline`/`Tasks`/`TeamWorkload`/`Schedule` stayed in place under `GanttModal/` and
+   are imported by the new sibling `GanttView/`, not moved/duplicated.
+   - **Real coupling handled, not accidentally broken**: `Row.jsx`/`Tasks.jsx`/`Schedule.jsx`'s
+     click-to-edit date popups depend on `ClosableContext`, which `GanttModal` used to provide for
+     free bundled with its `useClosableModal()` Modal wrapper. `GanttView` calls the lower-level
+     `useClosable()` hook directly (the same one `useClosableModal` itself calls) and provides the
+     identical 3-value context shape with no Modal involved - confirmed live that clicking a bar
+     still opens the Dates popup correctly, not just that nothing crashed.
+   - **Two real layout bugs found only via live verification after the first deploy, both reported
+     directly by the client** (not caught by static review or the pre-deploy build): (a) the new
+     `.wrapper` is a flex item of `Board.jsx`'s own row-direction content slot
+     (`Static.module.scss`'s `.wrapper.wrapperBoard.wrapperFlex`) and was missing `flex: 1 1 auto`,
+     so it only claimed its own content's natural width - confirmed live via
+     `getBoundingClientRect()`, 912px instead of the full 1600px viewport, before the fix. (b) that
+     same content slot's ambient height is *deliberately* taller than the viewport for Kanban's sake
+     (a fixed header-height `margin-top` meant to let the *page* scroll, since Kanban's own content
+     never needed one bounded internal scroller) - `GanttView`'s wrapper was inheriting that same
+     oversized height via flex cross-axis stretch, causing a second, redundant page-level scrollbar
+     on top of the chart's own `.scroller`. Fixed by measuring the wrapper's real
+     `getBoundingClientRect().top` in a `useEffect` (recomputed on window resize) and setting an
+     explicit pixel height - the same ResizeObserver-driven "measure and set an explicit style"
+     pattern `GanttChart.jsx` already uses for its own horizontal stretch-to-fill fix, since there's
+     no pure-CSS "100vh minus wherever I actually ended up" primitive here (the true offset varies
+     by favorites-panel state and the promo banner, so a hardcoded `calc()` constant - what the old
+     fullscreen modal did - would've been wrong in at least one of those states).
+
+Patch: `planka-custom/patches/0040-gantt-shading-status-colors-vzoom-scroll-fix-inline-toggle.patch`.
+**Deployed and live-verified 2026-08-15** in an isolated sandbox project (created and fully deleted
+via the API afterward - board and project delete both confirmed 200): all 7 bar-color precedence
+combinations (overdue+status, due-soon+status, future+each status, gradient fallback,
+overdue+isDueCompleted+status) rendered the exact expected hex/gradient values via
+`getComputedStyle`; Day/Week/Month band counts and pixel alignment confirmed at every scale; zoom
+ladder confirmed to respect its real 26-64px bounds (button disables exactly in sync with the
+row height actually reaching each end, re-checked step-by-step after the floor fix); Team
+Workload scrolled to bottom shows a real ~24px gap between the last row and the scroller edge;
+toggling Gantt on/off swaps content and button label/icon correctly both directions, with the
+Kanban board's own state intact after toggling back; clicking a bar opens the Dates popup
+correctly. Zero console/page errors across the full pass.
+
