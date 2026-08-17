@@ -2243,3 +2243,33 @@ outsider still gets `404`; the genuine project manager still succeeds; and for c
 genuine PM, and admin-bypass-on-a-shared-project all still delete successfully while an unrelated
 user still gets denied (`403`, not `404` - unchanged pre-existing behavior, since that inner code
 path wasn't touched by this refactor).
+
+## Timeline tab: dated sub-tasks now shown (2026-08-17)
+
+Client feedback: only checklist rows (`TaskList`) were visible in the Gantt Timeline tab -
+individual dated sub-tasks (`Task`, nested under a checklist) never appeared, even though Team
+Workload already showed them (filtered to the viewing member's own assignments). The data was
+already there - `selectGanttItemsForCurrentBoard` (`selectors/gantt.js`) has always returned each
+`taskList.tasks` pre-filtered to dated items - `Timeline.jsx` simply never iterated into it.
+
+Fixed by mirroring Team Workload's existing pattern: for each dated checklist row, also push a row
+per dated sub-task underneath it (unfiltered by assignee here, unlike Team Workload - Timeline is
+grouped by card, not by member, so every dated sub-task belongs regardless of who it's assigned
+to). Added the same icon + indentation visual language Team Workload already uses (`check square
+outline` for checklists, `check circle outline` for sub-tasks, extra `padding-left` on the sub-task
+label) so the two nesting levels read the same way in both tabs - previously Timeline used a plain
+string label with no icon at all. A checklist now also counts as "dated" (and so gets shown) if it
+has no dates of its own but contains at least one dated sub-task, matching Team Workload's identical
+rule; a checklist and its sub-tasks with zero dates anywhere are still fully hidden, unchanged.
+
+No changes needed to `Row.jsx`/`GanttChart.jsx` - `taskId`-driven bars and click-to-edit
+(`EditDatesPopup`) were already fully wired end-to-end from Team Workload's earlier use of the same
+mechanism.
+
+**Verified live** in an isolated throwaway stack (fresh Postgres + the new image, not production -
+this deployment's established pre-deploy regression-harness pattern) via Puppeteer: a sandbox card
+with one checklist (itself dated) and 3 sub-tasks (2 dated - "Rough cut", "Color grade" - 1
+undated - "Undated review task"). Timeline correctly rendered exactly 4 rows (card header,
+checklist, both dated sub-tasks) with the undated sub-task absent, each sub-task bar positioned at
+its own dates (not the parent checklist's), with the checkbox/circle icon distinction and deeper
+indentation visible in the actual screenshot, not just inferred from code.

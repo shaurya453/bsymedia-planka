@@ -1,0 +1,133 @@
+diff --git a/client/src/components/boards/GanttModal/Timeline/Timeline.jsx b/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
+index 9d1f43a..04e470c 100644
+--- a/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
++++ b/client/src/components/boards/GanttModal/Timeline/Timeline.jsx
+@@ -6,6 +6,7 @@
+ import React, { useMemo } from 'react';
+ import { useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
++import { Icon } from 'semantic-ui-react';
+ 
+ import selectors from '../../../../selectors';
+ import { BoardMembershipRoles } from '../../../../constants/Enums';
+@@ -14,14 +15,18 @@ import GanttChart from '../GanttChart';
+ import styles from './Timeline.module.scss';
+ 
+ // BSY Media: rows are checklists (Planka's TaskList - the client calls
+-// these "tasks"), not cards and not individual checklist items. A card
+-// never gets its own bar here; it only gets a plain (bar-less) header row
+-// for grouping context, and only when it has at least one dated checklist
+-// underneath it. Checklists with no dates of their own are left out of
+-// this dated Gantt view entirely (hidden, not a blank/broken-looking row)
+-// - the Tasks tab is the exhaustive audit that already covers undated
+-// items, so Timeline stays a purely dated view. Card-level dates and
+-// individual checklist-item dates are deliberately not plotted here.
++// these "tasks") AND their own individual dated items (Planka's Task -
++// the client calls these "sub-tasks"), nested under a card. A card never
++// gets its own bar here; it only gets a plain (bar-less) header row for
++// grouping context, and only when it has at least one dated checklist or
++// dated sub-task underneath it. Checklists (and sub-tasks) with no dates
++// of their own are left out of this dated Gantt view entirely (hidden,
++// not a blank/broken-looking row) - the Tasks tab is the exhaustive audit
++// that already covers undated items, so Timeline stays a purely dated
++// view. Card-level dates are deliberately not plotted here (removed
++// 2026-08-13, see CLAUDE.md). Icon + indentation mirrors Team Workload's
++// checklist/sub-task visual language so the same distinction reads the
++// same way in both tabs.
+ const Timeline = React.memo(() => {
+   const items = useSelector(selectors.selectGanttItemsForCurrentBoard);
+ 
+@@ -44,8 +49,12 @@ const Timeline = React.memo(() => {
+     const result = [];
+ 
+     items.forEach((item) => {
++      // A checklist counts as "dated" here if it has its own dates, or has
++      // no dates of its own but contains at least one dated item
++      // (taskList.tasks from the selector is already pre-filtered to dated
++      // items only) - mirrors Team Workload's identical rule.
+       const datedTaskLists = item.taskLists.filter(
+-        (taskList) => taskList.startDate || taskList.dueDate,
++        (taskList) => taskList.startDate || taskList.dueDate || taskList.tasks.length > 0,
+       );
+ 
+       if (datedTaskLists.length === 0) {
+@@ -64,7 +73,13 @@ const Timeline = React.memo(() => {
+       datedTaskLists.forEach((taskList) => {
+         result.push({
+           key: `taskList:${taskList.id}`,
+-          label: taskList.name,
++          label: (
++            <span className={styles.itemLabelChecklist}>
++              <Icon name="check square outline" className={styles.itemIcon} />
++              {taskList.name}
++            </span>
++          ),
++          barLabel: taskList.name,
+           isGroupHeader: false,
+           isGroupBoundary: false,
+           startDate: taskList.startDate,
+@@ -73,6 +88,25 @@ const Timeline = React.memo(() => {
+           status: taskList.status,
+           taskListId: taskList.id,
+         });
++
++        taskList.tasks.forEach((task) => {
++          result.push({
++            key: `task:${task.id}`,
++            label: (
++              <span className={styles.itemLabelTask}>
++                <Icon name="check circle outline" className={styles.itemIcon} />
++                {task.name}
++              </span>
++            ),
++            barLabel: task.name,
++            isGroupHeader: false,
++            isGroupBoundary: false,
++            startDate: task.startDate,
++            dueDate: task.dueDate,
++            isDueCompleted: task.isDueCompleted,
++            taskId: task.id,
++          });
++        });
+       });
+     });
+ 
+diff --git a/client/src/components/boards/GanttModal/Timeline/Timeline.module.scss b/client/src/components/boards/GanttModal/Timeline/Timeline.module.scss
+index 035acdc..1d8337d 100644
+--- a/client/src/components/boards/GanttModal/Timeline/Timeline.module.scss
++++ b/client/src/components/boards/GanttModal/Timeline/Timeline.module.scss
+@@ -7,4 +7,34 @@
+   .wrapper {
+     height: 100%;
+   }
++
++  // BSY Media: matches Team Workload's identical checklist/sub-task visual
++  // language (icon + extra indentation on top of Row.jsx's own base
++  // .labelIndented padding) so the two levels read the same way there and
++  // here.
++  .itemLabelChecklist,
++  .itemLabelTask {
++    align-items: center;
++    display: flex;
++    gap: 6px;
++    overflow: hidden;
++    text-overflow: ellipsis;
++    white-space: nowrap;
++  }
++
++  .itemLabelChecklist {
++    color: rgba(9, 30, 66, 0.7);
++    font-size: 12px;
++  }
++
++  .itemLabelTask {
++    color: rgba(9, 30, 66, 0.55);
++    font-size: 12px;
++    padding-left: 16px;
++  }
++
++  .itemIcon {
++    color: rgba(9, 30, 66, 0.4);
++    flex: 0 0 auto;
++  }
+ }
