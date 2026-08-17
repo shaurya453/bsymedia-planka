@@ -2187,3 +2187,59 @@ card (`Task one` checkbox clearly offset right of `Checklist A`'s own checkbox) 
 container logs. Verified in a throwaway sandbox project, deleted afterward (board/project delete
 both confirmed 200).
 
+
+## Permissions audit: disguised 404, centralized project-manager-or-admin check (2026-08-17)
+
+Client asked for a full review of the admin/permissions system ("so many layers... I need
+administration frictionless"), then scoped the follow-up to concrete bugs/inconsistencies rather
+than restructuring the model (confirmed via AskUserQuestion - the model itself is only 3 layers:
+instance role admin/projectOwner/boardUser, per-project `ProjectManager` relation, per-board
+`editor`/`viewer` membership - already reasonably centralized since patch 0010 introduced
+`is-board-editor.js`).
+
+Two real, verified issues found and fixed as patch 0042:
+
+- **`board-memberships/create.js` disguised a permission failure as a 404.** This is the exact
+  incident from the 2026-08-07 Taiga-import note above: `admin@planka.local` had genuine
+  instance-admin status but wasn't a project manager on 2 of 3 projects, and got a plain `404
+  "Board not found"` trying to add a member - indistinguishable from the board not existing. Fixed
+  by disambiguating: if the caller has some real relationship to the board (admin role, or an
+  existing `BoardMembership` row) but still isn't a project manager, throw `403 Not enough rights`
+  instead of `404`. **This does not change who can create the membership** - only genuine project
+  managers still can; the fix is purely about the error signal. True outsiders with zero
+  relationship to the board still get `404`, preserving the intentional info-hiding.
+- **`comments/delete.js` duplicated an inline admin-bypass check** (`isProjectManager ||
+  (currentUser.role === ADMIN && !project.ownerProjectManagerId)`) that `is-board-editor.js`
+  already centralizes for the equivalent board-level check. Centralized into a new helper,
+  `server/api/helpers/users/is-project-manager-or-admin.js`, mirroring `is-board-editor.js`'s
+  structure - and reused it for the `board-memberships/create.js` fix above. Pure refactor for
+  `comments/delete.js`, confirmed behavior-identical.
+
+A third suspected issue turned out to already be fixed: the share-picker's system-account filter
+(`AddStep.jsx`) already does exact-email exclusion (`HIDDEN_SYSTEM_ACCOUNT_EMAILS`), not the
+broader role-based filter that caused the earlier "real admins missing from the picker" bug -
+verified directly in source, no change made.
+
+**Explicitly not touched**, and why: the ~25 `isProjectManager`-only call sites that intentionally
+lack an admin bypass (that's their real upstream contract, not a bug); the separate ~15-site
+`role !== ADMIN || ownerProjectManagerId` "read access" gate (a different, already-consistent
+mechanism - folding it into the new helper would risk silently changing read-vs-write semantics);
+invite-service's independent `isBoardEditor` mirror (justified duplication - it has no PLANKA
+session to call the real helper); the client's `getEffectiveMembershipModel()` (needed for
+optimistic UI, not broken).
+
+**Verified in an isolated throwaway stack** (fresh Postgres + the new image on isolated ports, not
+production's DB - this deployment's established "regression harness" pattern for changes too
+risky to verify only after deploying) before touching production. Learned along the way:
+`POST /projects/:id/project-managers` requires the *target* user's instance role to already be
+`admin` or `projectOwner` - a plain `boardUser` can never become a project manager, confirmed via
+a live `422 "User must be admin or project owner"`. Also: `ownerProjectManagerId` (the "personal
+project" marker the admin-bypass rule checks) is only set for `type: 'private'` projects, not
+`type: 'shared'` ones, even though the creator is auto-added as a project manager either way.
+
+All 4 board-membership scenarios and all 4 comment-delete scenarios matched expectations exactly:
+admin-not-PM and board-editor-not-PM both now get `403` (was `404` for the admin case); a true
+outsider still gets `404`; the genuine project manager still succeeds; and for comments, author,
+genuine PM, and admin-bypass-on-a-shared-project all still delete successfully while an unrelated
+user still gets denied (`403`, not `404` - unchanged pre-existing behavior, since that inner code
+path wasn't touched by this refactor).

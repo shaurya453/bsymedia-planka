@@ -1,0 +1,92 @@
+diff --git a/server/api/controllers/board-memberships/create.js b/server/api/controllers/board-memberships/create.js
+index 31b0516..1d79768 100755
+--- a/server/api/controllers/board-memberships/create.js
++++ b/server/api/controllers/board-memberships/create.js
+@@ -131,7 +131,20 @@ module.exports = {
+     const isProjectManager = await sails.helpers.users.isProjectManager(currentUser.id, project.id);
+ 
+     if (!isProjectManager) {
+-      throw Errors.BOARD_NOT_FOUND; // Forbidden
++      // BSY Media: a caller who's an admin or already has some real
++      // relationship to this board (existing membership) gets an accurate
++      // "not enough rights" instead of a 404 indistinguishable from the
++      // board not existing - see CLAUDE.md's 2026-08-07 incident note. This
++      // does not grant them permission to create the membership; it only
++      // clarifies the failure. True outsiders with zero relationship still
++      // get the 404, preserving info-hiding.
++      const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++        board.id,
++        currentUser.id,
++      );
++      const hasBoardRelationship = !!boardMembership || currentUser.role === User.Roles.ADMIN;
++
++      throw hasBoardRelationship ? Errors.NOT_ENOUGH_RIGHTS : Errors.BOARD_NOT_FOUND;
+     }
+ 
+     if (!sails.helpers.users.isAdminOrProjectOwner(currentUser)) {
+diff --git a/server/api/controllers/comments/delete.js b/server/api/controllers/comments/delete.js
+index 9b416f2..f1f457a 100755
+--- a/server/api/controllers/comments/delete.js
++++ b/server/api/controllers/comments/delete.js
+@@ -80,12 +80,12 @@ module.exports = {
+     let { comment } = pathToProject;
+     const { card, list, board, project } = pathToProject;
+ 
+-    const isProjectManager = await sails.helpers.users.isProjectManager(currentUser.id, project.id);
+-    // BSY Media: instance admins get the same "delete any comment" rights as
+-    // project managers, except on personally-owned projects.
+-    const isAdminBypass = currentUser.role === User.Roles.ADMIN && !project.ownerProjectManagerId;
++    const isProjectManagerOrAdmin = await sails.helpers.users.isProjectManagerOrAdmin(
++      currentUser.id,
++      project.id,
++    );
+ 
+-    if (!isProjectManager && !isAdminBypass) {
++    if (!isProjectManagerOrAdmin) {
+       if (comment.userId !== currentUser.id) {
+         throw Errors.NOT_ENOUGH_RIGHTS;
+       }
+diff --git a/server/api/helpers/users/is-project-manager-or-admin.js b/server/api/helpers/users/is-project-manager-or-admin.js
+new file mode 100644
+index 0000000..d64d061
+--- /dev/null
++++ b/server/api/helpers/users/is-project-manager-or-admin.js
+@@ -0,0 +1,38 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++// BSY Media: instance admins get the same project-manager-equivalent rights
++// as a real project manager, except on personally-owned projects. Mirrors
++// the identical bypass rule in is-board-editor.js.
++module.exports = {
++  inputs: {
++    id: {
++      type: 'string',
++      required: true,
++    },
++    projectId: {
++      type: 'string',
++      required: true,
++    },
++  },
++
++  async fn(inputs) {
++    const isProjectManager = await sails.helpers.users.isProjectManager(
++      inputs.id,
++      inputs.projectId,
++    );
++
++    if (isProjectManager) {
++      return true;
++    }
++
++    const [user, project] = await Promise.all([
++      User.qm.getOneById(inputs.id),
++      Project.qm.getOneById(inputs.projectId),
++    ]);
++
++    return user.role === User.Roles.ADMIN && !project.ownerProjectManagerId;
++  },
++};
