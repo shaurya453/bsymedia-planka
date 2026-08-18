@@ -2273,3 +2273,52 @@ undated - "Undated review task"). Timeline correctly rendered exactly 4 rows (ca
 checklist, both dated sub-tasks) with the undated sub-task absent, each sub-task bar positioned at
 its own dates (not the parent checklist's), with the checkbox/circle icon distinction and deeper
 indentation visible in the actual screenshot, not just inferred from code.
+
+## Paste an image into the "Add card" title field (2026-08-18)
+
+Client asked for the ability to paste a clipboard image directly into a new card's title field
+while creating it, with the tool deciding what to name the resulting card. Confirmed this
+deployment already has 2 precedents for clipboard-paste-to-attachment
+(`CardModal/AddAttachmentZone/AddAttachmentZone.jsx`, `ProjectSettingsModal/BackgroundPane/
+AddImageZone.jsx`) - this adds a third, scoped to `AddCard.jsx`'s own title `<TextArea>` instead of
+a `window`-level listener, so it can never fire while unrelated to that specific composer (paste
+events are focus-driven; the two existing listeners are unaffected, confirmed live below).
+
+- **Naming decision**: if the title is still empty at paste time, it's auto-filled with `` `Pasted
+  image – ${date}` `` (e.g. "Pasted image – Aug 18, 2026, 10:52 AM", `date-fns` `'PPp'` format,
+  new i18n key `common.pastedImageCardName`). If the user already typed a title, pasting an image
+  never overwrites it - confirmed live in both directions. A small preview chip (thumbnail +
+  filename + remove "x") appears under the textarea so a mis-paste can be undone before submitting.
+- **Card creation still one API call, attachment is a second, chained one** - PLANKA's
+  `createCard` has no way to accept a file in the same request. `AddCard.jsx` carries the pasted
+  `File` on `data.file` through `onCreate()` into whichever entry action the caller uses
+  (`createCard`/`createCardInCurrentContext`/`createCardInCurrentList` all funnel into the same
+  `createCard` saga generator in `sagas/core/services/cards.js`, confirmed by reading all 3 call
+  sites - `List.jsx`, `FiniteContent.jsx` - so this needed exactly one saga-level change, not one
+  per entry point). That saga now destructures `file` out of `data` before building the JSON
+  API payload (a raw `File` must never ride along into `api.createCard`'s JSON body), then, once
+  the real card id comes back, calls the existing `createAttachment(cardId, data)` generator from
+  `sagas/core/services/attachments.js` directly (not the `createAttachmentInCurrentCard` wrapper,
+  which depends on route-derived "current card" state that doesn't exist yet mid-creation) and sets
+  the new attachment as the card's cover via the existing `updateCard(id, { coverAttachmentId })`
+  already defined in the same file. `createAttachment` gained one additive `return attachment;`
+  (it previously returned nothing) so the cover-set step has the new attachment's id to use.
+- **Graceful degradation, not new error handling**: `createAttachment` already toasts and returns
+  `undefined` on an upload/storage-limit failure (pre-existing behavior) - the card still gets
+  created successfully with its title either way, the cover-set step is just skipped.
+
+**Verified live** in an isolated throwaway stack (fresh Postgres + the new image, this deployment's
+established pre-deploy regression-harness pattern), via a mix of the real API and Puppeteer
+(synthetic `ClipboardEvent`+`DataTransfer` dispatched on the title textarea, since headless Chrome
+has no real OS clipboard): empty-title paste produced the exact auto-generated title, a
+custom-typed title survived a subsequent paste unchanged, and clicking the preview chip's remove
+button before submitting correctly created a card with zero attachment. Confirmed via the real API
+(not just the UI) that both non-removed cases got a real `file`-type attachment *and*
+`coverAttachmentId` pointing at it. Regression-checked the existing `AddAttachmentZone` card-modal
+paste zone with a fresh Puppeteer session (paste dispatched on `document.body` while a card modal
+was open) - it still attached the file normally through its own unchanged code path, with zero
+interference from the new `AddCard`-scoped listener. Zero console errors across the full pass.
+Sandbox project deleted afterward; the whole throwaway stack (`docker-compose.test.yml`, tmpfs
+Postgres) was then torn down with `down -v`, so no trace of any of this touched production.
+
+Patch: `planka-custom/patches/0044-paste-image-into-add-card.patch`.

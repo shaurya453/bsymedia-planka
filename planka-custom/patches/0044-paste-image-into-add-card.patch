@@ -1,0 +1,285 @@
+diff --git a/client/src/components/cards/AddCard/AddCard.jsx b/client/src/components/cards/AddCard/AddCard.jsx
+index 6dd78b0..1adb607 100644
+--- a/client/src/components/cards/AddCard/AddCard.jsx
++++ b/client/src/components/cards/AddCard/AddCard.jsx
+@@ -3,12 +3,13 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useCallback, useEffect } from 'react';
++import React, { useCallback, useEffect, useState } from 'react';
+ import PropTypes from 'prop-types';
+ import classNames from 'classnames';
+ import { useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+ import TextareaAutosize from 'react-textarea-autosize';
++import format from 'date-fns/format';
+ import { Button, Form, Icon, TextArea } from 'semantic-ui-react';
+ import { useClickAwayListener, useDidUpdate, usePrevious, useToggle } from '../../../lib/hooks';
+ import { usePopup } from '../../../lib/popup';
+@@ -44,6 +45,26 @@ const AddCard = React.memo(({ isOpened, className, onCreate, onClose }) => {
+   const [submitButtonRef, handleSubmitButtonRef] = useNestedRef();
+   const [selectTypeButtonRef, handleSelectTypeButtonRef] = useNestedRef();
+ 
++  // BSY Media: an image pasted into the title field while creating a card.
++  // Kept separate from `data` since it's not a text form field - it's
++  // carried through to onCreate() only at submit time.
++  const [imageFile, setImageFile] = useState(null);
++  const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
++
++  useEffect(() => {
++    if (!imageFile) {
++      setImagePreviewUrl(null);
++      return undefined;
++    }
++
++    const url = URL.createObjectURL(imageFile);
++    setImagePreviewUrl(url);
++
++    return () => {
++      URL.revokeObjectURL(url);
++    };
++  }, [imageFile]);
++
+   const submit = useCallback(
+     (autoOpen) => {
+       const cleanData = {
+@@ -56,20 +77,22 @@ const AddCard = React.memo(({ isOpened, className, onCreate, onClose }) => {
+         return;
+       }
+ 
+-      onCreate(cleanData, autoOpen);
++      onCreate(imageFile ? { ...cleanData, file: imageFile } : cleanData, autoOpen);
+ 
+       setData({
+         ...DEFAULT_DATA,
+         type: defaultType,
+       });
+ 
++      setImageFile(null);
++
+       if (autoOpen) {
+         onClose();
+       } else {
+         focusNameField();
+       }
+     },
+-    [onCreate, onClose, defaultType, data, setData, focusNameField, nameFieldRef],
++    [onCreate, onClose, defaultType, data, setData, focusNameField, nameFieldRef, imageFile],
+   );
+ 
+   const handleSubmit = useCallback(() => {
+@@ -104,6 +127,48 @@ const AddCard = React.memo(({ isOpened, className, onCreate, onClose }) => {
+     [onClose, submit],
+   );
+ 
++  const handleFieldPaste = useCallback(
++    (event) => {
++      if (!event.clipboardData) {
++        return;
++      }
++
++      const { files, items } = event.clipboardData;
++
++      let file = files.length > 0 ? files[0] : undefined;
++
++      if (!file && items.length > 0 && items[0].kind === 'file') {
++        file = items[0].getAsFile();
++      }
++
++      if (!file || !file.type.startsWith('image/')) {
++        return;
++      }
++
++      event.preventDefault();
++
++      setImageFile(file);
++
++      // Only auto-fill the title if the user hasn't typed one yet - never
++      // clobber a title they already chose.
++      setData((prevData) =>
++        prevData.name.trim()
++          ? prevData
++          : {
++              ...prevData,
++              name: t('common.pastedImageCardName', {
++                date: format(new Date(), 'PPp'),
++              }),
++            },
++      );
++    },
++    [setData, t],
++  );
++
++  const handleImageRemoveClick = useCallback(() => {
++    setImageFile(null);
++  }, []);
++
+   const handleSelectTypeClose = useCallback(() => {
+     deactivateClosable();
+     nameFieldRef.current.focus();
+@@ -169,7 +234,24 @@ const AddCard = React.memo(({ isOpened, className, onCreate, onClose }) => {
+           className={styles.field}
+           onKeyDown={handleFieldKeyDown}
+           onChange={handleFieldChange}
++          onPaste={handleFieldPaste}
+         />
++        {imageFile && (
++          <div className={styles.imagePreview}>
++            <img
++              src={imagePreviewUrl}
++              alt=""
++              draggable={false}
++              className={styles.imagePreviewThumbnail}
++            />
++            <span className={styles.imagePreviewName}>{imageFile.name}</span>
++            <Icon
++              name="close"
++              className={styles.imagePreviewRemove}
++              onClick={handleImageRemoveClick}
++            />
++          </div>
++        )}
+       </div>
+       <div className={styles.controls}>
+         <Button
+diff --git a/client/src/components/cards/AddCard/AddCard.module.scss b/client/src/components/cards/AddCard/AddCard.module.scss
+index 9843c08..164d383 100644
+--- a/client/src/components/cards/AddCard/AddCard.module.scss
++++ b/client/src/components/cards/AddCard/AddCard.module.scss
+@@ -31,6 +31,46 @@
+     padding: 6px 8px 2px;
+   }
+ 
++  // BSY Media: preview chip for an image pasted into the title field,
++  // shown before the card is created.
++  .imagePreview {
++    align-items: center;
++    background: rgba(9, 30, 66, 0.04);
++    border-radius: 3px;
++    display: flex;
++    gap: 6px;
++    margin: 4px 0 6px;
++    padding: 4px 6px;
++  }
++
++  .imagePreviewThumbnail {
++    border-radius: 3px;
++    flex: 0 0 auto;
++    height: 32px;
++    object-fit: cover;
++    width: 32px;
++  }
++
++  .imagePreviewName {
++    color: rgba(9, 30, 66, 0.7);
++    flex: 1 1 auto;
++    font-size: 12px;
++    overflow: hidden;
++    text-overflow: ellipsis;
++    white-space: nowrap;
++  }
++
++  .imagePreviewRemove {
++    color: rgba(9, 30, 66, 0.4);
++    cursor: pointer;
++    flex: 0 0 auto;
++    margin: 0;
++
++    &:hover {
++      color: rgba(9, 30, 66, 0.7);
++    }
++  }
++
+   .selectTypeButton {
+     background: transparent;
+     box-shadow: none;
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 3b41675..15d4b4a 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -285,6 +285,7 @@ export default {
+       organization: 'Organization',
+       others: 'Others',
+       passwordIsSet: 'Password is set',
++      pastedImageCardName: 'Pasted image – {{date}}',
+       phone: 'Phone',
+       plankaUsesAppriseToSendNotificationsToOver100PopularServices:
+         'PLANKA uses <1><0>Apprise</0></1> to send notifications to over 100 popular services.',
+diff --git a/client/src/sagas/core/services/attachments.js b/client/src/sagas/core/services/attachments.js
+index 6237aef..ecff681 100644
+--- a/client/src/sagas/core/services/attachments.js
++++ b/client/src/sagas/core/services/attachments.js
+@@ -63,6 +63,8 @@ export function* createAttachment(cardId, data) {
+   }
+ 
+   yield put(actions.createAttachment.success(localId, attachment));
++
++  return attachment;
+ }
+ 
+ export function* createAttachmentInCurrentCard(data) {
+diff --git a/client/src/sagas/core/services/cards.js b/client/src/sagas/core/services/cards.js
+index 42e54c4..e0dfd65 100644
+--- a/client/src/sagas/core/services/cards.js
++++ b/client/src/sagas/core/services/cards.js
+@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
+ import { LOCATION_CHANGE_HANDLE } from '../../../lib/redux-router';
+ 
+ import { goToBoard, goToCard } from './router';
++import { createAttachment } from './attachments';
+ import request from '../request';
+ import selectors from '../../../selectors';
+ import actions from '../../../actions';
+@@ -18,7 +19,7 @@ import { isListArchiveOrTrash, isListFinite } from '../../../utils/record-helper
+ import ActionTypes from '../../../constants/ActionTypes';
+ import ClipboardTypes from '../../../constants/ClipboardTypes';
+ import ToastTypes from '../../../constants/ToastTypes';
+-import { BoardViews, ListTypes, ListTypeStates } from '../../../constants/Enums';
++import { AttachmentTypes, BoardViews, ListTypes, ListTypeStates } from '../../../constants/Enums';
+ import LIST_TYPE_STATE_BY_TYPE from '../../../constants/ListTypeStateByType';
+ 
+ // eslint-disable-next-line no-underscore-dangle
+@@ -118,6 +119,12 @@ export function* handleCardsUpdate(cards, activities) {
+ }
+ 
+ export function* createCard(listId, data, index, autoOpen) {
++  // BSY Media: a File pasted into the AddCard title field rides along on
++  // `data.file` - pull it out before building the API/optimistic-update
++  // payload, since a raw File must never be spread into the JSON card
++  // record, and attach it as a real attachment once the card has a real id.
++  const { file, ...cardData } = data;
++
+   const localId = yield call(createLocalId);
+   const list = yield select(selectors.selectListById, listId);
+ 
+@@ -127,7 +134,7 @@ export function* createCard(listId, data, index, autoOpen) {
+   );
+ 
+   const nextData = {
+-    ...data,
++    ...cardData,
+   };
+ 
+   if (isListFinite(list)) {
+@@ -169,6 +176,20 @@ export function* createCard(listId, data, index, autoOpen) {
+   if (watchForCreateCardActionTask && watchForCreateCardActionTask.isRunning()) {
+     yield call(goToCard, card.id);
+   }
++
++  if (file) {
++    const attachment = yield call(createAttachment, card.id, {
++      type: AttachmentTypes.FILE,
++      file,
++      name: file.name,
++    });
++
++    if (attachment) {
++      yield call(updateCard, card.id, {
++        coverAttachmentId: attachment.id,
++      });
++    }
++  }
+ }
+ 
+ export function* createCardInCurrentContext(data, index, autoOpen) {
