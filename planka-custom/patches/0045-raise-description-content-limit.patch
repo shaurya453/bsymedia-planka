@@ -1,0 +1,127 @@
+diff --git a/client/src/components/common/EditMarkdown/EditMarkdown.jsx b/client/src/components/common/EditMarkdown/EditMarkdown.jsx
+index f5028df..8b970db 100755
+--- a/client/src/components/common/EditMarkdown/EditMarkdown.jsx
++++ b/client/src/components/common/EditMarkdown/EditMarkdown.jsx
+@@ -17,7 +17,14 @@ import MarkdownEditor from '../MarkdownEditor';
+ 
+ import styles from './EditMarkdown.module.scss';
+ 
+-const MAX_LENGTH = 1048576;
++// BSY Media: pasted/dropped images get embedded inline as base64 data URIs
++// (see MarkdownEditor.jsx's fileUploadHandler - there's no real upload, just
++// FileReader.readAsDataURL), which inflates size ~33% over the original
++// file. 1MB of text was too low for a real screenshot; raised to comfortably
++// fit multi-MB images. No server-side limit is hit at this size - sockets
++// allow up to 100MB (sails-hook-sockets default) and description/text are
++// unbounded Postgres `text` columns.
++const MAX_LENGTH = 15728640;
+ 
+ const EditMarkdown = React.memo(({ defaultValue, draftValue, onUpdate, onClose }) => {
+   const defaultMode = useSelector((state) => selectors.selectCurrentUser(state).defaultEditorMode);
+@@ -101,7 +108,7 @@ const EditMarkdown = React.memo(({ defaultValue, draftValue, onUpdate, onClose }
+             content={
+               isExceeded
+                 ? t('common.contentExceedsLimit', {
+-                    limit: '1MB',
++                    limit: '15MB',
+                   })
+                 : t('action.save')
+             }
+diff --git a/server/api/controllers/cards/create.js b/server/api/controllers/cards/create.js
+index 2eea928..14f27c9 100755
+--- a/server/api/controllers/cards/create.js
++++ b/server/api/controllers/cards/create.js
+@@ -48,7 +48,7 @@
+  *                 example: Implement user authentication
+  *               description:
+  *                 type: string
+- *                 maxLength: 1048576
++ *                 maxLength: 15728640
+  *                 nullable: true
+  *                 description: Detailed description of the card
+  *                 example: Add JWT-based authentication system...
+@@ -132,7 +132,9 @@ module.exports = {
+     description: {
+       type: 'string',
+       isNotEmptyString: true,
+-      maxLength: 1048576,
++      // BSY Media: see cards/update.js - kept in sync with EditMarkdown.jsx's
++      // client-side MAX_LENGTH (pasted images are embedded inline as base64).
++      maxLength: 15728640,
+       allowNull: true,
+     },
+     stopwatch: {
+diff --git a/server/api/controllers/cards/update.js b/server/api/controllers/cards/update.js
+index 7253ecf..180f5e9 100755
+--- a/server/api/controllers/cards/update.js
++++ b/server/api/controllers/cards/update.js
+@@ -58,7 +58,7 @@
+  *                 example: Implement user authentication
+  *               description:
+  *                 type: string
+- *                 maxLength: 1048576
++ *                 maxLength: 15728640
+  *                 nullable: true
+  *                 description: Detailed description of the card
+  *                 example: Add JWT-based authentication system...
+@@ -165,7 +165,11 @@ module.exports = {
+     description: {
+       type: 'string',
+       isNotEmptyString: true,
+-      maxLength: 1048576,
++      // BSY Media: kept in sync with EditMarkdown.jsx's client-side MAX_LENGTH
++      // - raised from the stock 1MB cap since pasted/dropped images are
++      // embedded inline as base64 (see MarkdownEditor.jsx's fileUploadHandler)
++      // and easily push a normal screenshot over 1MB of text.
++      maxLength: 15728640,
+       allowNull: true,
+     },
+     stopwatch: {
+diff --git a/server/api/controllers/comments/create.js b/server/api/controllers/comments/create.js
+index dcde7ea..e7001a6 100755
+--- a/server/api/controllers/comments/create.js
++++ b/server/api/controllers/comments/create.js
+@@ -31,7 +31,7 @@
+  *             properties:
+  *               text:
+  *                 type: string
+- *                 maxLength: 1048576
++ *                 maxLength: 15728640
+  *                 description: Content of the comment
+  *                 example: This task is almost complete...
+  *               type:
+@@ -80,7 +80,9 @@ module.exports = {
+     },
+     text: {
+       type: 'string',
+-      maxLength: 1048576,
++      // BSY Media: see cards/update.js - kept in sync with EditMarkdown.jsx's
++      // client-side MAX_LENGTH (pasted images are embedded inline as base64).
++      maxLength: 15728640,
+       required: true,
+     },
+     type: {
+diff --git a/server/api/controllers/comments/update.js b/server/api/controllers/comments/update.js
+index 9a834bf..44bcb48 100755
+--- a/server/api/controllers/comments/update.js
++++ b/server/api/controllers/comments/update.js
+@@ -29,7 +29,7 @@
+  *             properties:
+  *               text:
+  *                 type: string
+- *                 maxLength: 1048576
++ *                 maxLength: 15728640
+  *                 description: Content of the comment
+  *                 example: This task is almost complete...
+  *     responses:
+@@ -74,7 +74,9 @@ module.exports = {
+     text: {
+       type: 'string',
+       isNotEmptyString: true,
+-      maxLength: 1048576,
++      // BSY Media: see cards/update.js - kept in sync with EditMarkdown.jsx's
++      // client-side MAX_LENGTH (pasted images are embedded inline as base64).
++      maxLength: 15728640,
+     },
+   },
+ 

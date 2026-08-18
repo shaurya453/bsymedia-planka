@@ -2322,3 +2322,56 @@ Sandbox project deleted afterward; the whole throwaway stack (`docker-compose.te
 Postgres) was then torn down with `down -v`, so no trace of any of this touched production.
 
 Patch: `planka-custom/patches/0044-paste-image-into-add-card.patch`.
+
+## Description/comment "Content exceeds 1MB" - real fix, not just the client cap (2026-08-18)
+
+Client reported users/admins still couldn't paste media over 1MB - Save stayed disabled with
+"Content exceeds 1MB" - even after the unrelated Aug 9 `MAX_UPLOAD_FILE_SIZE` fix (that one only
+covers the card-modal's *file attachment* upload path, `server/api/helpers/utils/receive-file.js`,
+a completely different code path from this bug).
+
+**Root cause, found by reading the live code, not guessed**: pasting/dropping an image into a
+card's Description or a Comment (both rendered via `MarkdownEditor.jsx`) never uploads it - the
+`fileUploadHandler` there just does `FileReader.readAsDataURL(file)` and inlines the result as a
+base64 data URI directly inside the markdown text. Base64 inflates size ~33% over the original
+file. `EditMarkdown.jsx` then compares the *entire* markdown string length against a hardcoded
+`MAX_LENGTH = 1048576` (1MB of characters) and disables Save if it's exceeded - so any screenshot
+over roughly 750KB tripped it. This is why it's specifically "media over 1MB", not attachments.
+
+**Two independent layers enforce the same number, both needed fixing** - initially raised only the
+client `MAX_LENGTH`, verified via a direct card-update call through the UI (bypassing the client
+gate isn't possible without it, so the *first* real end-to-end test - pasting a 2.2MB synthetic
+file into a live card description via Puppeteer - is what caught this): the server rejected the
+save anyway, `E_MISSING_OR_INVALID_PARAMS`, because `server/api/controllers/cards/{create,update}.js`
+and `comments/{create,update}.js` *each* independently hard-code the identical
+`maxLength: 1048576` on the `description`/`text` input validator - not a Waterline/DB default,
+each controller sets it explicitly in its own `inputs` block. Missing this on the first pass would
+have shipped a fix that still failed silently server-side while showing a fully-enabled Save button
+- worth remembering for any future "just bump the client-side limit" fix in this app: check for a
+matching hard-coded validator in the corresponding controller(s) before assuming the client check
+is the only gate.
+
+**Fix**: raised all 5 occurrences (1 client `MAX_LENGTH` + 4 server `maxLength` validators across
+the two card controllers and two comment controllers) from `1048576` to `15728640` (15MB of text),
+in lockstep. Chose 15MB specifically because nothing else caps out below it -
+confirmed via the actual running container: `sails-hook-sockets`' own default
+`maxHttpBufferSize` is 100MB (`10E7`, overriding `engine.io`'s much smaller 1MB library default,
+which had no effect here), and `card.description`/`comment.text` are unbounded Postgres `text`
+columns. 15MB of base64 text comfortably fits real-world screenshots/photos (~11MB of original
+binary) without raising the per-card payload size enough to meaningfully bloat every board-load
+fetch - this stays a *text* cap, not a real upload path, so it's deliberately not matched to the
+50MB attachment-file limit from the Aug 9 fix.
+
+**Verified live** in the same isolated throwaway stack/pattern as the paste-into-title feature
+above: created a project/board/list/card through the real UI, opened the card's description
+editor, dispatched a synthetic paste of a 2.2MB file (same `ClipboardEvent`+`DataTransfer`
+technique as the AddCard feature, targeted at the editor's `[contenteditable]` node this time),
+confirmed the Save button stayed enabled (previously would've shown "Content exceeds 1MB" and been
+disabled), clicked Save, and - the part that actually proves the server-side fix, not just the
+client one - reloaded the page and confirmed the image reference was still present in the
+persisted description with zero console errors. Before the server-side controller fix was added,
+this exact same reload check failed (image gone, `E_MISSING_OR_INVALID_PARAMS` in the console) even
+though the client-side Save button had already been "fixed" - the live end-to-end check is what
+caught that the fix was incomplete.
+
+Patch: `planka-custom/patches/0045-raise-description-content-limit.patch`.
