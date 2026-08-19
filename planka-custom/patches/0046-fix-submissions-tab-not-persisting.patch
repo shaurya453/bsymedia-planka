@@ -1,0 +1,24 @@
+diff --git a/client/src/models/Comment.js b/client/src/models/Comment.js
+index 64048ca..db52083 100755
+--- a/client/src/models/Comment.js
++++ b/client/src/models/Comment.js
+@@ -37,6 +37,7 @@ export default class extends BaseModel {
+ 
+         break;
+       case ActionTypes.COMMENTS_FETCH__SUCCESS:
++      case ActionTypes.SUBMISSIONS_FETCH__SUCCESS:
+         payload.comments.forEach((comment) => {
+           Comment.upsert(comment);
+         });
+diff --git a/client/src/models/User.js b/client/src/models/User.js
+index 94f9ce6..e645550 100755
+--- a/client/src/models/User.js
++++ b/client/src/models/User.js
+@@ -138,6 +138,7 @@ export default class extends BaseModel {
+       case ActionTypes.CARD_CREATE_HANDLE:
+       case ActionTypes.CARD_TRANSFER__SUCCESS:
+       case ActionTypes.COMMENTS_FETCH__SUCCESS:
++      case ActionTypes.SUBMISSIONS_FETCH__SUCCESS:
+       case ActionTypes.COMMENT_CREATE_HANDLE:
+       case ActionTypes.ACTIVITIES_IN_BOARD_FETCH__SUCCESS:
+       case ActionTypes.ACTIVITIES_IN_CARD_FETCH__SUCCESS:

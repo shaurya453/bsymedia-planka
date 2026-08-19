@@ -2375,3 +2375,48 @@ though the client-side Save button had already been "fixed" - the live end-to-en
 caught that the fix was incomplete.
 
 Patch: `planka-custom/patches/0045-raise-description-content-limit.patch`.
+
+## Submissions tab silently dropping every fetched comment (2026-08-19)
+
+Admin reported: comments posted in the Submissions tab "disappear after a few hours" - Updates
+tab unaffected. Confirmed first via direct Postgres query that **no data was actually being
+lost** - `comment` rows with `type='submission'` were all still present, going back to
+2026-08-13, so this was never a deletion/TTL issue despite how it read from the report.
+
+**Root cause, found by reading the code the Submissions tab (patch 0034) added, not guessed**:
+`client/src/models/Comment.js` and `client/src/models/User.js` are redux-orm models whose static
+`reducer()` upserts fetched records into the client-side store on `ActionTypes.
+COMMENTS_FETCH__SUCCESS`. Patch 0034 added a parallel `SUBMISSIONS_FETCH__SUCCESS` action for the
+new tab and correctly wired it into `Card.js` (to track `isSubmissionsFetching`/
+`isAllSubmissionsFetched`/`lastSubmissionId`) - but never added a matching case to `Comment.js`
+or `User.js`. So every submissions fetch **succeeded on the wire** (confirmed live via a raw
+WebSocket-frame capture: the server returned the real, correct rows, `type: "submission"` and
+all) but the returned comment/user records were silently thrown away instead of being written
+into the redux-orm store - the tab rendered blank regardless of how much real data existed.
+
+This reproduced on **any** fresh fetch, not literally after a fixed time period - a submission
+posted just now stays visible immediately because the separate `COMMENT_CREATE`/
+`COMMENT_CREATE__SUCCESS` cases (unaffected by this bug) already upsert it directly. It only goes
+blank on the *next* fetch - reopening the card, reloading the page, or (most likely culprit for
+"a few hours" specifically) a `SOCKET_RECONNECT_HANDLE` action, which wipes `Comment.all()` and
+`Card`'s per-card tracking fields back to their unfetched defaults and relies on a fresh fetch to
+repopulate them. Socket reconnects happen naturally over a multi-hour session (proxy idle
+timeouts, laptop sleep/wake, wifi drops) - explaining why the symptom reads as delayed onset.
+
+**Fix**: added `case ActionTypes.SUBMISSIONS_FETCH__SUCCESS:` alongside the existing
+`COMMENTS_FETCH__SUCCESS` case in both `Comment.js` (upserts each fetched comment) and `User.js`
+(upserts each fetched comment's author into the shared user store). Two-line change, no new
+concepts - makes the Submissions pattern symmetric with Comments and Activities' own already-
+correct handling of `ACTIVITIES_IN_{BOARD,CARD}_FETCH__SUCCESS`, confirmed by grepping every
+`*_FETCH__SUCCESS` action type against every model file's reducer before considering this closed.
+
+**Verified live** two ways: (1) end-to-end in the isolated throwaway stack (this deployment's
+established pre-deploy regression pattern) - created a project/board/list/card, posted a real
+submission, confirmed it rendered immediately, then did a **full page reload** (the actual
+regression check - this is exactly the fetch path that was broken) and confirmed the submission
+was still there; (2) against real production data, both before and after deploying - two live
+cards with genuine multi-day-old submissions (dates back to 2026-08-14 and 2026-08-16) that
+rendered completely blank pre-fix now show every entry correctly, with zero rows lost or altered
+in Postgres throughout (`comment` row counts unchanged before/after: 452 update / 33 submission).
+
+Patch: `planka-custom/patches/0046-fix-submissions-tab-not-persisting.patch`.
