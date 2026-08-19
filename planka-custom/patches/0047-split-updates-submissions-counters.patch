@@ -1,0 +1,322 @@
+diff --git a/client/src/components/cards/Card/ProjectContent.jsx b/client/src/components/cards/Card/ProjectContent.jsx
+index 0970cb2..3d8b5ff 100644
+--- a/client/src/components/cards/Card/ProjectContent.jsx
++++ b/client/src/components/cards/Card/ProjectContent.jsx
+@@ -127,6 +127,7 @@ const ProjectContent = React.memo(({ cardId }) => {
+     card.description ||
+     card.stopwatch ||
+     card.commentsTotal > 0 ||
++    card.submissionsTotal > 0 ||
+     withAge ||
+     attachmentsTotal > 0 ||
+     notificationsTotal > 0 ||
+@@ -239,6 +240,14 @@ const ProjectContent = React.memo(({ cardId }) => {
+               </span>
+             </span>
+           )}
++          {card.submissionsTotal > 0 && (
++            <span className={classNames(styles.attachment, styles.attachmentLeft)}>
++              <span className={styles.attachmentContent}>
++                <Icon name="upload" />
++                {card.submissionsTotal}
++              </span>
++            </span>
++          )}
+           {withAge && card.createdAt && (
+             <span className={classNames(styles.attachment, styles.attachmentLeft)}>
+               <span className={styles.attachmentContent}>
+diff --git a/client/src/components/cards/Card/StoryContent.jsx b/client/src/components/cards/Card/StoryContent.jsx
+index c56fd1d..b5ec8f3 100644
+--- a/client/src/components/cards/Card/StoryContent.jsx
++++ b/client/src/components/cards/Card/StoryContent.jsx
+@@ -127,6 +127,7 @@ const StoryContent = React.memo(({ cardId }) => {
+         {(withAge ||
+           attachmentsTotal > 0 ||
+           card.commentsTotal > 0 ||
++          card.submissionsTotal > 0 ||
+           notificationsTotal > 0 ||
+           listName) && (
+           <span className={styles.attachments}>
+@@ -165,6 +166,14 @@ const StoryContent = React.memo(({ cardId }) => {
+                 </span>
+               </span>
+             )}
++            {card.submissionsTotal > 0 && (
++              <span className={classNames(styles.attachment, styles.attachmentLeft)}>
++                <span className={styles.attachmentContent}>
++                  <Icon name="upload" />
++                  {card.submissionsTotal}
++                </span>
++              </span>
++            )}
+             {withAge && card.createdAt && (
+               <span className={classNames(styles.attachment, styles.attachmentLeft)}>
+                 <span className={styles.attachmentContent}>
+diff --git a/client/src/models/Card.js b/client/src/models/Card.js
+index 25f6289..b57064f 100755
+--- a/client/src/models/Card.js
++++ b/client/src/models/Card.js
+@@ -25,6 +25,9 @@ export default class extends BaseModel {
+     commentsTotal: attr({
+       getDefault: () => 0,
+     }),
++    submissionsTotal: attr({
++      getDefault: () => 0,
++    }),
+     createdAt: attr({
+       getDefault: () => new Date(),
+     }),
+@@ -507,7 +510,11 @@ export default class extends BaseModel {
+         const cardModel = Card.withId(payload.comment.cardId);
+ 
+         if (cardModel) {
+-          cardModel.commentsTotal += 1;
++          if (payload.comment.type === CommentTypes.SUBMISSION) {
++            cardModel.submissionsTotal += 1;
++          } else {
++            cardModel.commentsTotal += 1;
++          }
+         }
+ 
+         break;
+@@ -516,7 +523,11 @@ export default class extends BaseModel {
+         const cardModel = Card.withId(payload.comment.cardId);
+ 
+         if (cardModel) {
+-          cardModel.commentsTotal -= 1;
++          if (payload.comment.type === CommentTypes.SUBMISSION) {
++            cardModel.submissionsTotal -= 1;
++          } else {
++            cardModel.commentsTotal -= 1;
++          }
+         }
+ 
+         break;
+diff --git a/client/src/models/Comment.js b/client/src/models/Comment.js
+index db52083..a3d4d70 100755
+--- a/client/src/models/Comment.js
++++ b/client/src/models/Comment.js
+@@ -7,6 +7,7 @@ import { attr, fk } from 'redux-orm';
+ 
+ import BaseModel from './BaseModel';
+ import ActionTypes from '../constants/ActionTypes';
++import { CommentTypes } from '../constants/Enums';
+ 
+ export default class extends BaseModel {
+   static modelName = 'Comment';
+@@ -57,10 +58,15 @@ export default class extends BaseModel {
+         break;
+       case ActionTypes.COMMENT_CREATE__FAILURE: {
+         const commentModel = Comment.withId(payload.localId);
++        const { type: commentType } = commentModel;
+         commentModel.delete();
+ 
+         if (commentModel.card) {
+-          commentModel.card.commentsTotal -= 1;
++          if (commentType === CommentTypes.SUBMISSION) {
++            commentModel.card.submissionsTotal -= 1;
++          } else {
++            commentModel.card.commentsTotal -= 1;
++          }
+         }
+ 
+         break;
+@@ -71,8 +77,14 @@ export default class extends BaseModel {
+         break;
+       case ActionTypes.COMMENT_DELETE: {
+         const commentModel = Comment.withId(payload.id);
++        const { type: commentType } = commentModel;
+         commentModel.delete();
+-        commentModel.card.commentsTotal -= 1;
++
++        if (commentType === CommentTypes.SUBMISSION) {
++          commentModel.card.submissionsTotal -= 1;
++        } else {
++          commentModel.card.commentsTotal -= 1;
++        }
+ 
+         break;
+       }
+diff --git a/server/api/hooks/query-methods/models/Comment.js b/server/api/hooks/query-methods/models/Comment.js
+index 9407c9e..fccd284 100644
+--- a/server/api/hooks/query-methods/models/Comment.js
++++ b/server/api/hooks/query-methods/models/Comment.js
+@@ -16,9 +16,14 @@ const createOne = (values) =>
+       .fetch()
+       .usingConnection(db);
+ 
++    // BSY Media: comments_total/submissions_total are separate counters, one
++    // per Comment.Types value - keep the column name in sync with the type.
++    const totalColumnName =
++      comment.type === 'submission' ? 'submissions_total' : 'comments_total';
++
+     const queryResult = await sails
+       .sendNativeQuery(
+-        'UPDATE card SET comments_total = comments_total + 1, updated_at = $1 WHERE id = $2',
++        `UPDATE card SET ${totalColumnName} = ${totalColumnName} + 1, updated_at = $1 WHERE id = $2`,
+         [new Date().toISOString(), comment.cardId],
+       )
+       .usingConnection(db);
+@@ -62,36 +67,49 @@ const delete_ = (criteria) =>
+     const comments = await Comment.destroy(criteria).fetch().usingConnection(db);
+ 
+     if (comments.length > 0) {
+-      const commentsByCardId = _.groupBy(comments, 'cardId');
+-
+-      const cardIdsByTotal = Object.entries(commentsByCardId).reduce(
+-        (result, [cardId, commentsItem]) => ({
++      // BSY Media: comments_total/submissions_total are separate counters,
++      // so a bulk delete has to tally each card's removed comments per type
++      // rather than a single combined total.
++      const totalsByCardId = comments.reduce((result, comment) => {
++        const totals = result[comment.cardId] || { comments: 0, submissions: 0 };
++
++        if (comment.type === 'submission') {
++          totals.submissions += 1;
++        } else {
++          totals.comments += 1;
++        }
++
++        return {
+           ...result,
+-          [commentsItem.length]: [...(result[commentsItem.length] || []), cardId],
+-        }),
+-        {},
+-      );
++          [comment.cardId]: totals,
++        };
++      }, {});
+ 
+       const queryValues = [];
+-      let query = 'UPDATE card SET comments_total = comments_total - CASE ';
++      let commentsCase = 'comments_total - CASE ';
++      let submissionsCase = 'submissions_total - CASE ';
++
++      Object.entries(totalsByCardId).forEach(([cardId, totals]) => {
++        queryValues.push(cardId);
++        const cardIdValue = `$${queryValues.length}`;
+ 
+-      Object.entries(cardIdsByTotal).forEach(([total, cardIds]) => {
+-        const inValues = cardIds.map((cardId) => {
+-          queryValues.push(cardId);
+-          return `$${queryValues.length}`;
+-        });
++        queryValues.push(totals.comments);
++        commentsCase += `WHEN id = ${cardIdValue} THEN $${queryValues.length}::int `;
+ 
+-        queryValues.push(total);
+-        query += `WHEN id IN (${inValues.join(', ')}) THEN $${queryValues.length}::int `;
++        queryValues.push(totals.submissions);
++        submissionsCase += `WHEN id = ${cardIdValue} THEN $${queryValues.length}::int `;
+       });
+ 
+-      const inValues = Object.keys(commentsByCardId).map((cardId) => {
++      commentsCase += 'ELSE 0 END';
++      submissionsCase += 'ELSE 0 END';
++
++      const inValues = Object.keys(totalsByCardId).map((cardId) => {
+         queryValues.push(cardId);
+         return `$${queryValues.length}`;
+       });
+ 
+       queryValues.push(new Date().toISOString());
+-      query += `END, updated_at = $${queryValues.length} WHERE id IN (${inValues.join(', ')})`;
++      const query = `UPDATE card SET comments_total = ${commentsCase}, submissions_total = ${submissionsCase}, updated_at = $${queryValues.length} WHERE id IN (${inValues.join(', ')})`;
+ 
+       await sails.sendNativeQuery(query, queryValues).usingConnection(db);
+     }
+@@ -103,9 +121,12 @@ const deleteOne = (criteria) =>
+   sails.getDatastore().transaction(async (db) => {
+     const comment = await Comment.destroyOne(criteria).usingConnection(db);
+ 
++    const totalColumnName =
++      comment.type === 'submission' ? 'submissions_total' : 'comments_total';
++
+     const queryResult = await sails
+       .sendNativeQuery(
+-        'UPDATE card SET comments_total = comments_total - 1, updated_at = $1 WHERE id = $2',
++        `UPDATE card SET ${totalColumnName} = ${totalColumnName} - 1, updated_at = $1 WHERE id = $2`,
+         [new Date().toISOString(), comment.cardId],
+       )
+       .usingConnection(db);
+diff --git a/server/api/models/Card.js b/server/api/models/Card.js
+index df443cb..b193d73 100755
+--- a/server/api/models/Card.js
++++ b/server/api/models/Card.js
+@@ -29,6 +29,7 @@
+  *         - description
+  *         - stopwatch
+  *         - commentsTotal
++ *         - submissionsTotal
+  *         - isClosed
+  *         - listChangedAt
+  *         - createdAt
+@@ -100,8 +101,13 @@
+  *         commentsTotal:
+  *           type: number
+  *           default: 0
+- *           description: Total number of comments on the card
++ *           description: Total number of update-type comments on the card (Submissions are counted separately, see submissionsTotal)
+  *           example: 100
++ *         submissionsTotal:
++ *           type: number
++ *           default: 0
++ *           description: Total number of submission-type comments on the card
++ *           example: 5
+  *         isClosed:
+  *           type: boolean
+  *           default: false
+@@ -177,6 +183,11 @@ module.exports = {
+       defaultsTo: 0,
+       columnName: 'comments_total',
+     },
++    submissionsTotal: {
++      type: 'number',
++      defaultsTo: 0,
++      columnName: 'submissions_total',
++    },
+     isClosed: {
+       type: 'boolean',
+       defaultsTo: false,
+diff --git a/server/db/migrations/20260819160000_add_submissions_total_to_card.js b/server/db/migrations/20260819160000_add_submissions_total_to_card.js
+new file mode 100644
+index 0000000..cf17850
+--- /dev/null
++++ b/server/db/migrations/20260819160000_add_submissions_total_to_card.js
+@@ -0,0 +1,36 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++module.exports.up = async (knex) => {
++  await knex.schema.alterTable('card', (table) => {
++    table.integer('submissions_total').notNullable().defaultTo(0);
++  });
++
++  // BSY Media: comments_total previously counted every comment row regardless
++  // of type (update + submission combined, a leftover from before the
++  // Submissions tab existed). Recompute it here to reflect update-type
++  // comments only, and backfill the new submissions_total from the same
++  // data, so cards with existing history get accurate split counters
++  // immediately rather than only cards touched going forward.
++  await knex.raw(`
++    UPDATE card
++    SET comments_total = COALESCE(counts.updates, 0),
++        submissions_total = COALESCE(counts.submissions, 0)
++    FROM (
++      SELECT
++        card_id,
++        COUNT(*) FILTER (WHERE type = 'update') AS updates,
++        COUNT(*) FILTER (WHERE type = 'submission') AS submissions
++      FROM comment
++      GROUP BY card_id
++    ) counts
++    WHERE card.id = counts.card_id
++  `);
++};
++
++module.exports.down = (knex) =>
++  knex.schema.alterTable('card', (table) => {
++    table.dropColumn('submissions_total');
++  });

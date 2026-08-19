@@ -2420,3 +2420,46 @@ rendered completely blank pre-fix now show every entry correctly, with zero rows
 in Postgres throughout (`comment` row counts unchanged before/after: 452 update / 33 submission).
 
 Patch: `planka-custom/patches/0046-fix-submissions-tab-not-persisting.patch`.
+
+## Split card-face comment badge into separate Updates/Submissions counters (2026-08-19)
+
+Follow-up to the Submissions-tab fix above. Once that fix made Submissions actually render, the
+client noticed the Kanban card-face badge combines Updates and Submissions into one number/icon -
+asked for two separate icons instead.
+
+Confirmed `card.commentsTotal` (`comments_total` column) was never type-aware:
+`server/api/hooks/query-methods/models/Comment.js`'s `createOne`/`deleteOne`/`delete_` increment
+and decrement it unconditionally regardless of `comment.type`, a leftover from before the
+Submissions tab (patch 0034) added a `type` column to `Comment` at all - confirmed live against
+Postgres before touching anything (`comments_total` on real cards exactly equalled update+
+submission combined, not either alone).
+
+**Fix**: added a second counter, `submissions_total` (new migration
+`20260819160000_add_submissions_total_to_card.js`), and made `comments_total` update-only-scoped
+going forward - it keeps its existing column/attribute name since that's literally what "Comment"
+already meant before Submissions existed as a separate concept, no need to rename it. Both
+`createOne`/`deleteOne` in the query-methods hook now pick which column to touch based on
+`comment.type`; the bulk `delete_` (multi-comment cascade delete, e.g. when a card is deleted)
+now tallies each affected card's removed comments per-type and updates both columns in one query
+instead of one combined total. The migration also backfills both counters for every existing card
+from real `comment` rows (`COUNT(*) FILTER (WHERE type = ...)` grouped by `card_id`), not just
+cards touched going forward - verified post-deploy that `comments_total`/`submissions_total`
+summed across all 253 real cards match the real per-type `comment` table counts exactly (454/33).
+
+Client mirrors this exactly: `Card.js` gained a `submissionsTotal` field, and every place that
+optimistically bumped `commentsTotal` (`COMMENT_CREATE`/`COMMENT_CREATE_HANDLE`/
+`COMMENT_DELETE_HANDLE` in `Card.js`, `COMMENT_CREATE__FAILURE`/`COMMENT_DELETE` in `Comment.js`)
+now branches on the comment's `type` first. `Card/ProjectContent.jsx` and `Card/StoryContent.jsx`
+(the two Kanban card-face renderers) each gained a second badge - existing `comment outline` icon
+stays for Updates, new `upload` icon (chosen to read as "submitted a deliverable", distinct from
+the existing `attach` icon already used for file attachments) for Submissions, both gated on
+their own `> 0` check independently so a card with only one type shows only one badge.
+
+**Verified live** in the isolated throwaway stack: posted 2 Updates + 1 Submission on a sandbox
+card, confirmed both badges render with the correct independent counts (`💬 2`, `⬆ 1`) and survive
+a full page reload (proving the counters are real server state, not just optimistic client math).
+Deployed to production and re-verified against the two real cards used in the Submissions-tab fix
+above - `comments_total`/`submissions_total` exactly match their real comment counts (2/4 and
+8/10), and a full-database sum check confirmed zero drift across all 253 cards.
+
+Patch: `planka-custom/patches/0047-split-updates-submissions-counters.patch`.
