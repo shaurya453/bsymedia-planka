@@ -2463,3 +2463,53 @@ above - `comments_total`/`submissions_total` exactly match their real comment co
 8/10), and a full-database sum check confirmed zero drift across all 253 cards.
 
 Patch: `planka-custom/patches/0047-split-updates-submissions-counters.patch`.
+
+## Pasted Google Docs/Drive links showing "Sorry, the file you have requested does not exist" (2026-08-21)
+
+Client asked whether Planka was responsible for many pasted Google Docs/Drive links breaking with
+Google's own "file does not exist" error, and requested a "deep check" of the Updates/Submissions
+comment system. Audited the whole path first (composer `Add.jsx`/`Edit.jsx`, `react-mentions`'
+paste handler, `mentionTextToMarkup`, the `comment.text` column/validation, `Markdown.jsx` +
+`@diplodoc/transform`) - none of it transforms or truncates text; a battery of clean, realistic
+Google URLs (underscores, `resourcekey=`, `authuser=`, fragments, mid-sentence, parens) all
+rendered byte-perfect. Planka wasn't inserting anything.
+
+Querying real `comment` rows directly turned up the actual cause: 190 stored comments (all type
+`update`, 0 `submission` - Submissions links are pasted fresh from Drive's own share dialog,
+Updates are where staff paste pre-formatted task lists) already contained a literal `\` character
+inside the URL itself (e.g. `...ZR1\_KgZYfbSuFI3\_G80`), confirmed via a raw byte/hex dump of one
+row. That's a Markdown-escape artifact - the kind AI chat tools and HTML-to-Markdown converters
+add before underscores - baked into the *stored* text before it ever reached Planka; several
+affected rows are literally tagged `[originally posted by ... on ...]`, i.e. from an email-import
+path that converts HTML to Markdown.
+
+Planka wasn't blameless once that corrupted text arrived, though: `configs/markdown-plugins/
+link.js`'s `process()` never got a chance to fix (or even see) it for *bare* pasted URLs, because
+the plugin was registered `md.core.ruler.before('includes', 'link', plugin)` - which runs before
+markdown-it's own `linkify` core rule creates `link_open` tokens for bare URLs at all. It only
+ever touched explicit `[text](url)` syntax (whose destination CommonMark already backslash-
+unescapes during parsing, so those hrefs were already clean). And once `process()` *does* see a
+linkify-created token, `token.attrGet('href')` no longer contains a raw `\` - markdown-it's own
+link normalization has already percent-encoded it to `%5C` by that point, so a naive
+`href.includes('\\')` check would still miss it.
+
+**Fix** (`link.js`): (1) registration changed to unconditional `md.core.ruler.push('link',
+plugin)`, so it always runs last, after `linkify`/`replacements`/`smartquotes`/`text_join`; (2)
+`process()` now detects `%5c` (case-insensitive) in the resolved href, strips it, and re-syncs the
+adjacent label text token too. Backslash is never a valid literal character in a real URL, so
+stripping it is always safe/correct, never a guess. Verified against the exact real corrupted
+sample from prod (`.../1SISopaRpkykKRpWoX\_HD91jBnd4OtSc5/...`) - resolves to the correct 33-char
+Drive file id, confirmed in the isolated stack via a posted comment whose rendered `<a>` had the
+clean href and label, surviving reload.
+
+**Data cleanup**: separate one-off script (`docker run --network planka_default` + `pg`, DB
+credentials read from `.env` via `--env-file`, never on the command line) found every comment
+containing a `\`, and for each one stripped backslashes *only* from within `https?://[^\s)\]]+`
+spans - leaving unrelated escaped punctuation elsewhere in the same comment (e.g. `1\. Item`)
+untouched. Backed up all 190 original rows to `backups/comment-backslash-cleanup-2026-08-21.json`
+before writing, applied inside a single transaction, then re-ran the detection query against
+production: 0 comments with a broken href remain, and the `docs.google.com` file-id length
+distribution across the whole table collapsed from a wide, telltale spread (1-42 chars) down to
+just the two genuinely valid Google id lengths (33 and 44).
+
+Patch: `planka-custom/patches/0048-fix-backslash-escaped-links.patch`.

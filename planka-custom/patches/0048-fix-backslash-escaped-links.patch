@@ -1,0 +1,55 @@
+diff --git a/client/src/configs/markdown-plugins/link.js b/client/src/configs/markdown-plugins/link.js
+index b0463a9..deeb612 100644
+--- a/client/src/configs/markdown-plugins/link.js
++++ b/client/src/configs/markdown-plugins/link.js
+@@ -18,12 +18,32 @@ document.addEventListener('click', (event) => {
+ });
+ 
+ function process(token, nextToken) {
+-  const href = token.attrGet('href');
++  const rawHref = token.attrGet('href');
+ 
+-  if (!href) {
++  if (!rawHref) {
+     return;
+   }
+ 
++  // BSY Media: bare URLs pasted from Markdown-rendering sources (e.g. AI chat
++  // output) often carry literal backslash-escapes before underscores etc.
++  // (`\_`) that a Markdown renderer would normally resolve, but linkify never
++  // does for autolinked bare URLs - a raw backslash is never valid inside a
++  // real URL, so any that reach here are pasted-in escape artifacts, not
++  // intended content. By the time this rule runs, markdown-it's own link
++  // normalization has already percent-encoded any literal "\" into "%5C" -
++  // that's the form we actually need to strip. Doing so turns what would be
++  // a permanently dead link (e.g. a wrong Google Docs file id) into the one
++  // the user meant to share.
++  const href = /%5c/i.test(rawHref) ? rawHref.replace(/%5c/gi, '') : rawHref;
++
++  if (href !== rawHref) {
++    token.attrSet('href', href);
++
++    if (nextToken.type === 'text' && nextToken.content.includes('\\')) {
++      nextToken.content = nextToken.content.replace(/\\/g, ''); // eslint-disable-line no-param-reassign
++    }
++  }
++
+   let url;
+   try {
+     url = new URL(href, window.location);
+@@ -63,9 +83,10 @@ export default (md) => {
+     });
+   };
+ 
+-  try {
+-    md.core.ruler.before('includes', 'link', plugin);
+-  } catch (error) {
+-    md.core.ruler.push('link', plugin);
+-  }
++  // BSY Media: this must run after markdown-it's built-in "linkify" core rule
++  // (which turns bare pasted URLs into link_open tokens) or process() above
++  // never sees - and can't fix/tag - links created from a bare URL rather
++  // than explicit [text](url) syntax. Pushing appends it as the last core
++  // rule, after linkify, replacements, smartquotes and text_join.
++  md.core.ruler.push('link', plugin);
+ };
