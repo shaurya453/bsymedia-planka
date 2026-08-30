@@ -1,0 +1,129 @@
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.jsx b/client/src/components/cards/Card/TaskList/TaskList.jsx
+index c1fd27a..b9c1468 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.jsx
++++ b/client/src/components/cards/Card/TaskList/TaskList.jsx
+@@ -14,6 +14,7 @@ import { useDueDateStatus } from '../../../../hooks';
+ 
+ import selectors from '../../../../selectors';
+ import TaskListStatusColors from '../../../../constants/TaskListStatusColors';
++import { TaskListStatuses } from '../../../../constants/Enums';
+ import { DueDateStatuses } from '../../../../utils/get-due-date-status';
+ import Task from './Task';
+ 
+@@ -50,6 +51,15 @@ const TaskList = React.memo(({ id }) => {
+     [tasks],
+   );
+ 
++  // BSY Media: the checklist's own deadline coloring should stop once it no
++  // longer needs attention - either explicitly marked Completed via its
++  // status cycle, or implicitly done because every one of its sub-tasks has
++  // been checked off (mirrors the isTaskListDeadlineActive check the
++  // deadline-notifications hook uses server-side to stop pinging).
++  const isCompleted =
++    taskLists.status === TaskListStatuses.COMPLETED ||
++    (tasks.length > 0 && completedTasksTotal === tasks.length);
++
+   const handleToggleClick = useCallback(
+     (event) => {
+       if (filteredTasks.length === 0) {
+@@ -75,8 +85,8 @@ const TaskList = React.memo(({ id }) => {
+       <div
+         className={classNames(
+           styles.name,
+-          dueDateStatus === DueDateStatuses.DUE_SOON && styles.nameDueSoon,
+-          dueDateStatus === DueDateStatuses.OVERDUE && styles.nameOverdue,
++          !isCompleted && dueDateStatus === DueDateStatuses.DUE_SOON && styles.nameDueSoon,
++          !isCompleted && dueDateStatus === DueDateStatuses.OVERDUE && styles.nameOverdue,
+         )}
+       >
+         {taskLists.name}
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.jsx b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+index 41e7282..c20073a 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.jsx
++++ b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+@@ -52,8 +52,22 @@ const STATUS_CHIP_WIDTH = 118;
+ 
+ const Item = React.memo(({ id, index }) => {
+   const selectTaskListById = useMemo(() => selectors.makeSelectTaskListById(), []);
++  const selectTasksByTaskListId = useMemo(() => selectors.makeSelectTasksByTaskListId(), []);
+ 
+   const taskList = useSelector((state) => selectTaskListById(state, id));
++  const tasks = useSelector((state) => selectTasksByTaskListId(state, id));
++
++  // BSY Media: the checklist's own due-date chip should stop reading as
++  // due-soon/overdue once it no longer needs attention - either explicitly
++  // marked Completed via its status cycle, or implicitly done because every
++  // one of its sub-tasks has been checked off (mirrors the
++  // isTaskListDeadlineActive check the deadline-notifications hook uses
++  // server-side to stop pinging, and the equivalent guard on the card-face
++  // checklist name in Card/TaskList/TaskList.jsx).
++  const isDeadlineCompleted =
++    !!taskList.isDueCompleted ||
++    taskList.status === TaskListStatuses.COMPLETED ||
++    (tasks.length > 0 && tasks.every((task) => task.isCompleted));
+ 
+   const canEdit = useSelector((state) => {
+     const boardMembership = selectors.selectCurrentUserMembershipForCurrentBoard(state);
+@@ -254,7 +268,7 @@ const Item = React.memo(({ id, index }) => {
+                         <DueDateChip
+                           size="tiny"
+                           value={new Date(taskList.dueDate)}
+-                          isCompleted={!!taskList.isDueCompleted}
++                          isCompleted={isDeadlineCompleted}
+                           withStatus
+                           baseColor="orange"
+                         />
+diff --git a/server/api/helpers/deadline-notifications/process-task-lists.js b/server/api/helpers/deadline-notifications/process-task-lists.js
+index 8dd58aa..a1fd287 100644
+--- a/server/api/helpers/deadline-notifications/process-task-lists.js
++++ b/server/api/helpers/deadline-notifications/process-task-lists.js
+@@ -61,6 +61,25 @@ const notifyAndMark = async (taskList, actionType, trackingField, adminUser, web
+   });
+ };
+ 
++// BSY Media: a checklist ("main task") shouldn't keep pinging its deadline
++// once it no longer needs attention - either explicitly marked Completed
++// via its own status cycle, or implicitly done because every one of its
++// sub-tasks has already been checked off. Checked independently of
++// isDueCompleted (the separate manual "this specific due date is handled"
++// toggle, already covered by the query criteria below), so a checklist
++// without a completed status/tasks keeps behaving exactly as before. A
++// checklist with zero tasks is never considered done this way - there's
++// nothing to have completed.
++const isTaskListDeadlineActive = async (taskList) => {
++  if (taskList.status === TaskList.Statuses.COMPLETED) {
++    return false;
++  }
++
++  const tasks = await Task.qm.getByTaskListId(taskList.id);
++
++  return tasks.length === 0 || tasks.some((task) => !task.isCompleted);
++};
++
+ module.exports = {
+   async fn() {
+     const adminUser = await User.qm.getOneByEmail(sails.config.custom.defaultAdminEmail || '');
+@@ -81,6 +100,11 @@ module.exports = {
+     // eslint-disable-next-line no-restricted-syntax
+     for (const taskList of overdueTaskLists) {
+       try {
++        // eslint-disable-next-line no-await-in-loop
++        if (!(await isTaskListDeadlineActive(taskList))) {
++          continue; // eslint-disable-line no-continue
++        }
++
+         // eslint-disable-next-line no-await-in-loop
+         await notifyAndMark(
+           taskList,
+@@ -99,6 +123,11 @@ module.exports = {
+     // eslint-disable-next-line no-restricted-syntax
+     for (const taskList of dueSoonTaskLists) {
+       try {
++        // eslint-disable-next-line no-await-in-loop
++        if (!(await isTaskListDeadlineActive(taskList))) {
++          continue; // eslint-disable-line no-continue
++        }
++
+         // eslint-disable-next-line no-await-in-loop
+         await notifyAndMark(
+           taskList,

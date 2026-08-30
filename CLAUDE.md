@@ -2513,3 +2513,45 @@ distribution across the whole table collapsed from a wide, telltale spread (1-42
 just the two genuinely valid Google id lengths (33 and 44).
 
 Patch: `planka-custom/patches/0048-fix-backslash-escaped-links.patch`.
+
+## Deadline coloring/notifications didn't stop once a checklist was actually done (2026-08-30)
+
+Report: the orange/red "due soon"/"overdue" text on a checklist ("main task", model `TaskList`)
+stayed on even after every one of its sub-tasks (model `Task`) had been checked off, or after the
+checklist's own workflow `status` was manually cycled to `completed` - both on the card face
+(`Card/TaskList/TaskList.jsx`'s checklist-name coloring) and on its due-date chip in the card
+modal (`CardModal/TaskLists/Item.jsx`). The scheduled `deadline-notifications` hook (server-side,
+fires every 60s) had the matching bug: `TaskList.qm.getOverdue`/`getDueSoon` only ever excluded a
+checklist via its own `isDueCompleted` flag (a separate, manually-toggled "this due date is
+handled" checkbox) - they never looked at `status` or at whether the checklist's child `Task` rows
+were all done, so `process-task-lists.js` kept sending `TASK_LIST_OVERDUE`/`TASK_LIST_DUE_SOON`
+notifications indefinitely for a checklist whose work was actually finished.
+
+Individual sub-tasks (`Task`) were already correct on both sides - `Task.qm.getOverdue`/
+`getDueSoon` already filter `isCompleted: false`, and the card-face sub-task row
+(`Card/TaskList/Task.jsx`) already guards its own name coloring with `!task.isCompleted`. Only the
+parent checklist (`TaskList`) was missing the equivalent logic.
+
+**Fix**: added a shared "is this checklist's deadline still active" rule, applied in three places
+independently (no new shared server helper module, to keep the diff minimal against three already-
+different call sites):
+- `server/api/helpers/deadline-notifications/process-task-lists.js`: new `isTaskListDeadlineActive`
+  check (status !== `completed`, and - if the checklist has any tasks - at least one still
+  incomplete) gates both the overdue and due-soon notify loops. A checklist with zero tasks is
+  never treated as "done" this way, since there's nothing to have completed.
+- `client/src/components/cards/Card/TaskList/TaskList.jsx`: computes the same `isCompleted`
+  (status or all-tasks-done) and guards `nameDueSoon`/`nameOverdue` with `!isCompleted`, mirroring
+  the sibling `Task.jsx` pattern.
+- `client/src/components/cards/CardModal/TaskLists/Item.jsx`: same derivation (OR'd with the
+  existing `isDueCompleted`), fed into the due-date `DueDateChip`'s `isCompleted` prop so it renders
+  its green "completed" state instead of orange/red.
+
+Verified in the isolated stack via the real API + DB: created three overdue checklists assigned to
+a real board member - one with its single sub-task checked off, one with `status: completed` and no
+sub-tasks, one left genuinely incomplete as a control. After the next 60s cron tick, only the
+control checklist got a `TASK_LIST_OVERDUE` action and a `lastOverdueNotifiedAt` timestamp; the
+other two got neither. In the UI, the two completed checklists' due-date chips rendered
+`wrapperCompleted` (green) instead of `wrapperOverdue` (red), and only the control's card-face name
+kept the red `nameOverdue` class.
+
+Patch: `planka-custom/patches/0049-stop-deadline-notifications-when-completed.patch`.
