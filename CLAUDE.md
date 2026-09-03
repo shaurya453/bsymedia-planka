@@ -2555,3 +2555,39 @@ other two got neither. In the UI, the two completed checklists' due-date chips r
 kept the red `nameOverdue` class.
 
 Patch: `planka-custom/patches/0049-stop-deadline-notifications-when-completed.patch`.
+
+## Labels were effectively unreachable, and card age had no visible absolute date (2026-09-03)
+
+Report: "the labels system... I cannot see them" - confirmed in production the labels feature
+wasn't broken at the data layer (one board label, `testlabel`, already existed in `label`), but
+`card_label` was completely empty across the whole instance - nobody had ever managed to attach a
+label to a card. Root cause: in both `CardModal/ProjectContent.jsx` and `CardModal/StoryContent.jsx`,
+the labels row (chips + a small inline "+" button to open `LabelsStep`) only rendered at all when
+`labelIds.length > 0` - i.e. the *only* control that can add a label is itself hidden until a card
+already has one. There was no way to attach the first label to any card through the UI. (The
+equivalent members section doesn't have this bug - `AssignedMembers` already always renders its
+"Add member" button regardless of `userIds.length`.)
+
+**Fix**: added a persistent "Labels" button to the card modal sidebar, directly below the existing
+"Actions" block, in both `CardModal/ProjectContent.jsx` and `CardModal/StoryContent.jsx` - visible
+whenever `canUseLabels` (editor), independent of whether the card currently has any labels. Reuses
+the exact same `LabelsPopup`/`handleLabelSelect`/`handleLabelDeselect` wiring already used by the
+(now redundant-for-the-empty-case-only) inline add button up in the content area, which is left
+untouched since it's still the right place to browse/remove labels once a card has at least one.
+
+Also added: when a board's "display card ages" setting is on, the "x minutes ago" chip on the card
+face (`Card/ProjectContent.jsx` and `Card/StoryContent.jsx`) now shows the absolute creation date
+on a second line underneath (e.g. "Sep 3" for the current year, "Jul 3, 2025" for a prior year) -
+previously that date was only available by hovering for the browser tooltip. Reuses the existing
+`format:longDate`/`format:fullDate` i18n keys and the same current-year-vs-not heuristic
+(`utils/get-date-format.js`) already used for verbose date tooltips elsewhere, so it's locale-aware
+for free and needed no new translation keys.
+
+Verified in the isolated stack: created a fresh board with `displayCardAges: true` and a card with
+zero labels - confirmed no way to add a label existed before the fix (sidebar had no Labels
+section), then confirmed the new sidebar "Labels" button opens the picker and successfully attaches
+a label to that zero-label card, which then correctly makes the pre-existing top-of-card chip
+display appear too. Confirmed the same sidebar button renders for a `story`-type card as well.
+Confirmed the card face shows "1 minute ago" / "Sep 3" stacked under the history icon.
+
+Patch: `planka-custom/patches/0050-labels-button-and-card-age-date.patch`.
