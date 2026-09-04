@@ -2592,7 +2592,7 @@ Confirmed the card face shows "1 minute ago" / "Sep 3" stacked under the history
 
 Patch: `planka-custom/patches/0050-labels-button-and-card-age-date.patch`.
 
-## Secrets moved to SOPS/GPG-encrypted-in-git (2026-09-04)
+## Secrets encrypted into git with a plain passphrase (2026-09-04)
 
 `.env`, `.secrets/duckdns.env`, and the GitHub deploy SSH key existed only on this one VM - the
 existing daily backup (`scripts/backup.sh`) covers the Postgres DBs and the attachments volume,
@@ -2601,20 +2601,18 @@ this VM's disk were lost, GitHub would have the code and Mega would have the dat
 would have the credentials needed to actually stand either back up (`SECRET_KEY`,
 `POSTGRES_PASSWORD`, `GMAIL_APP_PASSWORD`, the deploy key itself, etc.).
 
-Generated a dedicated GPG key (`PLANKA Secrets <secrets@bsymedia-planka>`, fingerprint
-`BF1F9D2C001719E61DC2AD66C74FDCF778435A45`), passphrase-protected. Used SOPS to encrypt `.env`
-and `.secrets/duckdns.env` (dotenv mode - keys stay readable, only values encrypted, so
-`git diff` on a rotated secret is meaningful) and the SSH private key (binary mode) to that
-key's public half, committed as `secrets/*.enc.*` alongside `.sops.yaml` (creation rules) and
-`scripts/encrypt-secrets.sh` / `scripts/decrypt-secrets.sh` (wrap the exact `sops` invocations
-so the flags don't need to be remembered). Full day-2 and disaster-recovery workflow documented
-in the new `README.md`'s "Secrets management" section - that's the source of truth going forward,
-not this entry.
+First attempt used a dedicated GPG *keypair* (SOPS + PGP recipient) - abandoned same day.
+Reasoning: an asymmetric keypair means the passphrase alone isn't sufficient for recovery, the
+private key *file* has to independently survive off this VM too (in a password manager, etc.),
+which is an extra manual export/backup step and a second thing that can be lost. For a
+single-operator VM that already has an offsite passphrase (the Mega/rclone backup's), that
+complexity wasn't buying anything. Deleted the keypair and its SOPS scaffolding
+(`.sops.yaml`, `secrets/*.enc.*`) entirely.
 
-The one step that has to stay manual: the GPG private key must be exported and kept somewhere
-durable off this VM (password manager), since it's what actually makes the encrypted secrets in
-GitHub recoverable after VM loss - the passphrase alone isn't sufficient without the key file
-it protects. Generating this key required a passphrase; per this deployment's standing rule of
-never letting automation embed live secrets in command text, the batch keygen and the one
-attempted non-interactive export were each gated by a permission-classifier check - the export
-step was left for manual execution rather than worked around.
+Replaced with plain `gpg --symmetric` (AES256) - passphrase only, no keypair, nothing besides
+the passphrase itself needs to survive VM loss. `scripts/encrypt-secrets.sh` /
+`scripts/decrypt-secrets.sh` wrap the exact commands; both must be run interactively (gpg's
+passphrase prompt doesn't work from non-interactive automation). Encrypted output committed as
+`secrets/*.gpg`. Recommended usage: reuse the same passphrase already protecting the Mega
+backup, so there's one password for all recovery, not two. Full workflow in `README.md`'s
+"Secrets management" section - that's the source of truth going forward, not this entry.

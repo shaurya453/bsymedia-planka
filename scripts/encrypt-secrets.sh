@@ -1,28 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Regenerates secrets/*.enc.* from the live plaintext secrets on this box,
-# encrypted to the "PLANKA Secrets" GPG key. Only needs that key's PUBLIC
-# half, so this runs without the passphrase. Run this after rotating any
-# value in .env / .secrets/duckdns.env / the GitHub deploy SSH key, then
-# `git diff secrets/` to sanity-check and commit.
+# Re-encrypts secrets/*.gpg from the live plaintext secrets on this box.
+# Plain passphrase encryption (gpg --symmetric, AES256) - no keypair, no
+# separate key file to back up. gpg will prompt you for the passphrase
+# interactively (twice, to confirm); use the same one you use for the
+# Mega/rclone backup so there's only one password to remember for restore.
 #
-# See README.md "Secrets management" for the full picture (key generation,
-# where the passphrase/private-key backup live, disaster recovery).
-
-FPR=BF1F9D2C001719E61DC2AD66C74FDCF778435A45
+# Run this yourself after rotating anything in .env / .secrets/duckdns.env
+# / the GitHub deploy SSH key, then `git add secrets/ && git commit`.
+#
+# See README.md "Secrets management" for the full picture.
 
 cd "$(dirname "$0")/.."
 mkdir -p secrets
 
-sops --config /dev/null --pgp "$FPR" --input-type dotenv --output-type dotenv \
-  -e .env > secrets/env.enc.env
+gpg --symmetric --cipher-algo AES256 --yes -o secrets/env.gpg .env
+gpg --symmetric --cipher-algo AES256 --yes -o secrets/duckdns.gpg .secrets/duckdns.env
+gpg --symmetric --cipher-algo AES256 --yes -o secrets/github_deploy_key.gpg ~/.ssh/planka_deploy_key
 
-sops --config /dev/null --pgp "$FPR" --input-type dotenv --output-type dotenv \
-  -e .secrets/duckdns.env > secrets/duckdns.enc.env
-
-sops --config /dev/null --pgp "$FPR" --input-type binary --output-type json \
-  -e ~/.ssh/planka_deploy_key > secrets/github_deploy_key.enc.json
-
-echo "Wrote secrets/env.enc.env, secrets/duckdns.enc.env, secrets/github_deploy_key.enc.json"
-echo "Review with 'git diff secrets/' before committing."
+echo "Wrote secrets/env.gpg, secrets/duckdns.gpg, secrets/github_deploy_key.gpg"
+echo "Review with 'git status', then commit."
