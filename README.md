@@ -75,7 +75,12 @@ If this VM is lost entirely, here's the full sequence to get back up and running
 
 **1. New server, install Docker** (Docker Engine + Compose plugin). Nothing PLANKA-specific yet.
 
-**2. Get the code back** — no passphrase needed, just GitHub access:
+**2. Get the code back** — no passphrase needed, just GitHub access. Note: this has to be *your
+own* GitHub credentials (personal SSH key or token), not the deploy key — the deploy key only
+exists encrypted inside `secrets/github_deploy_key.gpg`, which is itself inside the repo you're
+about to clone, so it can't bootstrap its own checkout. The old server's `~/.ssh/config` alias
+(`github.com-planka`) also only exists on that server; it's not needed here — plain `git clone`
+against your own account works fine, since only the deploy step later needs the dedicated key.
 ```
 git clone git@github.com:shaurya453/bsymedia-planka.git
 cd bsymedia-planka
@@ -85,7 +90,18 @@ cd bsymedia-planka
 ```
 scripts/decrypt-secrets.sh
 ```
-Restores `.env`, `.secrets/duckdns.env`, and the GitHub deploy SSH key.
+Restores `.env`, `.secrets/duckdns.env`, and the GitHub deploy SSH key file itself — but not the
+SSH config alias that points to it. If you want `git push` to use that dedicated key again
+(rather than your own), recreate `~/.ssh/config`:
+```
+Host github.com-planka
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/planka_deploy_key
+  IdentitiesOnly yes
+```
+and re-point the remote: `git remote set-url origin git@github.com-planka:shaurya453/bsymedia-planka.git`.
+Not required for day-1 recovery — your own GitHub credentials from step 2 work fine for pushing too.
 
 **4. Reconnect to Mega** (needs the **PLANKA Mega Backup Passphrase**):
 ```
@@ -104,9 +120,15 @@ rclone decrypts automatically as it downloads.
 ```
 docker compose up -d postgres
 gunzip -c restore/planka.sql.gz | docker compose exec -T postgres psql -U postgres -d planka
+docker compose exec -T postgres psql -U postgres -c "CREATE DATABASE planka_ops;"
 gunzip -c restore/planka_ops.sql.gz | docker compose exec -T postgres psql -U postgres -d planka_ops
 docker run --rm -v planka_data:/dest -v "$PWD/restore":/src alpine tar xzf /src/data.tar.gz -C /dest
 ```
+The `CREATE DATABASE planka_ops` step is required — a fresh Postgres container only
+auto-creates the `planka` database (from `docker-compose.yml`'s `POSTGRES_DB=planka`), not
+`planka_ops`; without it the next line fails with `database "planka_ops" does not exist`
+(verified 2026-09-04 by actually running this sequence against a real backup in an isolated
+stack).
 
 **7. Start everything:**
 ```
