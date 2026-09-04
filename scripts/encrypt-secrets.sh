@@ -17,7 +17,7 @@ mkdir -p secrets
 
 gpg --symmetric --cipher-algo AES256 --yes -o secrets/env.gpg .env
 gpg --symmetric --cipher-algo AES256 --yes -o secrets/duckdns.gpg .secrets/duckdns.env
-gpg --symmetric --cipher-algo AES256 --yes -o secrets/github_deploy_key.gpg ~/.ssh/planka_deploy_key
+gpg --symmetric --cipher-algo AES256 --yes -o secrets/github_deploy_key.gpg /home/deploy/.ssh/planka_deploy_key
 
 echo "Wrote secrets/env.gpg, secrets/duckdns.gpg, secrets/github_deploy_key.gpg"
 echo "Review with 'git status', then commit."

@@ -9,12 +9,12 @@ set -euo pipefail
 # See README.md "Secrets management".
 
 cd "$(dirname "$0")/.."
-mkdir -p .secrets ~/.ssh
+mkdir -p .secrets /home/deploy/.ssh
 
 gpg --decrypt secrets/env.gpg > .env
 gpg --decrypt secrets/duckdns.gpg > .secrets/duckdns.env
-gpg --decrypt secrets/github_deploy_key.gpg > ~/.ssh/planka_deploy_key
+gpg --decrypt secrets/github_deploy_key.gpg > /home/deploy/.ssh/planka_deploy_key
 
-chmod 600 .env .secrets/duckdns.env ~/.ssh/planka_deploy_key
+chmod 600 .env .secrets/duckdns.env /home/deploy/.ssh/planka_deploy_key
 
-echo "Restored .env, .secrets/duckdns.env, ~/.ssh/planka_deploy_key"
+echo "Restored .env, .secrets/duckdns.env, /home/deploy/.ssh/planka_deploy_key"
