@@ -56,7 +56,7 @@ git add secrets/ && git commit -m "rotate <whatever>" && git push
 
 Must be run from a real terminal — gpg's passphrase prompt doesn't work from automation.
 
-### Restoring on a fresh box
+### Restoring secrets alone
 
 ```
 git clone <this repo>
@@ -65,4 +65,55 @@ scripts/decrypt-secrets.sh   # asks for the passphrase, restores .env etc.
 ```
 
 That's the whole recovery story for secrets: the PLANKA Secrets Passphrase is the only thing
-that needs to survive off this VM.
+that needs to survive off this VM. For rebuilding the entire server, see "Disaster recovery"
+below.
+
+## Disaster recovery: restoring on a brand new server
+
+If this VM is lost entirely, here's the full sequence to get back up and running. You need
+**both** passphrases from the table above.
+
+**1. New server, install Docker** (Docker Engine + Compose plugin). Nothing PLANKA-specific yet.
+
+**2. Get the code back** — no passphrase needed, just GitHub access:
+```
+git clone git@github.com:shaurya453/bsymedia-planka.git
+cd bsymedia-planka
+```
+
+**3. Restore secrets** (needs the **PLANKA Secrets Passphrase**):
+```
+scripts/decrypt-secrets.sh
+```
+Restores `.env`, `.secrets/duckdns.env`, and the GitHub deploy SSH key.
+
+**4. Reconnect to Mega** (needs the **PLANKA Mega Backup Passphrase**):
+```
+rclone config
+```
+Recreate the `megaremote` (Mega login) and `cryptremote` (crypt, points at `megaremote:planka-backups`)
+remotes — these only ever lived on the old server, so they need to be re-entered once.
+
+**5. Pull down the latest backup:**
+```
+rclone copy cryptremote:planka-backups/<latest-date-folder> ./restore
+```
+rclone decrypts automatically as it downloads.
+
+**6. Restore the data:**
+```
+docker compose up -d postgres
+gunzip -c restore/planka.sql.gz | docker compose exec -T postgres psql -U postgres -d planka
+gunzip -c restore/planka_ops.sql.gz | docker compose exec -T postgres psql -U postgres -d planka_ops
+docker run --rm -v planka_data:/dest -v "$PWD/restore":/src alpine tar xzf /src/data.tar.gz -C /dest
+```
+
+**7. Start everything:**
+```
+docker compose up -d
+```
+
+**8. Point your domain's DNS at the new server's IP.**
+
+That's the entire recovery story. Day-to-day, none of this runs — backups happen automatically
+at 3am, and nothing here needs attention unless the server actually dies.
