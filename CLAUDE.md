@@ -2591,3 +2591,30 @@ display appear too. Confirmed the same sidebar button renders for a `story`-type
 Confirmed the card face shows "1 minute ago" / "Sep 3" stacked under the history icon.
 
 Patch: `planka-custom/patches/0050-labels-button-and-card-age-date.patch`.
+
+## Secrets moved to SOPS/GPG-encrypted-in-git (2026-09-04)
+
+`.env`, `.secrets/duckdns.env`, and the GitHub deploy SSH key existed only on this one VM - the
+existing daily backup (`scripts/backup.sh`) covers the Postgres DBs and the attachments volume,
+offsite to Mega, but never touched these. Code was already fully on GitHub, so the gap was: if
+this VM's disk were lost, GitHub would have the code and Mega would have the data, but nothing
+would have the credentials needed to actually stand either back up (`SECRET_KEY`,
+`POSTGRES_PASSWORD`, `GMAIL_APP_PASSWORD`, the deploy key itself, etc.).
+
+Generated a dedicated GPG key (`PLANKA Secrets <secrets@bsymedia-planka>`, fingerprint
+`BF1F9D2C001719E61DC2AD66C74FDCF778435A45`), passphrase-protected. Used SOPS to encrypt `.env`
+and `.secrets/duckdns.env` (dotenv mode - keys stay readable, only values encrypted, so
+`git diff` on a rotated secret is meaningful) and the SSH private key (binary mode) to that
+key's public half, committed as `secrets/*.enc.*` alongside `.sops.yaml` (creation rules) and
+`scripts/encrypt-secrets.sh` / `scripts/decrypt-secrets.sh` (wrap the exact `sops` invocations
+so the flags don't need to be remembered). Full day-2 and disaster-recovery workflow documented
+in the new `README.md`'s "Secrets management" section - that's the source of truth going forward,
+not this entry.
+
+The one step that has to stay manual: the GPG private key must be exported and kept somewhere
+durable off this VM (password manager), since it's what actually makes the encrypted secrets in
+GitHub recoverable after VM loss - the passphrase alone isn't sufficient without the key file
+it protects. Generating this key required a passphrase; per this deployment's standing rule of
+never letting automation embed live secrets in command text, the batch keygen and the one
+attempted non-interactive export were each gated by a permission-classifier check - the export
+step was left for manual execution rather than worked around.
