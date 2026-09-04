@@ -34,9 +34,17 @@ Runtime secrets (`.env`, `.secrets/duckdns.env`, the SSH key this repo uses to p
 are deliberately git-ignored — they must never exist in the repo as plaintext. Instead,
 passphrase-encrypted copies (`gpg --symmetric`, AES256) live in `secrets/` and *are* committed.
 
-There is no keypair and no separate key file to lose — just one passphrase, which both
-encrypts and decrypts. Use the same passphrase already used for the Mega/rclone offsite backup
-(see `scripts/backup.sh`), so there's a single password covering both data and secrets recovery.
+There is no keypair and no separate key file to lose — just a passphrase, which both encrypts
+and decrypts. This is a **different passphrase from the Mega/rclone offsite backup**
+(see `scripts/backup.sh`) — two passphrases total protect this whole system. Name them
+distinctly wherever you store them, so it's unambiguous which is needed for which step during a
+restore:
+
+- **PLANKA Mega Backup Passphrase** — `rclone`'s Mega/crypt config; needed to pull the database
+  and attachments backup down from Mega.
+- **PLANKA Secrets Passphrase** — used below, by `scripts/encrypt-secrets.sh` /
+  `scripts/decrypt-secrets.sh`; needed to restore `.env`, the DuckDNS token, and the GitHub
+  deploy SSH key.
 
 ### Day-2: after rotating a secret
 
@@ -56,5 +64,5 @@ cd planka
 scripts/decrypt-secrets.sh   # asks for the passphrase, restores .env etc.
 ```
 
-That's the whole recovery story for secrets: the passphrase is the only thing that needs to
-survive off this VM (already true — it's the same one protecting the Mega backup).
+That's the whole recovery story for secrets: the PLANKA Secrets Passphrase is the only thing
+that needs to survive off this VM.
