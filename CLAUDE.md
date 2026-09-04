@@ -2616,3 +2616,42 @@ passphrase prompt doesn't work from non-interactive automation). Encrypted outpu
 `secrets/*.gpg`. Recommended usage: reuse the same passphrase already protecting the Mega
 backup, so there's one password for all recovery, not two. Full workflow in `README.md`'s
 "Secrets management" section - that's the source of truth going forward, not this entry.
+
+## Fixed two bugs from the full codebase/database review (2026-09-04)
+
+A full review (4 parallel agents covering every file touched by all 50 patches, plus a direct
+database audit) surfaced 10 findings - see the review output for the full list. Fixed the two
+most severe, both user-visible today:
+
+**No click-based way to add an attachment.** Upstream PLANKA's sidebar "Add attachment"
+button/popup (`AddAttachmentStep`, already imported nowhere in this fork's rewritten
+`CardModal/ProjectContent.jsx` / `StoryContent.jsx`) got dropped during this fork's card-modal
+refactor and was never replaced - `Attachments.jsx` only renders existing attachments, and
+`AddAttachmentZone`'s dropzone has `noClick: true`. Only drag-and-drop or clipboard paste worked,
+neither discoverable. Fix: added a persistent "Attachment" button to the sidebar (new
+`canUseAttachments` permission, computed identically to `canUseLabels`/`canUseMembers`), in a new
+"ATTACHMENTS" section directly below Labels, reusing the existing `AddAttachmentStep` component
+unchanged - same pattern as patch 0050's Labels button fix.
+
+**Archiving a list that fails left it hidden forever, with no error shown.** `List.js`'s reducer
+optimistically set `archivedAt` on `LIST_ARCHIVE` but had no `LIST_ARCHIVE__FAILURE` case to roll
+it back (unlike `LIST_CREATE__FAILURE`, which does). `isListKanban()` excludes any list with
+`archivedAt` set, so a failed archive request left the list (and its cards) invisible until a
+full board refetch, with the user never told anything went wrong. Fix: added the missing
+`LIST_ARCHIVE__FAILURE` case (resets `archivedAt: null`, matching what `restore-one.js` sets on
+the server), plus a new toast (`ToastTypes.LIST_ARCHIVE_FAILED` /
+`ListArchiveFailedToast.jsx`, registered in `Toaster.jsx`) dispatched from the `archiveList`
+saga's catch block, following the exact existing pattern used for the other toast types in the
+same file.
+
+Verified in the isolated stack: confirmed the new sidebar "Attachment" button opens the real
+`AddAttachmentStep` popup (screenshot: "From Computer" + clipboard-paste tip). For the archive
+fix, confirmed the success path still works identically (list still hides optimistically and
+stays archived) - couldn't force a live network failure to exercise the rollback/toast branch
+directly, because this app sends all authenticated API calls (including archive) as Sails.io
+virtual requests over an already-open WebSocket, not plain HTTP, which is outside what
+Puppeteer's request interception can see or mutate. Confirmed the failure path is correct by
+reading the saga/reducer/action-creator/toast-registration code directly instead (the payload
+shape, the exact reducer case, and the toast wiring all checked out).
+
+Patch: `planka-custom/patches/0051-add-attachment-button-and-list-archive-rollback.patch`.
