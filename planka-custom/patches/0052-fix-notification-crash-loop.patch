@@ -1,0 +1,297 @@
+diff --git a/server/api/helpers/notifications/create-many.js b/server/api/helpers/notifications/create-many.js
+index 0af7e62..7761340 100644
+--- a/server/api/helpers/notifications/create-many.js
++++ b/server/api/helpers/notifications/create-many.js
+@@ -18,6 +18,14 @@ const buildTitle = (notification, t) => {
+       return t('You Were Added to Card');
+     case Notification.Types.MENTION_IN_COMMENT:
+       return t('You Were Mentioned in Comment');
++    // BSY Media: the only custom checklist/task type that reaches this file
++    // - it's in Action.INTERNAL_NOTIFIABLE_TYPES but deliberately not in
++    // PERSONAL_NOTIFIABLE_TYPES (see Action.js), so it fans out to card/
++    // board subscribers via createMany rather than createOne. Was
++    // previously unhandled here, which crashed the whole process the same
++    // way as the createOne.js bug (see that file for the full explanation).
++    case Notification.Types.CHANGE_TASK_LIST_STATUS:
++      return t('Checklist Status Changed');
+     default:
+       return null;
+   }
+@@ -123,6 +131,42 @@ const buildBodyByFormat = (board, card, notification, actorUser, t) => {
+         )}:\n\n<i>${escapeHtml(commentText)}</i>`,
+       };
+     }
++    case Notification.Types.CHANGE_TASK_LIST_STATUS: {
++      const statusLabel = (() => {
++        switch (notification.data.status) {
++          case TaskList.Statuses.IN_PROGRESS:
++            return t('In Progress');
++          case TaskList.Statuses.COMPLETED:
++            return t('Completed');
++          default:
++            return t('To Do');
++        }
++      })();
++
++      return {
++        text: t(
++          '%s changed the status of a checklist on %s on %s to %s',
++          actorUser.name,
++          card.name,
++          board.name,
++          statusLabel,
++        ),
++        markdown: t(
++          '%s changed the status of a checklist on %s on %s to %s',
++          escapeMarkdown(actorUser.name),
++          markdownCardLink,
++          escapeMarkdown(board.name),
++          escapeMarkdown(statusLabel),
++        ),
++        html: t(
++          '%s changed the status of a checklist on %s on %s to %s',
++          escapeHtml(actorUser.name),
++          htmlCardLink,
++          escapeHtml(board.name),
++          escapeHtml(statusLabel),
++        ),
++      };
++    }
+     default:
+       return null;
+   }
+@@ -185,6 +229,28 @@ const buildEmail = (board, card, notification, actorUser, notifiableUser, t) =>
+       )}</p><p>${escapeHtml(mentionMarkupToText(notification.data.text))}</p>`;
+ 
+       break;
++    case Notification.Types.CHANGE_TASK_LIST_STATUS: {
++      const statusLabel = (() => {
++        switch (notification.data.status) {
++          case TaskList.Statuses.IN_PROGRESS:
++            return t('In Progress');
++          case TaskList.Statuses.COMPLETED:
++            return t('Completed');
++          default:
++            return t('To Do');
++        }
++      })();
++
++      html = `<p>${t(
++        '%s changed the status of a checklist on %s on %s to %s',
++        escapeHtml(actorUser.name),
++        cardLink,
++        boardLink,
++        escapeHtml(statusLabel),
++      )}</p>`;
++
++      break;
++    }
+     default:
+       return null; // TODO: throw error?
+   }
+@@ -209,6 +275,12 @@ const sendEmails = async (transporter, emails) => {
+   transporter.close();
+ };
+ 
++// BSY Media: buildEmail() returns null for any notification.type it
++// doesn't recognize (see its default case) - filtering here keeps a future
++// unmapped type from silently injecting a garbage `null` entry into the
++// emails array passed to sendEmails().
++const isEmail = (email) => email != null;
++
+ module.exports = {
+   inputs: {
+     arrayOfValues: {
+@@ -321,6 +393,10 @@ module.exports = {
+                 (notificationService) => _.pick(notificationService, ['url', 'format']),
+               );
+ 
++              // BSY Media: fire-and-forget by design, but an uncaught
++              // rejection here becomes an unhandled promise rejection,
++              // which crashes the whole Node process - see createOne.js's
++              // identical fix for the incident this addresses.
+               buildAndSendNotifications(
+                 services,
+                 inputs.board,
+@@ -328,7 +404,9 @@ module.exports = {
+                 notification,
+                 values.creatorUser,
+                 t,
+-              );
++              ).catch((error) => {
++                sails.log.error('Error building/sending push notifications:', error);
++              });
+             }
+ 
+             if (transporter) {
+@@ -343,10 +421,12 @@ module.exports = {
+             }
+ 
+             return [];
+-          });
++          }).filter(isEmail);
+ 
+           if (emails.length > 0) {
+-            sendEmails(transporter, emails);
++            sendEmails(transporter, emails).catch((error) => {
++              sails.log.error('Error sending notification emails:', error);
++            });
+           }
+         });
+       }
+diff --git a/server/api/helpers/notifications/create-one.js b/server/api/helpers/notifications/create-one.js
+index e92ac15..d421263 100644
+--- a/server/api/helpers/notifications/create-one.js
++++ b/server/api/helpers/notifications/create-one.js
+@@ -18,6 +18,25 @@ const buildTitle = (notification, t) => {
+       return t('You Were Added to Card');
+     case Notification.Types.MENTION_IN_COMMENT:
+       return t('You Were Mentioned in Comment');
++    // BSY Media: custom checklist/task notification types - see
++    // Notification.js Types for where these come from. Previously missing
++    // here entirely, which left buildAndSendNotifications()/
++    // buildAndSendEmail() calling sendNotifications() with a null title,
++    // an input it requires - the resulting validation error was never
++    // caught (both call sites are fire-and-forget), crashing the whole
++    // process on every uncaught rejection.
++    case Notification.Types.ASSIGN_TASK_LIST:
++      return t('Checklist Assigned to You');
++    case Notification.Types.ASSIGN_TASK:
++      return t('Task Assigned to You');
++    case Notification.Types.TASK_LIST_DUE_SOON:
++      return t('Checklist Due Soon');
++    case Notification.Types.TASK_LIST_OVERDUE:
++      return t('Checklist Overdue');
++    case Notification.Types.TASK_DUE_SOON:
++      return t('Task Due Soon');
++    case Notification.Types.TASK_OVERDUE:
++      return t('Task Overdue');
+     default:
+       return null;
+   }
+@@ -123,6 +142,66 @@ const buildBodyByFormat = (board, card, notification, actorUser, t) => {
+         )}:\n\n<i>${escapeHtml(commentText)}</i>`,
+       };
+     }
++    case Notification.Types.ASSIGN_TASK_LIST:
++      return {
++        text: t('%s assigned you to checklist %s on %s', actorUser.name, card.name, board.name),
++        markdown: t(
++          '%s assigned you to checklist %s on %s',
++          escapeMarkdown(actorUser.name),
++          markdownCardLink,
++          escapeMarkdown(board.name),
++        ),
++        html: t(
++          '%s assigned you to checklist %s on %s',
++          escapeHtml(actorUser.name),
++          htmlCardLink,
++          escapeHtml(board.name),
++        ),
++      };
++    case Notification.Types.ASSIGN_TASK:
++      return {
++        text: t('%s assigned you to a task on %s on %s', actorUser.name, card.name, board.name),
++        markdown: t(
++          '%s assigned you to a task on %s on %s',
++          escapeMarkdown(actorUser.name),
++          markdownCardLink,
++          escapeMarkdown(board.name),
++        ),
++        html: t(
++          '%s assigned you to a task on %s on %s',
++          escapeHtml(actorUser.name),
++          htmlCardLink,
++          escapeHtml(board.name),
++        ),
++      };
++    // BSY Media: these 4 are fired by the deadline-notifications hook using
++    // a synthetic bootstrap-admin actor, not a real user - deliberately
++    // impersonal (no actorUser.name), matching how the client already
++    // renders them (see NotificationsStep/Item.jsx).
++    case Notification.Types.TASK_LIST_DUE_SOON:
++      return {
++        text: t('Checklist on %s on %s is due soon', card.name, board.name),
++        markdown: t('Checklist on %s on %s is due soon', markdownCardLink, escapeMarkdown(board.name)),
++        html: t('Checklist on %s on %s is due soon', htmlCardLink, escapeHtml(board.name)),
++      };
++    case Notification.Types.TASK_LIST_OVERDUE:
++      return {
++        text: t('Checklist on %s on %s is overdue', card.name, board.name),
++        markdown: t('Checklist on %s on %s is overdue', markdownCardLink, escapeMarkdown(board.name)),
++        html: t('Checklist on %s on %s is overdue', htmlCardLink, escapeHtml(board.name)),
++      };
++    case Notification.Types.TASK_DUE_SOON:
++      return {
++        text: t('A task on %s on %s is due soon', card.name, board.name),
++        markdown: t('A task on %s on %s is due soon', markdownCardLink, escapeMarkdown(board.name)),
++        html: t('A task on %s on %s is due soon', htmlCardLink, escapeHtml(board.name)),
++      };
++    case Notification.Types.TASK_OVERDUE:
++      return {
++        text: t('A task on %s on %s is overdue', card.name, board.name),
++        markdown: t('A task on %s on %s is overdue', markdownCardLink, escapeMarkdown(board.name)),
++        html: t('A task on %s on %s is overdue', htmlCardLink, escapeHtml(board.name)),
++      };
+     default:
+       return null;
+   }
+@@ -192,6 +271,24 @@ const buildAndSendEmail = async (
+         boardLink,
+       )}</p><p>${escapeHtml(mentionMarkupToText(notification.data.text))}</p>`;
+ 
++      break;
++    case Notification.Types.ASSIGN_TASK_LIST:
++      html = `<p>${t('%s assigned you to checklist %s on %s', escapeHtml(actorUser.name), cardLink, boardLink)}</p>`;
++      break;
++    case Notification.Types.ASSIGN_TASK:
++      html = `<p>${t('%s assigned you to a task on %s on %s', escapeHtml(actorUser.name), cardLink, boardLink)}</p>`;
++      break;
++    case Notification.Types.TASK_LIST_DUE_SOON:
++      html = `<p>${t('Checklist on %s on %s is due soon', cardLink, boardLink)}</p>`;
++      break;
++    case Notification.Types.TASK_LIST_OVERDUE:
++      html = `<p>${t('Checklist on %s on %s is overdue', cardLink, boardLink)}</p>`;
++      break;
++    case Notification.Types.TASK_DUE_SOON:
++      html = `<p>${t('A task on %s on %s is due soon', cardLink, boardLink)}</p>`;
++      break;
++    case Notification.Types.TASK_OVERDUE:
++      html = `<p>${t('A task on %s on %s is overdue', cardLink, boardLink)}</p>`;
+       break;
+     default:
+       return;
+@@ -293,6 +390,11 @@ module.exports = {
+             _.pick(notificationService, ['url', 'format']),
+           );
+ 
++          // BSY Media: fire-and-forget by design (the request shouldn't
++          // block on outbound push delivery) - but that means a rejection
++          // here becomes an unhandled promise rejection, which crashes the
++          // whole Node process, not just this notification. Must never be
++          // left uncaught.
+           buildAndSendNotifications(
+             services,
+             inputs.board,
+@@ -300,7 +402,9 @@ module.exports = {
+             notification,
+             values.creatorUser,
+             t,
+-          );
++          ).catch((error) => {
++            sails.log.error('Error building/sending push notifications:', error);
++          });
+         }
+ 
+         if (transporter) {
+@@ -312,7 +416,9 @@ module.exports = {
+             values.creatorUser,
+             notifiableUser,
+             t,
+-          );
++          ).catch((error) => {
++            sails.log.error('Error building/sending notification email:', error);
++          });
+         }
+       }
+     }

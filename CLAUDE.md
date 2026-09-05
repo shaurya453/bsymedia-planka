@@ -2655,3 +2655,51 @@ reading the saga/reducer/action-creator/toast-registration code directly instead
 shape, the exact reducer case, and the toast wiring all checked out).
 
 Patch: `planka-custom/patches/0051-add-attachment-button-and-list-archive-rollback.patch`.
+
+## Server crash-looping ~every minute for 3 weeks; surfaced as "freelancers can't sign up" (2026-09-05)
+
+Reported as a signup bug ("Unknown error, try again later"), but signup was never the cause -
+`docker compose logs` showed the whole Node process repeatedly hitting an uncaught exception and
+getting restarted by Docker, roughly once a minute since 2026-08-13/17 (confirmed via
+`notification` table timestamps: `taskListOverdue` alone had accumulated 7482+ rows). Any request
+in flight during one of those restarts - including the freelancers' signups - got the client's
+generic `unknownError` fallback text.
+
+Root cause: this fork added 7 custom `Notification.Types` back when checklist/task
+assignment/deadline notifications were built (`assignTaskList`, `assignTask`,
+`changeTaskListStatus`, `taskListDueSoon`, `taskListOverdue`, `taskDueSoon`, `taskOverdue` - see
+`Notification.js`), but `api/helpers/notifications/create-one.js` and `create-many.js`'s
+`buildTitle`/`buildBodyByFormat`/`buildEmail` switch statements were never updated to handle them.
+Whenever one of these fired for a user with a push notification service (webhook) or SMTP email
+configured (this instance has Gmail SMTP configured site-wide, so this was essentially guaranteed
+to happen on every deadline-hook tick that matched anything), the unmapped case fell through to
+`default: return null`, and the notification-sending machine (`sendNotifications`/`sendEmail`) was
+still called with that null title/body - a required-input validation error. Both call sites
+(`buildAndSendNotifications(...)`, `buildAndSendEmail(...)`/`sendEmails(...)`) are deliberately
+fire-and-forget (not awaited, so the request itself doesn't block on outbound delivery), which
+meant the resulting rejection was never caught - an unhandled promise rejection, which crashes the
+entire Node process by default, not just that one notification.
+
+Fix (`planka-custom/patches/0052-fix-notification-crash-loop.patch`), two parts:
+1. Added the missing title/body/email content for all 7 custom types in both files (the 4
+   deadline-hook types deliberately stay impersonal - no actor name - matching how the client
+   already renders them; `assignTaskList`/`assignTask` do show the assigning user, matching
+   `addMemberToCard`'s existing style). `changeTaskListStatus` is the only one of the 7 that
+   reaches `create-many.js` (it's in `Action.INTERNAL_NOTIFIABLE_TYPES` but deliberately excluded
+   from `PERSONAL_NOTIFIABLE_TYPES` - see `Action.js` - so it fans out to subscribers instead of a
+   single targeted user).
+2. The actual defense against this class of bug recurring: added `.catch(...)` (logging via
+   `sails.log.error`, matching the existing pattern already used elsewhere in this codebase, e.g.
+   `send-notifications.js`) to every fire-and-forget notification-delivery call site in both
+   files, plus a `.filter(isEmail)` in `create-many.js` guarding against `buildEmail`'s existing
+   `default: return null` silently injecting a bad entry into the batch. Any future unmapped type,
+   or any genuine delivery failure (bad webhook URL, SMTP host down), now gets logged and skipped
+   instead of taking down the whole server.
+
+Verified in an isolated stack: reproduced both crash paths directly (assigned a checklist to a
+user with a fake webhook notification service configured → exercises `create-one.js`; toggled a
+checklist's status with fake SMTP configured site-wide → exercises `create-many.js`) and confirmed
+the container stayed up and healthy through both, with the failures now surfacing as caught,
+logged errors (`getaddrinfo ENOTFOUND ...`) instead of process crashes. Deployed to production and
+confirmed empirically: the deadline-notifications hook fired again after the fix landed (a new
+`taskListOverdue` row appeared, 7495 total) and the container did not restart.
