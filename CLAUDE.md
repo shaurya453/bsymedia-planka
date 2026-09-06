@@ -2968,3 +2968,37 @@ opens the identical confirmation dialog, which successfully deletes the task; al
 long subtask name wraps around the 4-icon action row without any overlap. No console/container
 errors (aside from one incidental 403 already seen in prior patches' verification, unrelated to
 this change).
+
+## Widen right-edge gap for checklist name/progress row and subtask text on card face (2026-09-06)
+
+Follow-up to the indentation change above: the client noted the gap between task text and the
+card's right edge was too small, specifically noticeable once a subtask's name wraps to multiple
+lines.
+
+Measured the actual rendered gap first rather than guessing: the card title (`ProjectContent.jsx`
+`.name`) sits 8px from the card's right edge, and - despite looking tighter in practice - the
+checklist name/progress row and every subtask row already computed to that exact same 8px via the
+existing margin-bleed-then-repad trick (`TaskList.module.scss`) or straightforward inherited
+padding (`Task.module.scss`, which previously had no `padding-right` of its own at all). The
+"too small" feeling wasn't a bug so much as multi-line wrapped subtask text (no ellipsis, unlike
+the single-line checklist name) actually reaching that 8px boundary in practice, unlike short
+titles that rarely do.
+
+Fix (`planka-custom/patches/0060-widen-task-right-gap.patch`): doubled the effective right-edge
+gap to 16px in both places -
+`client/src/components/cards/Card/TaskList/TaskList.module.scss`'s `.name` and `.progressRow`
+(their own `padding-right` raised 8px → 16px; the `-8px` bleed margin that aligns them with the
+card's true edge is unchanged) and `client/src/components/cards/Card/TaskList/Task.module.scss`'s
+subtask `.wrapper` (added an explicit `padding-right: 8px`, stacking with the 8px it already
+inherited from the ancestor card-content wrapper).
+
+Verified by measuring the real rendered gap in the browser (`cardRect.right - rowRect.right +
+computedPaddingRight`, since `getBoundingClientRect` returns the padding-inclusive box, not the
+content edge) before and after, in an isolated stack: confirmed 8px → 16px for the checklist
+name, the progress-row (both the case with a progress bar + count, and the case with only a
+status dot and zero tasks), and every subtask row, including a deliberately long subtask name
+wrapped across four lines (every wrapped line keeps the same 16px gap, not just the last one), a
+completed (strikethrough) subtask, an overdue (red) subtask, and a linked-task row (exchange
+icon, on a `story`-type card face using the same shared `TaskList`/`Task` components as
+`project`-type cards). Card title gap unchanged at 8px (not part of this ask). No console/container
+errors.

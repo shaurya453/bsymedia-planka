@@ -1,0 +1,50 @@
+diff --git a/client/src/components/cards/Card/TaskList/Task.module.scss b/client/src/components/cards/Card/TaskList/Task.module.scss
+index 551a369..f47c778 100644
+--- a/client/src/components/cards/Card/TaskList/Task.module.scss
++++ b/client/src/components/cards/Card/TaskList/Task.module.scss
+@@ -41,6 +41,13 @@
+     overflow-wrap: break-word;
+     padding-bottom: 6px;
+     padding-left: 22px;
++    // BSY Media: the ancestor card content wrapper already contributes its
++    // own 8px right padding; this adds 8px more so wrapped subtask text
++    // (which, unlike the single-line ellipsized checklist name, can run
++    // right up to the edge) keeps a visibly bigger 16px breathing room
++    // before the card's right edge, matching the widened gap added to the
++    // checklist name/progress row below.
++    padding-right: 8px;
+ 
+     &:before {
+       content: "–";
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.module.scss b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+index 2352b54..e630ed6 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.module.scss
++++ b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+@@ -40,14 +40,16 @@
+   // checklist block a little relative to the card title/description above
+   // it, as a visual cue that this is a nested task, not top-level card
+   // content. Task.module.scss's subtask .wrapper indent/bullet position is
+-  // bumped by the same 8px to match.
++  // bumped by the same 8px to match. Right padding is also widened (8px ->
++  // 16px, margin still bleeds by the original 8px) so there's more visible
++  // breathing room before the card's right edge, matching the subtask row.
+   .name {
+     color: #6b808c;
+     font-size: 12px;
+     font-weight: bold;
+     margin: 0 -8px -2px;
+     overflow: hidden;
+-    padding: 0 8px 0 16px;
++    padding: 0 16px 0 16px;
+     text-overflow: ellipsis;
+     white-space: nowrap;
+   }
+@@ -73,7 +75,7 @@
+     gap: 8px;
+     justify-content: space-between;
+     margin: 0 -8px;
+-    padding: 0px 8px 8px 16px;
++    padding: 0px 16px 8px 16px;
+   }
+ 
+   // BSY Media: manual checklist status indicator - a small colored dot next
