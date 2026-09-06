@@ -2703,3 +2703,50 @@ the container stayed up and healthy through both, with the failures now surfacin
 logged errors (`getaddrinfo ENOTFOUND ...`) instead of process crashes. Deployed to production and
 confirmed empirically: the deadline-notifications hook fired again after the fix landed (a new
 `taskListOverdue` row appeared, 7495 total) and the container did not restart.
+
+## Export board to Trello-compatible JSON (2026-09-06)
+
+Requested feature: let users get data *out* of a board for use in another app. Before this, the
+fork (and upstream PLANKA) only supported the reverse direction — `server/api/helpers/boards/
+import-from-trello.js` / `process-uploaded-trello-import-file.js`, wired into `POST /projects/
+:projectId/boards` via `importType`/`importFile`, let you import a `.json` file exported from
+Trello when creating a board. There was no export anywhere.
+
+Added (`planka-custom/patches/0053-export-board-to-trello.patch`):
+- `GET /api/boards/:id/export?type=trello` (`server/api/controllers/boards/export.js`) — same
+  permission check as `boards/show.js` (project manager, board member, or admin-on-shared-project;
+  private-project admin exclusion still applies, see the 2026-08-17 permissions audit entry
+  above). Calls the new `server/api/helpers/boards/export-to-trello.js` helper and returns the
+  result with a `Content-Disposition: attachment` header.
+- `export-to-trello.js` is the mirror image of `import-from-trello.js`: walks the board's labels,
+  finite (non-archive/trash) lists, cards, checklists/tasks, and comments, and serializes them
+  into the same shape Trello's own export uses (`{labels, lists, cards, checklists, actions}`) —
+  the exact shape `process-uploaded-trello-import-file.js` already validates and
+  `import-from-trello.js` already knows how to consume. This means a board exported here can be
+  re-imported here (round-trip), imported into real Trello, or imported into any other
+  Trello-compatible kanban app.
+  - Label colors: PLANKA has 42 named colors, Trello has ~11. `TRELLO_COLOR_BY_PLANKA_COLOR` in
+    the helper maps each PLANKA color to its closest Trello equivalent — lossy by necessity, not a
+    bug (re-exporting a re-imported board can shift a label's exact shade, but never its category,
+    e.g. reds stay red).
+  - Archive/trash lists are deliberately excluded from export, matching how `boards/show.js`
+    already scopes "current" board content (`List.FINITE_TYPES`) and how `import-from-trello.js`
+    itself skips `closed: true` Trello lists on import — exporting them would just produce data
+    the importer throws away anyway.
+  - Not included, because Trello's format has no equivalent: custom fields, card
+    assignees/memberships, attachments, task due dates. Same limitation the existing importer
+    already has.
+- Client: "Export Board" entry in the board actions menu (`ActionsStep.jsx`, next to "Actions"/
+  activity log). Fetches via the normal authenticated API client (not a plain `<a href>`, since
+  `/api/*` routes require a Bearer header that a raw browser navigation can't attach — unlike
+  `/attachments/*download` routes, which have their own cookie-based auth specifically to support
+  plain download links, see `current-user` hook), then builds a `Blob` and triggers the save-as
+  client-side. Failure surfaces as a toast (`BOARD_EXPORT_FAILED`), matching the
+  `LIST_ARCHIVE_FAILED` toast pattern from patch 0051.
+
+Verified in an isolated stack: created a board with a label, list, card, checklist (one completed
+task, one not), and a comment; exported it; re-imported the exported file into a new board via the
+existing "From Trello" import; confirmed every field survived the round-trip (label, card
+name/description, checklist tasks with correct completion states, comment text). Also confirmed an
+unrelated user with no access to the board gets a 404 from the export endpoint, same as every
+other board route.

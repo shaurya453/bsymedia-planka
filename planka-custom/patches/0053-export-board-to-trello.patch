@@ -1,0 +1,552 @@
+diff --git a/client/src/api/boards.js b/client/src/api/boards.js
+index c804b4d..76bce4d 100755
+--- a/client/src/api/boards.js
++++ b/client/src/api/boards.js
+@@ -32,10 +32,14 @@ const updateBoard = (id, data, headers) => socket.patch(`/boards/${id}`, data, h
+ 
+ const deleteBoard = (id, headers) => socket.delete(`/boards/${id}`, undefined, headers);
+ 
++const exportBoard = (id, headers) =>
++  http.get(`/boards/${id}/export?type=trello`, undefined, headers);
++
+ export default {
+   createBoard,
+   createBoardWithImport,
+   getBoard,
+   updateBoard,
+   deleteBoard,
++  exportBoard,
+ };
+diff --git a/client/src/components/boards/BoardActions/RightSide/ActionsStep.jsx b/client/src/components/boards/BoardActions/RightSide/ActionsStep.jsx
+index a44ea31..1df2f1b 100755
+--- a/client/src/components/boards/BoardActions/RightSide/ActionsStep.jsx
++++ b/client/src/components/boards/BoardActions/RightSide/ActionsStep.jsx
+@@ -74,6 +74,11 @@ const ActionsStep = React.memo(({ onClose }) => {
+     onClose();
+   }, [onClose, dispatch]);
+ 
++  const handleExportClick = useCallback(() => {
++    dispatch(entryActions.exportCurrentBoard());
++    onClose();
++  }, [onClose, dispatch]);
++
+   const handleArchivedListsClick = useCallback(() => {
+     dispatch(entryActions.openArchivedListsModal());
+     onClose();
+@@ -152,6 +157,12 @@ const ActionsStep = React.memo(({ onClose }) => {
+               context: 'title',
+             })}
+           </Menu.Item>
++          <Menu.Item className={styles.menuItem} onClick={handleExportClick}>
++            <Icon name="download" className={styles.menuItemIcon} />
++            {t('common.exportBoard', {
++              context: 'title',
++            })}
++          </Menu.Item>
+           {withTrashEmptier && (
+             <>
+               <hr className={styles.divider} />
+diff --git a/client/src/components/common/Toaster/BoardExportFailedToast.jsx b/client/src/components/common/Toaster/BoardExportFailedToast.jsx
+new file mode 100644
+index 0000000..4a0105d
+--- /dev/null
++++ b/client/src/components/common/Toaster/BoardExportFailedToast.jsx
+@@ -0,0 +1,21 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React from 'react';
++import { useTranslation } from 'react-i18next';
++import { Icon, Message } from 'semantic-ui-react';
++
++const BoardExportFailedToast = React.memo(() => {
++  const [t] = useTranslation();
++
++  return (
++    <Message visible negative size="tiny">
++      <Icon name="download" />
++      {t('common.boardExportFailed')}
++    </Message>
++  );
++});
++
++export default BoardExportFailedToast;
+diff --git a/client/src/components/common/Toaster/Toaster.jsx b/client/src/components/common/Toaster/Toaster.jsx
+index e3ad61e..773c933 100644
+--- a/client/src/components/common/Toaster/Toaster.jsx
++++ b/client/src/components/common/Toaster/Toaster.jsx
+@@ -13,6 +13,7 @@ import EmptyTrashToast from './EmptyTrashToast';
+ import SourceCardNotCopyableToast from './SourceCardNotCopyableToast';
+ import SourceCardNotMovableToast from './SourceCardNotMovableToast';
+ import ListArchiveFailedToast from './ListArchiveFailedToast';
++import BoardExportFailedToast from './BoardExportFailedToast';
+ 
+ const TOAST_BY_TYPE = {
+   [ToastTypes.FILE_IS_TOO_BIG]: FileIsTooBigToast,
+@@ -21,6 +22,7 @@ const TOAST_BY_TYPE = {
+   [ToastTypes.SOURCE_CARD_NOT_COPYABLE]: SourceCardNotCopyableToast,
+   [ToastTypes.SOURCE_CARD_NOT_MOVABLE]: SourceCardNotMovableToast,
+   [ToastTypes.LIST_ARCHIVE_FAILED]: ListArchiveFailedToast,
++  [ToastTypes.BOARD_EXPORT_FAILED]: BoardExportFailedToast,
+ };
+ 
+ const Toaster = React.memo(() => (
+diff --git a/client/src/constants/EntryActionTypes.js b/client/src/constants/EntryActionTypes.js
+index 70bcc33..fcd229c 100755
+--- a/client/src/constants/EntryActionTypes.js
++++ b/client/src/constants/EntryActionTypes.js
+@@ -142,6 +142,7 @@ export default {
+   CONTEXT_IN_CURRENT_BOARD_UPDATE: `${PREFIX}/CONTEXT_IN_CURRENT_BOARD_UPDATE`,
+   VIEW_IN_CURRENT_BOARD_UPDATE: `${PREFIX}/VIEW_IN_CURRENT_BOARD_UPDATE`,
+   IN_CURRENT_BOARD_SEARCH: `${PREFIX}/IN_CURRENT_BOARD_SEARCH`,
++  CURRENT_BOARD_EXPORT: `${PREFIX}/CURRENT_BOARD_EXPORT`,
+   BOARD_DELETE: `${PREFIX}/BOARD_DELETE`,
+   BOARD_DELETE_HANDLE: `${PREFIX}/BOARD_DELETE_HANDLE`,
+ 
+diff --git a/client/src/constants/ToastTypes.js b/client/src/constants/ToastTypes.js
+index dccc321..090e9a4 100644
+--- a/client/src/constants/ToastTypes.js
++++ b/client/src/constants/ToastTypes.js
+@@ -9,6 +9,7 @@ const EMPTY_TRASH = 'EMPTY_TRASH';
+ const SOURCE_CARD_NOT_COPYABLE = 'SOURCE_CARD_NOT_COPYABLE';
+ const SOURCE_CARD_NOT_MOVABLE = 'SOURCE_CARD_NOT_MOVABLE';
+ const LIST_ARCHIVE_FAILED = 'LIST_ARCHIVE_FAILED';
++const BOARD_EXPORT_FAILED = 'BOARD_EXPORT_FAILED';
+ 
+ export default {
+   FILE_IS_TOO_BIG,
+@@ -17,4 +18,5 @@ export default {
+   SOURCE_CARD_NOT_COPYABLE,
+   SOURCE_CARD_NOT_MOVABLE,
+   LIST_ARCHIVE_FAILED,
++  BOARD_EXPORT_FAILED,
+ };
+diff --git a/client/src/entry-actions/boards.js b/client/src/entry-actions/boards.js
+index f9c27df..3bcdd60 100755
+--- a/client/src/entry-actions/boards.js
++++ b/client/src/entry-actions/boards.js
+@@ -79,6 +79,11 @@ const searchInCurrentBoard = (value) => ({
+   },
+ });
+ 
++const exportCurrentBoard = () => ({
++  type: EntryActionTypes.CURRENT_BOARD_EXPORT,
++  payload: {},
++});
++
+ const deleteBoard = (id) => ({
+   type: EntryActionTypes.BOARD_DELETE,
+   payload: {
+@@ -104,6 +109,7 @@ export default {
+   updateContextInCurrentBoard,
+   updateViewInCurrentBoard,
+   searchInCurrentBoard,
++  exportCurrentBoard,
+   deleteBoard,
+   handleBoardDelete,
+ };
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 601952d..8dcdff6 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -103,6 +103,7 @@ export default {
+       baseGroup: 'Base group',
+       board: 'Board',
+       boardActions_title: 'Board Actions',
++      boardExportFailed: 'Failed to export board. Please try again.',
+       boardNotFound_title: 'Board Not Found',
+       boardSubscribed: 'Board subscribed',
+       boardUser: 'Board user',
+@@ -216,6 +217,7 @@ export default {
+       events: 'Events',
+       excludedEvents: 'Excluded events',
+       expandTaskListsByDefault: 'Expand task lists by default',
++      exportBoard_title: 'Export Board',
+       filterByLabels_title: 'Filter By Labels',
+       filterByMembers_title: 'Filter By Members',
+       forPersonalProjects: 'For personal projects.',
+diff --git a/client/src/sagas/core/services/boards.js b/client/src/sagas/core/services/boards.js
+index 77a4053..8dcaea7 100644
+--- a/client/src/sagas/core/services/boards.js
++++ b/client/src/sagas/core/services/boards.js
+@@ -4,6 +4,7 @@
+  */
+ 
+ import { call, fork, put, select, take } from 'redux-saga/effects';
++import toast from 'react-hot-toast';
+ 
+ import { goToBoard, goToProject } from './router';
+ import { openModal } from './modals';
+@@ -14,6 +15,7 @@ import api from '../../../api';
+ import { createLocalId } from '../../../utils/local-id';
+ import ActionTypes from '../../../constants/ActionTypes';
+ import ModalTypes from '../../../constants/ModalTypes';
++import ToastTypes from '../../../constants/ToastTypes';
+ 
+ export function* createBoard(projectId, { import: boardImport, ...data }) {
+   const localId = yield call(createLocalId);
+@@ -215,6 +217,32 @@ export function* searchInCurrentBoard(value) {
+   yield put(actions.searchInBoard(boardId, value, currentListId));
+ }
+ 
++export function* exportCurrentBoard() {
++  const currentBoard = yield select(selectors.selectCurrentBoard);
++
++  let exportedBoard;
++  try {
++    exportedBoard = yield call(request, api.exportBoard, currentBoard.id);
++  } catch (error) {
++    yield call(toast, {
++      type: ToastTypes.BOARD_EXPORT_FAILED,
++    });
++    return;
++  }
++
++  const blob = new Blob([JSON.stringify(exportedBoard, null, 2)], {
++    type: 'application/json',
++  });
++  const url = URL.createObjectURL(blob);
++
++  const linkElement = document.createElement('a');
++  linkElement.href = url;
++  linkElement.download = `${currentBoard.name}.json`;
++  linkElement.click();
++
++  URL.revokeObjectURL(url);
++}
++
+ export function* deleteBoard(id) {
+   const currentBoard = yield select(selectors.selectCurrentBoard);
+ 
+@@ -259,6 +287,7 @@ export default {
+   updateBoardView,
+   updateViewInCurrentBoard,
+   searchInCurrentBoard,
++  exportCurrentBoard,
+   deleteBoard,
+   handleBoardDelete,
+ };
+diff --git a/client/src/sagas/core/watchers/boards.js b/client/src/sagas/core/watchers/boards.js
+index 0dc1e31..685674f 100644
+--- a/client/src/sagas/core/watchers/boards.js
++++ b/client/src/sagas/core/watchers/boards.js
+@@ -40,6 +40,7 @@ export default function* boardsWatchers() {
+     takeEvery(EntryActionTypes.IN_CURRENT_BOARD_SEARCH, ({ payload: { value } }) =>
+       services.searchInCurrentBoard(value),
+     ),
++    takeEvery(EntryActionTypes.CURRENT_BOARD_EXPORT, () => services.exportCurrentBoard()),
+     takeEvery(EntryActionTypes.BOARD_DELETE, ({ payload: { id } }) => services.deleteBoard(id)),
+     takeEvery(EntryActionTypes.BOARD_DELETE_HANDLE, ({ payload: { board } }) =>
+       services.handleBoardDelete(board),
+diff --git a/server/api/controllers/boards/export.js b/server/api/controllers/boards/export.js
+new file mode 100644
+index 0000000..51e76ef
+--- /dev/null
++++ b/server/api/controllers/boards/export.js
+@@ -0,0 +1,107 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++/**
++ * @swagger
++ * /boards/{id}/export:
++ *   get:
++ *     summary: Export board
++ *     description: Exports a board as a Trello-compatible JSON file, importable here or into Trello/other Trello-compatible apps.
++ *     tags:
++ *       - Boards
++ *     operationId: exportBoard
++ *     parameters:
++ *       - name: id
++ *         in: path
++ *         required: true
++ *         description: ID of the board to export
++ *         schema:
++ *           type: string
++ *           example: "1357158568008091264"
++ *       - name: type
++ *         in: query
++ *         required: true
++ *         description: Export format
++ *         schema:
++ *           type: string
++ *           enum: [trello]
++ *           example: trello
++ *     responses:
++ *       200:
++ *         description: Board exported successfully
++ *         content:
++ *           application/json:
++ *             schema:
++ *               type: object
++ *       400:
++ *         $ref: '#/components/responses/ValidationError'
++ *       401:
++ *         $ref: '#/components/responses/Unauthorized'
++ *       404:
++ *         $ref: '#/components/responses/NotFound'
++ */
++
++const { idInput } = require('../../../utils/inputs');
++
++const Errors = {
++  BOARD_NOT_FOUND: {
++    boardNotFound: 'Board not found',
++  },
++};
++
++module.exports = {
++  inputs: {
++    id: {
++      ...idInput,
++      required: true,
++    },
++    type: {
++      type: 'string',
++      isIn: Object.values(Board.ExportTypes),
++      required: true,
++    },
++  },
++
++  exits: {
++    boardNotFound: {
++      responseType: 'notFound',
++    },
++  },
++
++  async fn(inputs, exits) {
++    const { currentUser } = this.req;
++
++    const { board, project } = await sails.helpers.boards
++      .getPathToProjectById(inputs.id)
++      .intercept('pathNotFound', () => Errors.BOARD_NOT_FOUND);
++
++    if (currentUser.role !== User.Roles.ADMIN || project.ownerProjectManagerId) {
++      const isProjectManager = await sails.helpers.users.isProjectManager(
++        currentUser.id,
++        project.id,
++      );
++
++      if (!isProjectManager) {
++        const boardMembership = await BoardMembership.qm.getOneByBoardIdAndUserId(
++          board.id,
++          currentUser.id,
++        );
++
++        if (!boardMembership) {
++          throw Errors.BOARD_NOT_FOUND; // Forbidden
++        }
++      }
++    }
++
++    const exportedBoard = await sails.helpers.boards.exportToTrello(board);
++
++    this.res.set(
++      'Content-Disposition',
++      `attachment; filename="${board.name.replace(/[^\w\-. ]/g, '_')}.json"`,
++    );
++
++    return exits.success(exportedBoard);
++  },
++};
+diff --git a/server/api/helpers/boards/export-to-trello.js b/server/api/helpers/boards/export-to-trello.js
+new file mode 100644
+index 0000000..35ebac0
+--- /dev/null
++++ b/server/api/helpers/boards/export-to-trello.js
+@@ -0,0 +1,160 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++// BSY Media: reverse of import-from-trello.js - produces a board.json shaped
++// like a real Trello export, so it can be re-imported here (via the existing
++// "From Trello" import) or dropped into Trello/any other Trello-compatible
++// kanban app. Only the fields the importer itself understands are emitted;
++// anything PLANKA-only (custom fields, card assignees, attachments, task
++// due dates) has no Trello equivalent and is intentionally left out.
++const TRELLO_COLOR_BY_PLANKA_COLOR = {
++  'muddy-grey': 'black',
++  'autumn-leafs': 'orange',
++  'morning-sky': 'sky',
++  'antique-blue': 'blue',
++  'egg-yellow': 'yellow',
++  'desert-sand': 'yellow',
++  'dark-granite': 'black',
++  'fresh-salad': 'green',
++  'lagoon-blue': 'blue',
++  'midnight-blue': 'blue',
++  'light-orange': 'orange',
++  'pumpkin-orange': 'orange',
++  'light-concrete': 'black',
++  'sunny-grass': 'green',
++  'navy-blue': 'blue',
++  'lilac-eyes': 'purple',
++  'apricot-red': 'red',
++  'orange-peel': 'orange',
++  'silver-glint': 'black',
++  'bright-moss': 'green',
++  'deep-ocean': 'blue',
++  'summer-sky': 'sky',
++  'berry-red': 'red',
++  'light-cocoa': 'orange',
++  'grey-stone': 'black',
++  'tank-green': 'green',
++  'coral-green': 'green',
++  'sugar-plum': 'purple',
++  'pink-tulip': 'pink',
++  'shady-rust': 'orange',
++  'wet-rock': 'black',
++  'wet-moss': 'lime',
++  'turquoise-sea': 'sky',
++  'lavender-fields': 'purple',
++  'piggy-red': 'red',
++  'light-mud': 'orange',
++  'gun-metal': 'black',
++  'modern-green': 'green',
++  'french-coast': 'blue',
++  'sweet-lilac': 'purple',
++  'red-burgundy': 'red',
++  'pirate-gold': 'yellow',
++};
++
++module.exports = {
++  inputs: {
++    board: {
++      type: 'ref',
++      required: true,
++    },
++  },
++
++  async fn(inputs) {
++    const { board } = inputs;
++
++    const labels = await Label.qm.getByBoardId(board.id);
++    const lists = await List.qm.getByBoardId(board.id);
++    const finiteLists = lists.filter((list) => sails.helpers.lists.isFinite(list));
++    const finiteListIds = sails.helpers.utils.mapRecords(finiteLists);
++
++    const cards = await Card.qm.getByListIds(finiteListIds);
++    const cardIds = sails.helpers.utils.mapRecords(cards);
++
++    const taskLists = await TaskList.qm.getByCardIds(cardIds);
++    const taskListIds = sails.helpers.utils.mapRecords(taskLists);
++
++    const tasks = await Task.qm.getByTaskListIds(taskListIds);
++    const cardLabels = await CardLabel.qm.getByCardIds(cardIds);
++
++    const comments = cardIds.length > 0 ? await Comment.find({ cardId: cardIds }).sort('id ASC') : [];
++    const userIds = _.uniq(comments.map((comment) => comment.userId));
++    const users = await User.qm.getByIds(userIds);
++    const userById = _.keyBy(users, 'id');
++
++    const trelloLabels = labels.map((label) => ({
++      id: label.id,
++      name: label.name || '',
++      color: TRELLO_COLOR_BY_PLANKA_COLOR[label.color] || null,
++    }));
++
++    const trelloLists = finiteLists.map((list) => ({
++      id: list.id,
++      name: list.name,
++      pos: list.position,
++      closed: false,
++    }));
++
++    const cardLabelIdsByCardId = _.groupBy(cardLabels, 'cardId');
++
++    const trelloCards = cards.map((card) => ({
++      id: card.id,
++      idList: card.listId,
++      name: card.name,
++      desc: card.description || '',
++      pos: card.position,
++      closed: false,
++      idLabels: (cardLabelIdsByCardId[card.id] || []).map((cardLabel) => cardLabel.labelId),
++    }));
++
++    const tasksByTaskListId = _.groupBy(tasks, 'taskListId');
++
++    const trelloChecklists = taskLists.map((taskList) => ({
++      id: taskList.id,
++      idCard: taskList.cardId,
++      name: taskList.name,
++      pos: taskList.position,
++      checkItems: (tasksByTaskListId[taskList.id] || []).map((task) => ({
++        id: task.id,
++        name: task.name,
++        pos: task.position,
++        state: task.isCompleted ? 'complete' : 'incomplete',
++      })),
++    }));
++
++    const trelloCommentActions = comments
++      .slice()
++      .reverse()
++      .map((comment) => {
++        const user = userById[comment.userId];
++
++        return {
++          id: comment.id,
++          type: 'commentCard',
++          date: comment.createdAt,
++          data: {
++            text: comment.text,
++            card: {
++              id: comment.cardId,
++            },
++          },
++          memberCreator: {
++            fullName: user ? user.name : 'Unknown user',
++            username: user ? user.username : 'unknown',
++          },
++        };
++      });
++
++    return {
++      id: board.id,
++      name: board.name,
++      labels: trelloLabels,
++      lists: trelloLists,
++      cards: trelloCards,
++      checklists: trelloChecklists,
++      actions: trelloCommentActions,
++    };
++  },
++};
+diff --git a/server/api/models/Board.js b/server/api/models/Board.js
+index 1d11816..f1e689f 100755
+--- a/server/api/models/Board.js
++++ b/server/api/models/Board.js
+@@ -104,9 +104,14 @@ const ImportTypes = {
+   TRELLO: 'trello',
+ };
+ 
++const ExportTypes = {
++  TRELLO: 'trello',
++};
++
+ module.exports = {
+   Views,
+   ImportTypes,
++  ExportTypes,
+ 
+   attributes: {
+     //  ╔═╗╦═╗╦╔╦╗╦╔╦╗╦╦  ╦╔═╗╔═╗
+diff --git a/server/config/routes.js b/server/config/routes.js
+index 88217cd..a2df4d7 100644
+--- a/server/config/routes.js
++++ b/server/config/routes.js
+@@ -152,6 +152,7 @@ module.exports.routes = {
+ 
+   'POST /api/projects/:projectId/boards': 'boards/create',
+   'GET /api/boards/:id': 'boards/show',
++  'GET /api/boards/:id/export': 'boards/export',
+   'PATCH /api/boards/:id': 'boards/update',
+   'DELETE /api/boards/:id': 'boards/delete',
+ 
