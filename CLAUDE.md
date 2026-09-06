@@ -2895,3 +2895,32 @@ toggling "Turn off label glow" via a real UI click (not just direct API calls) r
 correctly in both directions, confirmed via a follow-up `GET /api/users/:id` after each click; list
 view continued showing classic chips throughout regardless of the toggle. No console/container
 errors.
+
+## Tighten label glow size and add list-header spacing (2026-09-06)
+
+Follow-up to the label-glow feature above: client reported the glow on a list's first card was
+getting clipped at the top by the list's title bar sitting right above it.
+
+Root cause: `.cardsInnerWrapper` in `client/src/components/lists/List/List.module.scss` (the
+scrollable column of cards under a list header) has `overflow-x: hidden; overflow-y: auto;`. A
+box-shadow renders outside its own element's border box regardless of that same element's
+`overflow`, but it's still clipped by an *ancestor's* overflow if it extends past that ancestor's
+bounds - and the original glow was wide enough (up to ~22px past the card edge for a 3-label card)
+to hit that scrollable container's top edge, which sits immediately above the first card with zero
+gap.
+
+Fix (`planka-custom/patches/0058-tune-label-glow-size-and-spacing.patch`), both changes from the
+plan the client asked for:
+1. Tightened the glow in `Card.jsx`: ring spacing reduced from 3px to 2px per label, halo blur
+   reduced from 10px to 6px, and the halo's spread is now computed relative to the last ring
+   instead of scaling directly with label count - caps the worst case (many labels) at roughly
+   13px past the card edge instead of 22px+.
+2. Added `padding: 10px 8px 0` (was `0 8px`) to `.cardsOuterWrapper` in `List.module.scss`, giving
+   the first card's glow room to render inside the scrollable area before it reaches
+   `.cardsInnerWrapper`'s clipping edge.
+
+Verified in an isolated stack: screenshot confirms a visible gap between the list header and the
+first card, with the tightened multi-ring glow now fully visible (not cut off) on both a
+single-label and a three-label card. Re-ran the full 0057 toggle-round-trip check (real UI click
+on/off, confirmed via `GET /api/users/:id`) to confirm this change didn't regress the toggle
+behavior. No console/container errors.

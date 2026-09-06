@@ -1,0 +1,48 @@
+diff --git a/client/src/components/cards/Card/Card.jsx b/client/src/components/cards/Card/Card.jsx
+index 2621994..2c857f0 100755
+--- a/client/src/components/cards/Card/Card.jsx
++++ b/client/src/components/cards/Card/Card.jsx
+@@ -54,18 +54,24 @@ const Card = React.memo(({ id, isInline }) => {
+   // this is the element with the actual visible card shape (background,
+   // radius, resting shadow). Skipped for inline/list rows, which have no
+   // card boundary for a glow to wrap around and always show classic chips.
++  // Kept deliberately tight (short ring spacing, small halo blur) since the
++  // list's card container clips overflowing box-shadow past its scrollable
++  // edges - a wide glow on the first card gets cut off by the list header
++  // above it (see List.module.scss's .cardsOuterWrapper top padding, which
++  // exists specifically to give this glow room to render).
+   const labelGlowStyle = useMemo(() => {
+     if (isInline || turnOffLabelGlow || labelColors.length === 0) {
+       return undefined;
+     }
+ 
+     const rings = labelColors.map(
+-      (color, index) => `0 0 0 ${2 + index * 3}px ${LabelGlowColors[color] || '#999999'}`,
++      (color, index) => `0 0 0 ${1 + index * 2}px ${LabelGlowColors[color] || '#999999'}`,
+     );
+     const haloColor = LabelGlowColors[labelColors[0]] || '#999999';
++    const lastRingSpread = 1 + (labelColors.length - 1) * 2;
+ 
+     return {
+-      boxShadow: [...rings, `0 0 10px ${3 + labelColors.length * 3}px ${haloColor}`].join(', '),
++      boxShadow: [...rings, `0 0 6px ${lastRingSpread + 2}px ${haloColor}`].join(', '),
+     };
+   }, [isInline, turnOffLabelGlow, labelColors]);
+ 
+diff --git a/client/src/components/lists/List/List.module.scss b/client/src/components/lists/List/List.module.scss
+index 0d13cfd..a6b07ee 100644
+--- a/client/src/components/lists/List/List.module.scss
++++ b/client/src/components/lists/List/List.module.scss
+@@ -87,7 +87,11 @@
+   }
+ 
+   .cardsOuterWrapper {
+-    padding: 0 8px;
++    // BSY Media: top padding gives the first card's label glow (see
++    // Card.jsx) room to render before it hits .cardsInnerWrapper's
++    // scrollable edge above - without it, the glow gets clipped by the
++    // list header sitting right above this scroll area.
++    padding: 10px 8px 0;
+     white-space: normal;
+     width: 272px;
+   }
