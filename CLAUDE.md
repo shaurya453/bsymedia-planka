@@ -2840,3 +2840,58 @@ tasks → confirmed its name shows on the card face with no progress bar; opened
 confirmed the popup now only has name/settings + Save, no Delete; clicked the new trash icon →
 confirmed the identical "Delete Task List" confirmation dialog appears and deleting it works. No
 console/container errors.
+
+## Show labels as a glow around card edges by default, boxes as opt-out (2026-09-06)
+
+Client wanted labels off the card face as colored text chips ("boxes") by default, replaced by a
+colored glow around the card's own edges — with the classic box view kept as an opt-out toggle in
+settings, defaulting off.
+
+Scope decisions:
+- Only the Kanban/board card face (`ProjectContent`/`StoryContent`, i.e. `Card.jsx` with
+  `isInline={false}`) switches to the glow. The compact list/table row view (`InlineContent.jsx`)
+  keeps classic chips unconditionally — a dense row has no "card" shape for a glow to wrap around.
+- The setting is **per-user**, not per-board — a personal display preference, following the exact
+  existing pattern of `turnOffRecentCardHighlighting` in
+  `client/src/components/users/UserSettingsModal/PreferencesPane.jsx`, not something that needs to
+  be synced across every board member.
+
+New field `turnOffLabelGlow` (boolean, `defaultsTo: false` — `false` = glow active, the new
+default) added to `User` exactly like its sibling preference booleans: `PERSONAL_FIELD_NAMES` +
+attribute definition in `server/api/models/User.js`, input + pick-list in
+`server/api/controllers/users/update.js`, a new Knex migration
+(`server/db/migrations/20260906092116_add_turn_off_label_glow_to_user.js`, same
+add-column-with-default-then-drop-default pattern as `cards_dark_mode_enabled` on Project), and a
+new toggle in `PreferencesPane.jsx`.
+
+Client rendering (`planka-custom/patches/0057-label-glow-instead-of-boxes.patch`):
+- Added `client/src/constants/LabelGlowColors.js`, solid hex values for all 42 label colors
+  extracted from the `.background<Name>` rules in `styles.module.scss` (two colors defined there
+  as gradients — `silver-glint`, `pirate-gold` — use a representative solid approximation, since
+  `box-shadow` needs a solid color).
+- Added `makeSelectLabelColorsByCardId` to `client/src/selectors/cards.js` (mirrors the existing
+  `makeSelectLabelIdsByCardId`, returning colors instead of ids).
+- `Card.jsx` computes the glow as an inline `boxShadow` on the actual visible card box (the outer
+  `styles.wrapper` div, not inside `ProjectContent`/`StoryContent`) — one solid ring per label
+  color (nested outward 3px apart) plus a soft blurred halo in the first label's color. Skipped
+  when `isInline`, the user's `turnOffLabelGlow` is true, or the card has no labels. `box-shadow`
+  renders outside an element's own border box regardless of that same element's `overflow:
+  hidden`, so the glow isn't clipped by the card's rounded corners.
+- `ProjectContent.jsx`/`StoryContent.jsx` only render the classic chip row when
+  `turnOffLabelGlow` is true; `ProjectContent.jsx`'s `isCompact` layout calculation was switched to
+  use a `turnOffLabelGlow ? labelIds : []` value so a labels-only card still collapses to the
+  compact layout when the chip row isn't being shown.
+
+Caught during verification: `server/db/seeds/default.js`'s admin-bootstrap seed does a raw `knex`
+insert listing every `NOT NULL` personal-preference column explicitly (bypassing Waterline's
+`defaultsTo`) — adding the new `NOT NULL` `turn_off_label_glow` column without also adding it here
+broke admin-user creation on a fresh database (silently, since the seed swallows the insert error
+and falls through to a no-op update). Fixed by adding `turnOffLabelGlow: false` to that insert
+alongside its sibling boolean fields.
+
+Verified in an isolated stack: default state shows a multi-ring glow (no chip text) for a
+multi-label card, confirmed via both screenshot and the card's computed inline `box-shadow`;
+toggling "Turn off label glow" via a real UI click (not just direct API calls) round-tripped
+correctly in both directions, confirmed via a follow-up `GET /api/users/:id` after each click; list
+view continued showing classic chips throughout regardless of the toggle. No console/container
+errors.

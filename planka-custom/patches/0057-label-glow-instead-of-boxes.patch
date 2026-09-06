@@ -1,0 +1,344 @@
+diff --git a/client/src/components/cards/Card/Card.jsx b/client/src/components/cards/Card/Card.jsx
+index c1c7c5c..2621994 100755
+--- a/client/src/components/cards/Card/Card.jsx
++++ b/client/src/components/cards/Card/Card.jsx
+@@ -16,6 +16,7 @@ import { BoardShortcutsContext } from '../../../contexts';
+ import Paths from '../../../constants/Paths';
+ import ClipboardTypes from '../../../constants/ClipboardTypes';
+ import { BoardMembershipRoles, CardTypes } from '../../../constants/Enums';
++import LabelGlowColors from '../../../constants/LabelGlowColors';
+ import ProjectContent from './ProjectContent';
+ import StoryContent from './StoryContent';
+ import InlineContent from './InlineContent';
+@@ -27,6 +28,7 @@ import styles from './Card.module.scss';
+ const Card = React.memo(({ id, isInline }) => {
+   const selectCardById = useMemo(() => selectors.makeSelectCardById(), []);
+   const selectIsCardWithIdRecent = useMemo(() => selectors.makeSelectIsCardWithIdRecent(), []);
++  const selectLabelColorsByCardId = useMemo(() => selectors.makeSelectLabelColorsByCardId(), []);
+ 
+   const card = useSelector((state) => selectCardById(state, id));
+ 
+@@ -40,6 +42,33 @@ const Card = React.memo(({ id, isInline }) => {
+     return selectIsCardWithIdRecent(state, id);
+   });
+ 
++  const turnOffLabelGlow = useSelector(
++    (state) => selectors.selectCurrentUser(state).turnOffLabelGlow,
++  );
++  const labelColors = useSelector((state) => selectLabelColorsByCardId(state, id));
++
++  // BSY Media: label glow is the default way labels show up on the card
++  // face (a colored ring/halo around the card itself instead of a text
++  // chip) - see "turnOffLabelGlow" user preference. Applied here on the
++  // outer card box rather than inside ProjectContent/StoryContent, since
++  // this is the element with the actual visible card shape (background,
++  // radius, resting shadow). Skipped for inline/list rows, which have no
++  // card boundary for a glow to wrap around and always show classic chips.
++  const labelGlowStyle = useMemo(() => {
++    if (isInline || turnOffLabelGlow || labelColors.length === 0) {
++      return undefined;
++    }
++
++    const rings = labelColors.map(
++      (color, index) => `0 0 0 ${2 + index * 3}px ${LabelGlowColors[color] || '#999999'}`,
++    );
++    const haloColor = LabelGlowColors[labelColors[0]] || '#999999';
++
++    return {
++      boxShadow: [...rings, `0 0 10px ${3 + labelColors.length * 3}px ${haloColor}`].join(', '),
++    };
++  }, [isInline, turnOffLabelGlow, labelColors]);
++
+   const isCut = useSelector((state) => {
+     const clipboard = selectors.selectClipboard(state);
+     return clipboard && clipboard.type === ClipboardTypes.CUT && card.id === clipboard.cardId;
+@@ -131,6 +160,7 @@ const Card = React.memo(({ id, isInline }) => {
+   return (
+     <div
+       className={classNames(styles.wrapper, isHighlightedAsRecent && styles.wrapperRecent, 'card')}
++      style={labelGlowStyle}
+     >
+       {card.isPersisted ? (
+         <>
+diff --git a/client/src/components/cards/Card/ProjectContent.jsx b/client/src/components/cards/Card/ProjectContent.jsx
+index aec458f..ff4b7e4 100644
+--- a/client/src/components/cards/Card/ProjectContent.jsx
++++ b/client/src/components/cards/Card/ProjectContent.jsx
+@@ -99,6 +99,16 @@ const ProjectContent = React.memo(({ cardId }) => {
+     };
+   }, shallowEqual);
+ 
++  // BSY Media: when label glow is active (the default), labels are shown as
++  // a glow around the whole card (see Card.jsx) instead of a chip row here,
++  // so they're excluded from both the chip row and the isCompact layout
++  // calculation below - a labels-only card should still collapse to the
++  // compact layout since nothing is actually rendered for them on this face.
++  const turnOffLabelGlow = useSelector(
++    (state) => selectors.selectCurrentUser(state).turnOffLabelGlow,
++  );
++  const visibleLabelIds = turnOffLabelGlow ? labelIds : [];
++
+   const canEditStopwatch = useSelector((state) => {
+     if (isListArchiveOrTrash(list)) {
+       return false;
+@@ -137,7 +147,7 @@ const ProjectContent = React.memo(({ cardId }) => {
+     listName;
+ 
+   const isCompact =
+-    (labelIds.length === 0 || customFieldValueIds.length === 0) &&
++    (visibleLabelIds.length === 0 || customFieldValueIds.length === 0) &&
+     taskListIds.length === 0 &&
+     !hasInformation;
+ 
+@@ -168,9 +178,9 @@ const ProjectContent = React.memo(({ cardId }) => {
+           <img src={coverUrl} alt="" className={styles.cover} />
+         </div>
+       )}
+-      {labelIds.length > 0 && (
++      {visibleLabelIds.length > 0 && (
+         <span className={classNames(styles.labels, !isCompact && styles.labelsFull)}>
+-          {labelIds.map((labelId) => (
++          {visibleLabelIds.map((labelId) => (
+             <span key={labelId} className={classNames(styles.attachment, styles.attachmentLeft)}>
+               <LabelChip id={labelId} size="tiny" />
+             </span>
+diff --git a/client/src/components/cards/Card/StoryContent.jsx b/client/src/components/cards/Card/StoryContent.jsx
+index 218dc5f..3b01038 100644
+--- a/client/src/components/cards/Card/StoryContent.jsx
++++ b/client/src/components/cards/Card/StoryContent.jsx
+@@ -59,6 +59,13 @@ const StoryContent = React.memo(({ cardId }) => {
+   const list = useSelector((state) => selectListById(state, card.listId));
+   const labelIds = useSelector((state) => selectLabelIdsByCardId(state, cardId));
+ 
++  // BSY Media: labels show as a card-edge glow by default (see Card.jsx) -
++  // only render the classic chip row when the user opted out of that.
++  const turnOffLabelGlow = useSelector(
++    (state) => selectors.selectCurrentUser(state).turnOffLabelGlow,
++  );
++  const visibleLabelIds = turnOffLabelGlow ? labelIds : [];
++
+   const taskListIds = useSelector((state) =>
+     selectShownOnFrontOfCardTaskListIdsByCardId(state, cardId),
+   );
+@@ -100,9 +107,9 @@ const StoryContent = React.memo(({ cardId }) => {
+         </div>
+       )}
+       <div className={styles.wrapper}>
+-        {labelIds.length > 0 && (
++        {visibleLabelIds.length > 0 && (
+           <span className={styles.labels}>
+-            {labelIds.map((labelId) => (
++            {visibleLabelIds.map((labelId) => (
+               <span key={labelId} className={classNames(styles.attachment, styles.attachmentLeft)}>
+                 <LabelChip id={labelId} size="tiny" />
+               </span>
+diff --git a/client/src/components/users/UserSettingsModal/PreferencesPane.jsx b/client/src/components/users/UserSettingsModal/PreferencesPane.jsx
+index 984c831..35c0b0c 100644
+--- a/client/src/components/users/UserSettingsModal/PreferencesPane.jsx
++++ b/client/src/components/users/UserSettingsModal/PreferencesPane.jsx
+@@ -56,6 +56,14 @@ const PreferencesPane = React.memo(() => {
+         className={styles.radio}
+         onChange={handleChange}
+       />
++      <Radio
++        toggle
++        name="turnOffLabelGlow"
++        checked={user.turnOffLabelGlow}
++        label={t('common.turnOffLabelGlow')}
++        className={styles.radio}
++        onChange={handleChange}
++      />
+     </Tab.Pane>
+   );
+ });
+diff --git a/client/src/constants/LabelGlowColors.js b/client/src/constants/LabelGlowColors.js
+new file mode 100644
+index 0000000..aa7f96e
+--- /dev/null
++++ b/client/src/constants/LabelGlowColors.js
+@@ -0,0 +1,53 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++// BSY Media: solid hex values for the card-edge label glow, extracted from
++// the .background<Name> rules in styles.module.scss. box-shadow requires a
++// solid color, so silver-glint and pirate-gold (defined there as gradients)
++// use a representative solid color from their gradient instead.
++export default {
++  'muddy-grey': '#69655a',
++  'autumn-leafs': '#c9b037',
++  'morning-sky': '#52b9d5',
++  'antique-blue': '#6c99bb',
++  'egg-yellow': '#f9c423',
++  'desert-sand': '#fad371',
++  'dark-granite': '#8b8680',
++  'fresh-salad': '#ced85e',
++  'lagoon-blue': '#109dc0',
++  'midnight-blue': '#0a63a0',
++  'light-orange': '#fdae5f',
++  'pumpkin-orange': '#ed9223',
++  'light-concrete': '#afb0a4',
++  'sunny-grass': '#beca02',
++  'navy-blue': '#1d7299',
++  'lilac-eyes': '#406cbd',
++  'apricot-red': '#fc736c',
++  'orange-peel': '#de692f',
++  'silver-glint': '#92908d',
++  'bright-moss': '#96b352',
++  'deep-ocean': '#004c70',
++  'summer-sky': '#5d9cec',
++  'berry-red': '#e83855',
++  'light-cocoa': '#a85540',
++  'grey-stone': '#aab2bd',
++  'tank-green': '#8aa177',
++  'coral-green': '#2b6a6c',
++  'sugar-plum': '#7e86c7',
++  'pink-tulip': '#e34f7c',
++  'shady-rust': '#87564a',
++  'wet-rock': '#83949b',
++  'wet-moss': '#4a8753',
++  'turquoise-sea': '#00858a',
++  'lavender-fields': '#b287bd',
++  'piggy-red': '#f97394',
++  'light-mud': '#c7a57a',
++  'gun-metal': '#4f6573',
++  'modern-green': '#77ce87',
++  'french-coast': '#00b4b1',
++  'sweet-lilac': '#975298',
++  'red-burgundy': '#ad5f7d',
++  'pirate-gold': '#b47e11',
++};
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 06aaf78..4824f67 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -370,6 +370,7 @@ export default {
+       title: 'Title',
+       trash: 'Trash',
+       trashHasBeenSuccessfullyEmptied: 'Trash has been successfully emptied.',
++      turnOffLabelGlow: 'Turn off label glow (show label boxes instead)',
+       turnOffRecentCardHighlighting: 'Turn off recent card highlighting',
+       typeNameToConfirm: 'Type the name to confirm.',
+       typeTitleToConfirm: 'Type the title to confirm.',
+diff --git a/client/src/selectors/cards.js b/client/src/selectors/cards.js
+index b2c7610..905804c 100644
+--- a/client/src/selectors/cards.js
++++ b/client/src/selectors/cards.js
+@@ -85,6 +85,23 @@ export const makeSelectLabelIdsByCardId = () =>
+ 
+ export const selectLabelIdsByCardId = makeSelectLabelIdsByCardId();
+ 
++export const makeSelectLabelColorsByCardId = () =>
++  createSelector(
++    orm,
++    (_, id) => id,
++    ({ Card }, id) => {
++      const cardModel = Card.withId(id);
++
++      if (!cardModel) {
++        return cardModel;
++      }
++
++      return cardModel.labels.toRefArray().map((label) => label.color);
++    },
++  );
++
++export const selectLabelColorsByCardId = makeSelectLabelColorsByCardId();
++
+ export const makeSelectShownOnFrontOfCardTaskListIdsByCardId = () =>
+   createSelector(
+     orm,
+@@ -489,6 +506,8 @@ export default {
+   selectUserIdsByCardId,
+   makeSelectLabelIdsByCardId,
+   selectLabelIdsByCardId,
++  makeSelectLabelColorsByCardId,
++  selectLabelColorsByCardId,
+   makeSelectShownOnFrontOfCardTaskListIdsByCardId,
+   selectShownOnFrontOfCardTaskListIdsByCardId,
+   makeSelectAttachmentsTotalByCardId,
+diff --git a/server/api/controllers/users/update.js b/server/api/controllers/users/update.js
+index b387fcc..f3b6af7 100755
+--- a/server/api/controllers/users/update.js
++++ b/server/api/controllers/users/update.js
+@@ -190,6 +190,9 @@ module.exports = {
+     turnOffRecentCardHighlighting: {
+       type: 'boolean',
+     },
++    turnOffLabelGlow: {
++      type: 'boolean',
++    },
+     enableFavoritesByDefault: {
+       type: 'boolean',
+     },
+@@ -279,6 +282,7 @@ module.exports = {
+         'subscribeToOwnCards',
+         'subscribeToCardWhenCommenting',
+         'turnOffRecentCardHighlighting',
++        'turnOffLabelGlow',
+         'enableFavoritesByDefault',
+         'defaultEditorMode',
+         'defaultHomeView',
+diff --git a/server/api/models/User.js b/server/api/models/User.js
+index c98e911..14344f3 100755
+--- a/server/api/models/User.js
++++ b/server/api/models/User.js
+@@ -245,6 +245,7 @@ const PERSONAL_FIELD_NAMES = [
+   'subscribeToOwnCards',
+   'subscribeToCardWhenCommenting',
+   'turnOffRecentCardHighlighting',
++  'turnOffLabelGlow',
+   'enableFavoritesByDefault',
+   'defaultEditorMode',
+   'defaultHomeView',
+@@ -349,6 +350,11 @@ module.exports = {
+       defaultsTo: false,
+       columnName: 'turn_off_recent_card_highlighting',
+     },
++    turnOffLabelGlow: {
++      type: 'boolean',
++      defaultsTo: false,
++      columnName: 'turn_off_label_glow',
++    },
+     enableFavoritesByDefault: {
+       type: 'boolean',
+       defaultsTo: true,
+diff --git a/server/db/migrations/20260906092116_add_turn_off_label_glow_to_user.js b/server/db/migrations/20260906092116_add_turn_off_label_glow_to_user.js
+new file mode 100644
+index 0000000..fbeec25
+--- /dev/null
++++ b/server/db/migrations/20260906092116_add_turn_off_label_glow_to_user.js
+@@ -0,0 +1,19 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++module.exports.up = async (knex) => {
++  await knex.schema.alterTable('user_account', (table) => {
++    table.boolean('turn_off_label_glow').notNullable().defaultTo(false);
++  });
++
++  return knex.schema.alterTable('user_account', (table) => {
++    table.boolean('turn_off_label_glow').notNullable().alter();
++  });
++};
++
++module.exports.down = (knex) =>
++  knex.schema.alterTable('user_account', (table) => {
++    table.dropColumn('turn_off_label_glow');
++  });
+diff --git a/server/db/seeds/default.js b/server/db/seeds/default.js
+index 3da664e..d53b31d 100644
+--- a/server/db/seeds/default.js
++++ b/server/db/seeds/default.js
+@@ -57,6 +57,7 @@ exports.seed = async (knex) => {
+           subscribeToOwnCards: false,
+           subscribeToCardWhenCommenting: true,
+           turnOffRecentCardHighlighting: false,
++          turnOffLabelGlow: false,
+           enableFavoritesByDefault: true,
+           defaultEditorMode: 'wysiwyg',
+           defaultHomeView: 'groupedProjects',
