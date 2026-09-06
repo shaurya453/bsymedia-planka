@@ -2924,3 +2924,47 @@ first card, with the tightened multi-ring glow now fully visible (not cut off) o
 single-label and a three-label card. Re-ran the full 0057 toggle-round-trip check (real UI click
 on/off, confirmed via `GET /api/users/:id`) to confirm this change didn't regress the toggle
 behavior. No console/container errors.
+
+## Move subtask delete off the pencil menu, show checklist status without subtasks, indent task blocks on card face (2026-09-06)
+
+Three related checklist/task usability fixes requested together.
+
+1. **Subtask delete was still buried behind the pencil menu.** The 0056 patch moved a *checklist's*
+   delete out of its pencil edit-form into its own trash icon, but explicitly left individual
+   *task* (subtask) rows alone at the time, since their pencil already opened a menu with two
+   separate items ("Edit Description" / "Delete Task") rather than a rename form - technically not
+   the same "mixed into a form" problem, but still the same practical complaint: delete was one
+   click behind the pencil, not its own control. Fixed by mirroring the 0056 pattern exactly on
+   `client/src/components/task-lists/TaskList/Task/Task.jsx`: the pencil (only shown for
+   non-linked tasks, since a linked task's name isn't editable) now directly triggers inline rename
+   with a plain `onClick`, no popup; a new trash icon next to it (always shown, since even a linked
+   task needs to stay deletable) uses `usePopupInClosableContext(ConfirmationStep)` directly with
+   the exact same `common.deleteTask` / `common.areYouSureYouWantToDeleteThisTask` /
+   `action.deleteTask` props the old menu already used. The now fully-unused
+   `Task/ActionsStep.jsx` + `.module.scss` were deleted (confirmed via grep - nothing else imports
+   them).
+2. **Checklist status dot didn't show on the card face for an empty checklist.** Card-face
+   `client/src/components/cards/Card/TaskList/TaskList.jsx` already rendered a small colored status
+   dot (`taskLists.status && <span className={styles.statusDot} .../>`) next to the progress bar -
+   but that whole row was gated behind `tasks.length > 0`, the same gate 0056 already removed from
+   the checklist *name* for the same reason. A checklist with a status set but zero tasks showed
+   nothing at all. Fixed by changing the gate to `(tasks.length > 0 || taskLists.status)` and
+   moving the progress-bar/count JSX (which does need real task data) into their own inner
+   `tasks.length > 0` guard, so a 0-task checklist with a status now shows just the dot, no
+   meaningless "0/0" bar.
+3. **Indentation.** Per client request, the checklist name/progress-row and each subtask row on the
+   card face now sit 8px further right than before (`TaskList.module.scss`'s `.name`/`.progressRow`
+   padding-left bumped 8px → 16px; `Task.module.scss`'s subtask `.wrapper` padding-left bumped 14px
+   → 22px, with its "–" bullet's absolute `left` bumped by the same 8px to stay attached to the
+   now-further-right text) - a visual cue that this block is nested under the card, not top-level
+   card content like the title/description.
+
+Verified in an isolated stack: a checklist with a status set and zero tasks ever added showed its
+dot correctly (confirmed two checklists on one card, one with 1 task + status, one with 0 tasks +
+status, both dots present and correctly colored/titled). Card-face indentation confirmed via
+`getComputedStyle`. In the card modal: confirmed the subtask's pencil opens inline rename directly
+(no menu, no "Delete Task" text anywhere in a popup after clicking it) and the separate trash icon
+opens the identical confirmation dialog, which successfully deletes the task; also confirmed a
+long subtask name wraps around the 4-icon action row without any overlap. No console/container
+errors (aside from one incidental 403 already seen in prior patches' verification, unrelated to
+this change).

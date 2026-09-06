@@ -1,0 +1,314 @@
+diff --git a/client/src/components/cards/Card/TaskList/Task.module.scss b/client/src/components/cards/Card/TaskList/Task.module.scss
+index 3b24011..551a369 100644
+--- a/client/src/components/cards/Card/TaskList/Task.module.scss
++++ b/client/src/components/cards/Card/TaskList/Task.module.scss
+@@ -30,18 +30,22 @@
+     color: #db2828;
+   }
+ 
++  // BSY Media: indented 8px further than before to match the extra indent
++  // added to the checklist name/progress row in TaskList.module.scss - the
++  // bullet's absolute "left" is bumped by the same amount so it stays
++  // attached to the (now more indented) text.
+   .wrapper {
+     display: block;
+     font-size: 12px;
+     line-height: 14px;
+     overflow-wrap: break-word;
+     padding-bottom: 6px;
+-    padding-left: 14px;
++    padding-left: 22px;
+ 
+     &:before {
+       content: "–";
+       position: absolute;
+-      left: 10px;
++      left: 18px;
+     }
+   }
+ }
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.jsx b/client/src/components/cards/Card/TaskList/TaskList.jsx
+index 1477325..5dcd9a9 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.jsx
++++ b/client/src/components/cards/Card/TaskList/TaskList.jsx
+@@ -87,7 +87,7 @@ const TaskList = React.memo(({ id }) => {
+       >
+         {taskLists.name}
+       </div>
+-      {tasks.length > 0 && (
++      {(tasks.length > 0 || taskLists.status) && (
+         <>
+           {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events,
+                                        jsx-a11y/no-static-element-interactions */}
+@@ -99,25 +99,30 @@ const TaskList = React.memo(({ id }) => {
+                 title={t(`common.taskListStatus_${taskLists.status}`)}
+               />
+             )}
+-            <span className={styles.progressWrapper}>
+-              <Progress
+-                autoSuccess
+-                value={completedTasksTotal}
+-                total={tasks.length}
+-                color="blue"
+-                size="tiny"
+-                className={styles.progress}
+-              />
+-            </span>
+-            <span
+-              className={classNames(
+-                styles.count,
+-                filteredTasks.length > 0 && styles.countOpenable,
+-                filteredTasks.length > 0 && (isOpened ? styles.countOpened : styles.countClosed),
+-              )}
+-            >
+-              {completedTasksTotal}/{tasks.length}
+-            </span>
++            {tasks.length > 0 && (
++              <>
++                <span className={styles.progressWrapper}>
++                  <Progress
++                    autoSuccess
++                    value={completedTasksTotal}
++                    total={tasks.length}
++                    color="blue"
++                    size="tiny"
++                    className={styles.progress}
++                  />
++                </span>
++                <span
++                  className={classNames(
++                    styles.count,
++                    filteredTasks.length > 0 && styles.countOpenable,
++                    filteredTasks.length > 0 &&
++                      (isOpened ? styles.countOpened : styles.countClosed),
++                  )}
++                >
++                  {completedTasksTotal}/{tasks.length}
++                </span>
++              </>
++            )}
+           </div>
+           {isOpened && filteredTasks.length > 0 && (
+             <ul className={styles.tasks}>
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.module.scss b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+index 1ab59af..2352b54 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.module.scss
++++ b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+@@ -35,13 +35,19 @@
+     padding: 0 6px 6px;
+   }
+ 
++  // BSY Media: extra left padding (beyond the 8px every sibling card-face
++  // element already gets from this bleed-and-repad trick) indents the whole
++  // checklist block a little relative to the card title/description above
++  // it, as a visual cue that this is a nested task, not top-level card
++  // content. Task.module.scss's subtask .wrapper indent/bullet position is
++  // bumped by the same 8px to match.
+   .name {
+     color: #6b808c;
+     font-size: 12px;
+     font-weight: bold;
+     margin: 0 -8px -2px;
+     overflow: hidden;
+-    padding: 0 8px;
++    padding: 0 8px 0 16px;
+     text-overflow: ellipsis;
+     white-space: nowrap;
+   }
+@@ -67,7 +73,7 @@
+     gap: 8px;
+     justify-content: space-between;
+     margin: 0 -8px;
+-    padding: 0px 8px 8px;
++    padding: 0px 8px 8px 16px;
+   }
+ 
+   // BSY Media: manual checklist status indicator - a small colored dot next
+diff --git a/client/src/components/task-lists/TaskList/Task/ActionsStep.jsx b/client/src/components/task-lists/TaskList/Task/ActionsStep.jsx
+deleted file mode 100755
+index bc984f8..0000000
+--- a/client/src/components/task-lists/TaskList/Task/ActionsStep.jsx
++++ /dev/null
+@@ -1,93 +0,0 @@
+-/*!
+- * Copyright (c) 2024 PLANKA Software GmbH
+- * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+- */
+-
+-import React, { useCallback, useMemo } from 'react';
+-import PropTypes from 'prop-types';
+-import { useDispatch, useSelector } from 'react-redux';
+-import { useTranslation } from 'react-i18next';
+-import { Icon, Menu } from 'semantic-ui-react';
+-import { Popup } from '../../../../lib/custom-ui';
+-
+-import selectors from '../../../../selectors';
+-import entryActions from '../../../../entry-actions';
+-import { useSteps } from '../../../../hooks';
+-import ConfirmationStep from '../../../common/ConfirmationStep';
+-
+-import styles from './ActionsStep.module.scss';
+-
+-const StepTypes = {
+-  DELETE: 'DELETE',
+-};
+-
+-const ActionsStep = React.memo(({ taskId, onNameEdit, onClose }) => {
+-  const selectTaskById = useMemo(() => selectors.makeSelectTaskById(), []);
+-
+-  const task = useSelector((state) => selectTaskById(state, taskId));
+-
+-  const dispatch = useDispatch();
+-  const [t] = useTranslation();
+-  const [step, openStep, handleBack] = useSteps();
+-
+-  const handleDeleteConfirm = useCallback(() => {
+-    dispatch(entryActions.deleteTask(taskId));
+-  }, [taskId, dispatch]);
+-
+-  const handleEditNameClick = useCallback(() => {
+-    onNameEdit();
+-    onClose();
+-  }, [onNameEdit, onClose]);
+-
+-  const handleDeleteClick = useCallback(() => {
+-    openStep(StepTypes.DELETE);
+-  }, [openStep]);
+-
+-  if (step && step.type === StepTypes.DELETE) {
+-    return (
+-      <ConfirmationStep
+-        title="common.deleteTask"
+-        content="common.areYouSureYouWantToDeleteThisTask"
+-        buttonContent="action.deleteTask"
+-        onConfirm={handleDeleteConfirm}
+-        onBack={handleBack}
+-      />
+-    );
+-  }
+-
+-  return (
+-    <>
+-      <Popup.Header>
+-        {t('common.taskActions', {
+-          context: 'title',
+-        })}
+-      </Popup.Header>
+-      <Popup.Content>
+-        <Menu secondary vertical className={styles.menu}>
+-          {!task.linkedCardId && (
+-            <Menu.Item className={styles.menuItem} onClick={handleEditNameClick}>
+-              <Icon name="align left" className={styles.menuItemIcon} />
+-              {t('action.editDescription', {
+-                context: 'title',
+-              })}
+-            </Menu.Item>
+-          )}
+-          <Menu.Item className={styles.menuItem} onClick={handleDeleteClick}>
+-            <Icon name="trash alternate outline" className={styles.menuItemIcon} />
+-            {t('action.deleteTask', {
+-              context: 'title',
+-            })}
+-          </Menu.Item>
+-        </Menu>
+-      </Popup.Content>
+-    </>
+-  );
+-});
+-
+-ActionsStep.propTypes = {
+-  taskId: PropTypes.string.isRequired,
+-  onNameEdit: PropTypes.func.isRequired,
+-  onClose: PropTypes.func.isRequired,
+-};
+-
+-export default ActionsStep;
+diff --git a/client/src/components/task-lists/TaskList/Task/ActionsStep.module.scss b/client/src/components/task-lists/TaskList/Task/ActionsStep.module.scss
+deleted file mode 100644
+index cd8b117..0000000
+--- a/client/src/components/task-lists/TaskList/Task/ActionsStep.module.scss
++++ /dev/null
+@@ -1,21 +0,0 @@
+-/*!
+- * Copyright (c) 2024 PLANKA Software GmbH
+- * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+- */
+-
+-:global(#app) {
+-  .menu {
+-    margin: 0 -12px -5px;
+-    width: calc(100% + 24px);
+-  }
+-
+-  .menuItem {
+-    margin: 0;
+-    padding-left: 14px;
+-  }
+-
+-  .menuItemIcon {
+-    float: left;
+-    margin: 0 0.5em 0 0;
+-  }
+-}
+diff --git a/client/src/components/task-lists/TaskList/Task/Task.jsx b/client/src/components/task-lists/TaskList/Task/Task.jsx
+index 776f456..99ca2b3 100755
+--- a/client/src/components/task-lists/TaskList/Task/Task.jsx
++++ b/client/src/components/task-lists/TaskList/Task/Task.jsx
+@@ -22,11 +22,11 @@ import { ClosableContext } from '../../../../contexts';
+ import Paths from '../../../../constants/Paths';
+ import EditName from './EditName';
+ import SelectAssigneeStep from './SelectAssigneeStep';
+-import ActionsStep from './ActionsStep';
+ import Linkify from '../../../common/Linkify';
+ import UserAvatar from '../../../users/UserAvatar';
+ import DueDateChip from '../../../cards/DueDateChip';
+ import EditDueDateStep from '../../../cards/EditDueDateStep';
++import ConfirmationStep from '../../../common/ConfirmationStep';
+ 
+ import styles from './Task.module.scss';
+ 
+@@ -92,6 +92,10 @@ const Task = React.memo(({ id, index }) => {
+     );
+   }, [id, dispatch]);
+ 
++  const handleDeleteConfirm = useCallback(() => {
++    dispatch(entryActions.deleteTask(id));
++  }, [id, dispatch]);
++
+   const isEditable = task.isPersisted && canEdit;
+ 
+   const handleClick = useCallback(() => {
+@@ -118,7 +122,7 @@ const Task = React.memo(({ id, index }) => {
+ 
+   const SelectAssigneePopup = usePopupInClosableContext(SelectAssigneeStep);
+   const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
+-  const ActionsPopup = usePopupInClosableContext(ActionsStep);
++  const DeleteConfirmationPopup = usePopupInClosableContext(ConfirmationStep);
+ 
+   return (
+     <Draggable
+@@ -245,11 +249,21 @@ const Task = React.memo(({ id, index }) => {
+                             </Button>
+                           </EditDatesPopup>
+                         )}
+-                        <ActionsPopup taskId={id} onNameEdit={handleNameEdit}>
+-                          <Button className={styles.editButton}>
++                        {!task.linkedCardId && (
++                          <Button className={styles.editButton} onClick={handleNameEdit}>
+                             <Icon fitted name="pencil" size="small" />
+                           </Button>
+-                        </ActionsPopup>
++                        )}
++                        <DeleteConfirmationPopup
++                          title="common.deleteTask"
++                          content="common.areYouSureYouWantToDeleteThisTask"
++                          buttonContent="action.deleteTask"
++                          onConfirm={handleDeleteConfirm}
++                        >
++                          <Button className={styles.editButton}>
++                            <Icon fitted name="trash alternate outline" size="small" />
++                          </Button>
++                        </DeleteConfirmationPopup>
+                       </>
+                     ) : (
+                       <UserAvatar
