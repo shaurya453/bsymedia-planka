@@ -1,0 +1,297 @@
+diff --git a/client/src/components/common/Toaster/ProjectExportPartiallyFailedToast.jsx b/client/src/components/common/Toaster/ProjectExportPartiallyFailedToast.jsx
+new file mode 100644
+index 0000000..4bc07b5
+--- /dev/null
++++ b/client/src/components/common/Toaster/ProjectExportPartiallyFailedToast.jsx
+@@ -0,0 +1,21 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React from 'react';
++import { useTranslation } from 'react-i18next';
++import { Icon, Message } from 'semantic-ui-react';
++
++const ProjectExportPartiallyFailedToast = React.memo(() => {
++  const [t] = useTranslation();
++
++  return (
++    <Message visible negative size="tiny">
++      <Icon name="download" />
++      {t('common.projectExportPartiallyFailed')}
++    </Message>
++  );
++});
++
++export default ProjectExportPartiallyFailedToast;
+diff --git a/client/src/components/common/Toaster/Toaster.jsx b/client/src/components/common/Toaster/Toaster.jsx
+index 773c933..85ebb65 100644
+--- a/client/src/components/common/Toaster/Toaster.jsx
++++ b/client/src/components/common/Toaster/Toaster.jsx
+@@ -14,6 +14,7 @@ import SourceCardNotCopyableToast from './SourceCardNotCopyableToast';
+ import SourceCardNotMovableToast from './SourceCardNotMovableToast';
+ import ListArchiveFailedToast from './ListArchiveFailedToast';
+ import BoardExportFailedToast from './BoardExportFailedToast';
++import ProjectExportPartiallyFailedToast from './ProjectExportPartiallyFailedToast';
+ 
+ const TOAST_BY_TYPE = {
+   [ToastTypes.FILE_IS_TOO_BIG]: FileIsTooBigToast,
+@@ -23,6 +24,7 @@ const TOAST_BY_TYPE = {
+   [ToastTypes.SOURCE_CARD_NOT_MOVABLE]: SourceCardNotMovableToast,
+   [ToastTypes.LIST_ARCHIVE_FAILED]: ListArchiveFailedToast,
+   [ToastTypes.BOARD_EXPORT_FAILED]: BoardExportFailedToast,
++  [ToastTypes.PROJECT_EXPORT_PARTIALLY_FAILED]: ProjectExportPartiallyFailedToast,
+ };
+ 
+ const Toaster = React.memo(() => (
+diff --git a/client/src/components/projects/ProjectSettingsModal/GeneralPane/GeneralPane.jsx b/client/src/components/projects/ProjectSettingsModal/GeneralPane/GeneralPane.jsx
+index 9b9bb16..70b0f76 100644
+--- a/client/src/components/projects/ProjectSettingsModal/GeneralPane/GeneralPane.jsx
++++ b/client/src/components/projects/ProjectSettingsModal/GeneralPane/GeneralPane.jsx
+@@ -43,6 +43,10 @@ const GeneralPane = React.memo(() => {
+     dispatch(entryActions.deleteCurrentProject());
+   }, [dispatch]);
+ 
++  const handleExportClick = useCallback(() => {
++    dispatch(entryActions.exportCurrentProject());
++  }, [dispatch]);
++
+   const ConfirmationPopup = usePopupInClosableContext(ConfirmationStep);
+ 
+   return (
+@@ -69,6 +73,20 @@ const GeneralPane = React.memo(() => {
+       />
+       {canEdit && (
+         <>
++          <Divider horizontal section>
++            <Header as="h4">
++              {t('common.export', {
++                context: 'title',
++              })}
++            </Header>
++          </Divider>
++          <div className={styles.action}>
++            <Button disabled={!hasBoards} className={styles.actionButton} onClick={handleExportClick}>
++              {t('common.exportProject', {
++                context: 'title',
++              })}
++            </Button>
++          </div>
+           <Divider horizontal section>
+             <Header as="h4">
+               {t('common.dangerZone', {
+diff --git a/client/src/constants/EntryActionTypes.js b/client/src/constants/EntryActionTypes.js
+index fcd229c..21a034d 100755
+--- a/client/src/constants/EntryActionTypes.js
++++ b/client/src/constants/EntryActionTypes.js
+@@ -104,6 +104,7 @@ export default {
+   PROJECT_UPDATE: `${PREFIX}/PROJECT_UPDATE`,
+   CURRENT_PROJECT_UPDATE: `${PREFIX}/CURRENT_PROJECT_UPDATE`,
+   PROJECT_UPDATE_HANDLE: `${PREFIX}/PROJECT_UPDATE_HANDLE`,
++  CURRENT_PROJECT_EXPORT: `${PREFIX}/CURRENT_PROJECT_EXPORT`,
+   CURRENT_PROJECT_DELETE: `${PREFIX}/CURRENT_PROJECT_DELETE`,
+   PROJECT_DELETE_HANDLE: `${PREFIX}/PROJECT_DELETE_HANDLE`,
+ 
+diff --git a/client/src/constants/ToastTypes.js b/client/src/constants/ToastTypes.js
+index 090e9a4..8797fbf 100644
+--- a/client/src/constants/ToastTypes.js
++++ b/client/src/constants/ToastTypes.js
+@@ -10,6 +10,7 @@ const SOURCE_CARD_NOT_COPYABLE = 'SOURCE_CARD_NOT_COPYABLE';
+ const SOURCE_CARD_NOT_MOVABLE = 'SOURCE_CARD_NOT_MOVABLE';
+ const LIST_ARCHIVE_FAILED = 'LIST_ARCHIVE_FAILED';
+ const BOARD_EXPORT_FAILED = 'BOARD_EXPORT_FAILED';
++const PROJECT_EXPORT_PARTIALLY_FAILED = 'PROJECT_EXPORT_PARTIALLY_FAILED';
+ 
+ export default {
+   FILE_IS_TOO_BIG,
+@@ -19,4 +20,5 @@ export default {
+   SOURCE_CARD_NOT_MOVABLE,
+   LIST_ARCHIVE_FAILED,
+   BOARD_EXPORT_FAILED,
++  PROJECT_EXPORT_PARTIALLY_FAILED,
+ };
+diff --git a/client/src/entry-actions/projects.js b/client/src/entry-actions/projects.js
+index 35d99a5..c03bb9a 100755
+--- a/client/src/entry-actions/projects.js
++++ b/client/src/entry-actions/projects.js
+@@ -62,6 +62,11 @@ const handleProjectUpdate = (project) => ({
+   },
+ });
+ 
++const exportCurrentProject = () => ({
++  type: EntryActionTypes.CURRENT_PROJECT_EXPORT,
++  payload: {},
++});
++
+ const deleteCurrentProject = () => ({
+   type: EntryActionTypes.CURRENT_PROJECT_DELETE,
+   payload: {},
+@@ -83,6 +88,7 @@ export default {
+   updateProject,
+   updateCurrentProject,
+   handleProjectUpdate,
++  exportCurrentProject,
+   deleteCurrentProject,
+   handleProjectDelete,
+ };
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 8dcdff6..06aaf78 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -217,7 +217,9 @@ export default {
+       events: 'Events',
+       excludedEvents: 'Excluded events',
+       expandTaskListsByDefault: 'Expand task lists by default',
++      export_title: 'Export',
+       exportBoard_title: 'Export Board',
++      exportProject_title: 'Export Project',
+       filterByLabels_title: 'Filter By Labels',
+       filterByMembers_title: 'Filter By Members',
+       forPersonalProjects: 'For personal projects.',
+@@ -299,6 +301,7 @@ export default {
+         'Tip: press Ctrl-V (Cmd-V on Mac) to add an attachment from the clipboard.',
+       private: 'Private',
+       project: 'Project',
++      projectExportPartiallyFailed: 'Failed to export one or more boards. Please try again.',
+       projectNotFound_title: 'Project Not Found',
+       projectOwner: 'Project owner',
+       referenceDataAndKnowledgeStorage: 'Reference data and knowledge storage.',
+diff --git a/client/src/sagas/core/services/boards.js b/client/src/sagas/core/services/boards.js
+index 8dcaea7..1d502cd 100644
+--- a/client/src/sagas/core/services/boards.js
++++ b/client/src/sagas/core/services/boards.js
+@@ -13,6 +13,7 @@ import selectors from '../../../selectors';
+ import actions from '../../../actions';
+ import api from '../../../api';
+ import { createLocalId } from '../../../utils/local-id';
++import downloadJsonFile from '../../../utils/download-json-file';
+ import ActionTypes from '../../../constants/ActionTypes';
+ import ModalTypes from '../../../constants/ModalTypes';
+ import ToastTypes from '../../../constants/ToastTypes';
+@@ -230,17 +231,7 @@ export function* exportCurrentBoard() {
+     return;
+   }
+ 
+-  const blob = new Blob([JSON.stringify(exportedBoard, null, 2)], {
+-    type: 'application/json',
+-  });
+-  const url = URL.createObjectURL(blob);
+-
+-  const linkElement = document.createElement('a');
+-  linkElement.href = url;
+-  linkElement.download = `${currentBoard.name}.json`;
+-  linkElement.click();
+-
+-  URL.revokeObjectURL(url);
++  downloadJsonFile(exportedBoard, `${currentBoard.name}.json`);
+ }
+ 
+ export function* deleteBoard(id) {
+diff --git a/client/src/sagas/core/services/projects.js b/client/src/sagas/core/services/projects.js
+index 866f12a..f7da19d 100644
+--- a/client/src/sagas/core/services/projects.js
++++ b/client/src/sagas/core/services/projects.js
+@@ -4,7 +4,8 @@
+  */
+ 
+ import omit from 'lodash/omit';
+-import { call, put, select } from 'redux-saga/effects';
++import { call, delay, put, select } from 'redux-saga/effects';
++import toast from 'react-hot-toast';
+ 
+ import { goToProject, goToRoot } from './router';
+ import request from '../request';
+@@ -13,7 +14,11 @@ import selectors from '../../../selectors';
+ import actions from '../../../actions';
+ import api from '../../../api';
+ import mergeRecords from '../../../utils/merge-records';
++import downloadJsonFile from '../../../utils/download-json-file';
+ import { UserRoles } from '../../../constants/Enums';
++import ToastTypes from '../../../constants/ToastTypes';
++
++const EXPORT_DOWNLOAD_DELAY = 300;
+ 
+ export function* searchProjects(value) {
+   yield put(actions.searchProjects(value));
+@@ -261,6 +266,34 @@ export function* handleProjectUpdate(project) {
+   }
+ }
+ 
++export function* exportCurrentProject() {
++  const project = yield select(selectors.selectCurrentProject);
++  const boardIds = yield select(selectors.selectBoardIdsForCurrentProject);
++
++  let hasFailure = false;
++
++  for (let i = 0; i < boardIds.length; i += 1) {
++    const board = yield select(selectors.selectBoardById, boardIds[i]);
++
++    try {
++      const exportedBoard = yield call(request, api.exportBoard, board.id);
++      downloadJsonFile(exportedBoard, `${project.name} - ${board.name}.json`);
++    } catch {
++      hasFailure = true;
++    }
++
++    if (i < boardIds.length - 1) {
++      yield delay(EXPORT_DOWNLOAD_DELAY);
++    }
++  }
++
++  if (hasFailure) {
++    yield call(toast, {
++      type: ToastTypes.PROJECT_EXPORT_PARTIALLY_FAILED,
++    });
++  }
++}
++
+ export function* deleteProject(id) {
+   const { projectId } = yield select(selectors.selectPath);
+ 
+@@ -306,6 +339,7 @@ export default {
+   updateProject,
+   updateCurrentProject,
+   handleProjectUpdate,
++  exportCurrentProject,
+   deleteProject,
+   deleteCurrentProject,
+   handleProjectDelete,
+diff --git a/client/src/sagas/core/watchers/projects.js b/client/src/sagas/core/watchers/projects.js
+index 8716386..a60b604 100644
+--- a/client/src/sagas/core/watchers/projects.js
++++ b/client/src/sagas/core/watchers/projects.js
+@@ -34,6 +34,7 @@ export default function* projectsWatchers() {
+     takeEvery(EntryActionTypes.PROJECT_UPDATE_HANDLE, ({ payload: { project } }) =>
+       services.handleProjectUpdate(project),
+     ),
++    takeEvery(EntryActionTypes.CURRENT_PROJECT_EXPORT, () => services.exportCurrentProject()),
+     takeEvery(EntryActionTypes.CURRENT_PROJECT_DELETE, () => services.deleteCurrentProject()),
+     takeEvery(EntryActionTypes.PROJECT_DELETE_HANDLE, ({ payload: { project } }) =>
+       services.handleProjectDelete(project),
+diff --git a/client/src/utils/download-json-file.js b/client/src/utils/download-json-file.js
+new file mode 100644
+index 0000000..67f756b
+--- /dev/null
++++ b/client/src/utils/download-json-file.js
+@@ -0,0 +1,20 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++const downloadJsonFile = (data, filename) => {
++  const blob = new Blob([JSON.stringify(data, null, 2)], {
++    type: 'application/json',
++  });
++  const url = URL.createObjectURL(blob);
++
++  const linkElement = document.createElement('a');
++  linkElement.href = url;
++  linkElement.download = filename;
++  linkElement.click();
++
++  URL.revokeObjectURL(url);
++};
++
++export default downloadJsonFile;

@@ -2750,3 +2750,32 @@ existing "From Trello" import; confirmed every field survived the round-trip (la
 name/description, checklist tasks with correct completion states, comment text). Also confirmed an
 unrelated user with no access to the board gets a 404 from the export endpoint, same as every
 other board route.
+
+## Export all boards in a project at once (2026-09-06)
+
+Follow-up to the single-board export above — requested so a project with multiple boards doesn't
+need exporting one board at a time.
+
+Added (`planka-custom/patches/0054-export-project-boards.patch`), client-only, no server changes:
+- "Export Project" button in `ProjectSettingsModal`'s General pane (`GeneralPane.jsx`), in a new
+  "Export" section between "Display" and "Danger Zone". Only visible to whoever can already open
+  Project Settings at all (project managers / admin-on-shared-project — `Header.jsx` already gates
+  the settings pencil icon to those roles, so this adds no new exposure), and disabled when the
+  project has no boards.
+- `exportCurrentProject` saga (`sagas/core/services/projects.js`) reuses
+  `selectors.selectBoardIdsForCurrentProject` (the same ORM selector that already scopes "boards
+  this user can actually see" for the project's board tabs) and, for each board, calls the exact
+  same `api.exportBoard` request patch 0053 added - it does not duplicate or reimplement any
+  export logic, just loops the existing single-board flow. Each board triggers a separate browser
+  download (filename `"{Project Name} - {Board Name}.json"`), 300ms apart to avoid Chrome's
+  multi-download throttling silently dropping one. The Blob/anchor download logic itself was
+  extracted out of `exportCurrentBoard` into a shared `utils/download-json-file.js` rather than
+  duplicated.
+- If some boards fail to export (e.g. a permission edge case) but others succeed, the successful
+  ones still download and a single `PROJECT_EXPORT_PARTIALLY_FAILED` toast reports the rest,
+  rather than aborting the whole batch on the first failure.
+
+Verified with a real headless-browser run (not just API calls, since all the new logic here is
+client-side): created a project with two boards, logged in, opened Project Settings → Export
+Project, and confirmed via Chrome's CDP download tracking that both boards actually saved as two
+correctly-named, correctly-shaped `.json` files, with no errors in the container logs.
