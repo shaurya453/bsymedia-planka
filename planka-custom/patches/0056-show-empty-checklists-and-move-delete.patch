@@ -1,0 +1,253 @@
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.jsx b/client/src/components/cards/Card/TaskList/TaskList.jsx
+index b9c1468..1477325 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.jsx
++++ b/client/src/components/cards/Card/TaskList/TaskList.jsx
+@@ -76,10 +76,6 @@ const TaskList = React.memo(({ id }) => {
+     toggleOpened();
+   }, [defaultIsOpened]);
+ 
+-  if (tasks.length === 0) {
+-    return null;
+-  }
+-
+   return (
+     <>
+       <div
+@@ -91,42 +87,46 @@ const TaskList = React.memo(({ id }) => {
+       >
+         {taskLists.name}
+       </div>
+-      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events,
+-                                   jsx-a11y/no-static-element-interactions */}
+-      <div className={styles.progressRow} onClick={handleToggleClick}>
+-        {taskLists.status && (
+-          <span
+-            className={styles.statusDot}
+-            style={{ background: TaskListStatusColors[taskLists.status] }}
+-            title={t(`common.taskListStatus_${taskLists.status}`)}
+-          />
+-        )}
+-        <span className={styles.progressWrapper}>
+-          <Progress
+-            autoSuccess
+-            value={completedTasksTotal}
+-            total={tasks.length}
+-            color="blue"
+-            size="tiny"
+-            className={styles.progress}
+-          />
+-        </span>
+-        <span
+-          className={classNames(
+-            styles.count,
+-            filteredTasks.length > 0 && styles.countOpenable,
+-            filteredTasks.length > 0 && (isOpened ? styles.countOpened : styles.countClosed),
++      {tasks.length > 0 && (
++        <>
++          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events,
++                                       jsx-a11y/no-static-element-interactions */}
++          <div className={styles.progressRow} onClick={handleToggleClick}>
++            {taskLists.status && (
++              <span
++                className={styles.statusDot}
++                style={{ background: TaskListStatusColors[taskLists.status] }}
++                title={t(`common.taskListStatus_${taskLists.status}`)}
++              />
++            )}
++            <span className={styles.progressWrapper}>
++              <Progress
++                autoSuccess
++                value={completedTasksTotal}
++                total={tasks.length}
++                color="blue"
++                size="tiny"
++                className={styles.progress}
++              />
++            </span>
++            <span
++              className={classNames(
++                styles.count,
++                filteredTasks.length > 0 && styles.countOpenable,
++                filteredTasks.length > 0 && (isOpened ? styles.countOpened : styles.countClosed),
++              )}
++            >
++              {completedTasksTotal}/{tasks.length}
++            </span>
++          </div>
++          {isOpened && filteredTasks.length > 0 && (
++            <ul className={styles.tasks}>
++              {filteredTasks.map((task) => (
++                <Task key={task.id} id={task.id} />
++              ))}
++            </ul>
+           )}
+-        >
+-          {completedTasksTotal}/{tasks.length}
+-        </span>
+-      </div>
+-      {isOpened && filteredTasks.length > 0 && (
+-        <ul className={styles.tasks}>
+-          {filteredTasks.map((task) => (
+-            <Task key={task.id} id={task.id} />
+-          ))}
+-        </ul>
++        </>
+       )}
+     </>
+   );
+diff --git a/client/src/components/cards/CardModal/TaskLists/EditStep.jsx b/client/src/components/cards/CardModal/TaskLists/EditStep.jsx
+index 46ef072..5650e57 100644
+--- a/client/src/components/cards/CardModal/TaskLists/EditStep.jsx
++++ b/client/src/components/cards/CardModal/TaskLists/EditStep.jsx
+@@ -13,16 +13,9 @@ import { Popup } from '../../../../lib/custom-ui';
+ 
+ import selectors from '../../../../selectors';
+ import entryActions from '../../../../entry-actions';
+-import { useForm, useSteps } from '../../../../hooks';
+-import ConfirmationStep from '../../../common/ConfirmationStep';
++import { useForm } from '../../../../hooks';
+ import TaskListEditor from '../../../task-lists/TaskListEditor';
+ 
+-import styles from './EditStep.module.scss';
+-
+-const StepTypes = {
+-  DELETE: 'DELETE',
+-};
+-
+ const EditStep = React.memo(({ taskListId, onClose }) => {
+   const selectTaskListById = useMemo(() => selectors.makeSelectTaskListById(), []);
+ 
+@@ -49,8 +42,6 @@ const EditStep = React.memo(({ taskListId, onClose }) => {
+     ...defaultData,
+   }));
+ 
+-  const [step, openStep, handleBack] = useSteps();
+-
+   const taskListEditorRef = useRef(null);
+ 
+   const handleSubmit = useCallback(() => {
+@@ -71,26 +62,6 @@ const EditStep = React.memo(({ taskListId, onClose }) => {
+     onClose();
+   }, [taskListId, onClose, dispatch, defaultData, data, taskListEditorRef]);
+ 
+-  const handleDeleteConfirm = useCallback(() => {
+-    dispatch(entryActions.deleteTaskList(taskListId));
+-  }, [taskListId, dispatch]);
+-
+-  const handleDeleteClick = useCallback(() => {
+-    openStep(StepTypes.DELETE);
+-  }, [openStep]);
+-
+-  if (step && step.type === StepTypes.DELETE) {
+-    return (
+-      <ConfirmationStep
+-        title="common.deleteTaskList"
+-        content="common.areYouSureYouWantToDeleteThisTaskList"
+-        buttonContent="action.deleteTaskList"
+-        onConfirm={handleDeleteConfirm}
+-        onBack={handleBack}
+-      />
+-    );
+-  }
+-
+   return (
+     <>
+       <Popup.Header>
+@@ -103,11 +74,6 @@ const EditStep = React.memo(({ taskListId, onClose }) => {
+           <TaskListEditor ref={taskListEditorRef} data={data} onFieldChange={handleFieldChange} />
+           <Button positive content={t('action.save')} />
+         </Form>
+-        <Button
+-          content={t('action.delete')}
+-          className={styles.deleteButton}
+-          onClick={handleDeleteClick}
+-        />
+       </Popup.Content>
+     </>
+   );
+diff --git a/client/src/components/cards/CardModal/TaskLists/EditStep.module.scss b/client/src/components/cards/CardModal/TaskLists/EditStep.module.scss
+deleted file mode 100644
+index 7b010fe..0000000
+--- a/client/src/components/cards/CardModal/TaskLists/EditStep.module.scss
++++ /dev/null
+@@ -1,13 +0,0 @@
+-/*!
+- * Copyright (c) 2024 PLANKA Software GmbH
+- * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+- */
+-
+-:global(#app) {
+-  .deleteButton {
+-    bottom: 12px;
+-    box-shadow: 0 1px 0 #cbcccc;
+-    position: absolute;
+-    right: 9px;
+-  }
+-}
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.jsx b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+index c20073a..01026a0 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.jsx
++++ b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+@@ -28,6 +28,7 @@ import SelectAssigneeStep from '../../../task-lists/TaskList/Task/SelectAssignee
+ import DueDateChip from '../../DueDateChip';
+ import EditDueDateStep from '../../EditDueDateStep';
+ import UserAvatar from '../../../users/UserAvatar';
++import ConfirmationStep from '../../../common/ConfirmationStep';
+ 
+ import styles from './Item.module.scss';
+ 
+@@ -108,22 +109,28 @@ const Item = React.memo(({ id, index }) => {
+     [taskList.id, dispatch],
+   );
+ 
++  const handleDeleteConfirm = useCallback(() => {
++    dispatch(entryActions.deleteTaskList(taskList.id));
++  }, [taskList.id, dispatch]);
++
+   const EditPopup = usePopupInClosableContext(EditStep);
+   const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
+   const SelectAssigneePopup = usePopupInClosableContext(SelectAssigneeStep);
++  const DeleteConfirmationPopup = usePopupInClosableContext(ConfirmationStep);
+ 
+   // BSY Media: canEdit always shows the status chip (including its default
+   // "Not Set" state, so there's something to click to start the cycle),
+-  // plus assignee + dates + pencil; a non-editor only sees the status chip
+-  // when a real status is set, same rule the assignee avatar already
+-  // follows. The hide-completed toggle is a separate, hover-only icon,
+-  // shown to everyone whenever the checklist has it enabled. Header padding
+-  // is computed directly in px rather than via discrete step classes, since
+-  // the status chip is variable-width text, not a fixed-size icon button.
++  // plus assignee + dates + pencil + trash; a non-editor only sees the
++  // status chip when a real status is set, same rule the assignee avatar
++  // already follows. The hide-completed toggle is a separate, hover-only
++  // icon, shown to everyone whenever the checklist has it enabled. Header
++  // padding is computed directly in px rather than via discrete step
++  // classes, since the status chip is variable-width text, not a
++  // fixed-size icon button.
+   const showStatusChip = canEdit || !!taskList.status;
+   const iconCount =
+     (taskList.hideCompletedTasks ? 1 : 0) +
+-    (canEdit ? 2 : 0) + // dates + pencil, editor-only
++    (canEdit ? 3 : 0) + // dates + pencil + trash, editor-only
+     Number(canEdit || !!taskList.assigneeUserId); // assignee
+   const withActions = showStatusChip || iconCount > 0;
+   const actionsWidth = (showStatusChip ? STATUS_CHIP_WIDTH : 0) + iconCount * ICON_WIDTH;
+@@ -246,6 +253,18 @@ const Item = React.memo(({ id, index }) => {
+                           </Button>
+                         </EditPopup>
+                       )}
++                      {canEdit && (
++                        <DeleteConfirmationPopup
++                          title="common.deleteTaskList"
++                          content="common.areYouSureYouWantToDeleteThisTaskList"
++                          buttonContent="action.deleteTaskList"
++                          onConfirm={handleDeleteConfirm}
++                        >
++                          <Button className={styles.editButton}>
++                            <Icon fitted name="trash alternate outline" size="small" />
++                          </Button>
++                        </DeleteConfirmationPopup>
++                      )}
+                     </div>
+                   )}
+                   <span className={styles.moduleHeaderTitle}>{taskList.name}</span>

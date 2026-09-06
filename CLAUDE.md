@@ -2779,3 +2779,64 @@ Verified with a real headless-browser run (not just API calls, since all the new
 client-side): created a project with two boards, logged in, opened Project Settings → Export
 Project, and confirmed via Chrome's CDP download tracking that both boards actually saved as two
 correctly-named, correctly-shaped `.json` files, with no errors in the container logs.
+
+## Hide PLANKA Pro upsell banner and menu item (2026-09-06)
+
+Client shipped two built-in upsells for the paid "PLANKA Pro" edition — both pure upstream code,
+untouched by any of this fork's other patches. Client wanted them gone from view but explicitly
+preferred hiding over deleting the underlying component code (safer against future upstream
+rebases, easier to review/revert).
+
+Found via full-codebase search — confirmed nothing else references `planka.app/pro` anywhere,
+client or server:
+1. Top-of-app banner — `client/src/components/common/PromoBanner/PromoBanner.jsx`, rendered
+   unconditionally in `client/src/components/common/Fixed/Fixed.jsx`. Cycled "Discover PLANKA Pro"
+   / three feature callouts every 8s, linked to `planka.app/pro?ref=app-banner`.
+2. "Discover/Upgrade to PLANKA Pro" gem-icon item in the user menu —
+   `client/src/components/users/UserActionsStep/UserActionsStep.jsx`, linked to
+   `planka.app/pro?ref=app-menu`.
+
+Fix (`planka-custom/patches/0055-hide-planka-pro-upsells.patch`): removed only the two render
+call-sites (the `<PromoBanner />` line + its import in `Fixed.jsx`, and the `<Menu.Item>` block in
+`UserActionsStep.jsx`) — a 13-line diff across 2 files. `PromoBanner.jsx`, its SCSS, and every
+locale's `discoverPlankaPro`/`upgradeTeamToPro_title`/`proFeature*` translation keys are all left
+completely untouched in the repo; the component still exists and could be re-enabled by re-adding
+two lines, nothing was deleted.
+
+Verified: grepped the built client bundle for `planka.app/pro` post-build → zero matches (fully
+gone from shipped JS, not just CSS-hidden). Puppeteer: logged in as both a regular user and an
+admin (text differs by role - "Discover PLANKA Pro" vs "Upgrade Team to Pro" - so both had to be
+checked), confirmed neither the banner nor the gem-icon menu item appear for either, while
+Settings/Administration/About/Log Out all still work normally. No console/container errors.
+
+## Show empty checklists on cards; move checklist delete out of the edit-form popup (2026-09-06)
+
+Two usability fixes to the checklist ("task list") feature, requested together:
+
+1. A checklist with zero tasks was completely invisible on the card face in the board view -
+   `client/src/components/cards/Card/TaskList/TaskList.jsx` had `if (tasks.length === 0) return
+   null;`, hiding the whole thing (name included) until a first task was added. Nothing upstream
+   of this filters by task count (`Card.js`'s `getShownOnFrontOfCardTaskListsModelArray()` only
+   filters by the unrelated `showOnFrontOfCard` flag) - this was the only place hiding it.
+2. Deleting a checklist was only reachable via its pencil (edit) icon, which opened a form for
+   renaming/settings with a plain "Delete" button tacked on underneath in the same popup
+   (`client/src/components/cards/CardModal/TaskLists/EditStep.jsx`) - two different concerns
+   crammed into one window.
+
+Fix (`planka-custom/patches/0056-show-empty-checklists-and-move-delete.patch`):
+1. Removed `TaskList.jsx`'s early return; the checklist name now always renders, with the progress
+   bar/count/expandable task rows wrapped in a `tasks.length > 0 &&` guard instead (so a 0-task
+   checklist shows just its name, no meaningless "0/0").
+2. Added a new trash-icon button to the checklist header's existing icon row in
+   `client/src/components/cards/CardModal/TaskLists/Item.jsx` (next to the pencil, same
+   `usePopupInClosableContext(ConfirmationStep)` pattern already used for "Delete Project" in
+   `GeneralPane.jsx`), passing the exact same title/content/button-text props `EditStep.jsx` used
+   to pass internally - so the confirmation dialog's wording is unchanged, just triggered from its
+   own icon now. `EditStep.jsx` was stripped down to just the name/settings form + Save (its
+   now-fully-unused `EditStep.module.scss` was deleted rather than left empty).
+
+Verified in an isolated stack with a real headless-browser run: created a checklist with zero
+tasks → confirmed its name shows on the card face with no progress bar; opened its pencil icon →
+confirmed the popup now only has name/settings + Save, no Delete; clicked the new trash icon →
+confirmed the identical "Delete Task List" confirmation dialog appears and deleting it works. No
+console/container errors.

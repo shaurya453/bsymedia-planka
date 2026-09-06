@@ -1,0 +1,42 @@
+diff --git a/client/src/components/common/Fixed/Fixed.jsx b/client/src/components/common/Fixed/Fixed.jsx
+index 5cb44db..6397a16 100644
+--- a/client/src/components/common/Fixed/Fixed.jsx
++++ b/client/src/components/common/Fixed/Fixed.jsx
+@@ -8,7 +8,6 @@ import { useSelector } from 'react-redux';
+ 
+ import selectors from '../../../selectors';
+ import Header from '../Header';
+-import PromoBanner from '../PromoBanner/PromoBanner';
+ import Favorites from '../Favorites';
+ import HomeActions from '../HomeActions';
+ import Project from '../../projects/Project';
+@@ -23,7 +22,6 @@ const Fixed = React.memo(() => {
+   return (
+     <div className={styles.wrapper}>
+       <Header />
+-      <PromoBanner />
+       <Favorites />
+       {projectId === undefined && <HomeActions />}
+       {projectId && <Project />}
+diff --git a/client/src/components/users/UserActionsStep/UserActionsStep.jsx b/client/src/components/users/UserActionsStep/UserActionsStep.jsx
+index d3fb78d..22d9c6f 100755
+--- a/client/src/components/users/UserActionsStep/UserActionsStep.jsx
++++ b/client/src/components/users/UserActionsStep/UserActionsStep.jsx
+@@ -104,17 +104,6 @@ const UserActionsStep = React.memo(({ onClose }) => {
+               context: 'title',
+             })}
+           </Menu.Item>
+-          <Menu.Item
+-            href="https://planka.app/pro?ref=app-menu"
+-            target="_blank"
+-            rel="noopener noreferrer"
+-            className={styles.proMenuItem}
+-          >
+-            <Icon name="gem" className={styles.proMenuItemIcon} />
+-            {withAdministration
+-              ? t('common.upgradeTeamToPro', { context: 'title' })
+-              : t('common.discoverPlankaPro', { context: 'title' })}
+-          </Menu.Item>
+           <hr className={styles.divider} />
+           <Menu.Item
+             {...logoutMenuItemProps} // eslint-disable-line react/jsx-props-no-spreading
