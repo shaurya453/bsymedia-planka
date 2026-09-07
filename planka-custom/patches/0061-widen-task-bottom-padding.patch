@@ -1,0 +1,22 @@
+diff --git a/client/src/components/cards/Card/TaskList/Task.module.scss b/client/src/components/cards/Card/TaskList/Task.module.scss
+index f47c778..8cfb212 100644
+--- a/client/src/components/cards/Card/TaskList/Task.module.scss
++++ b/client/src/components/cards/Card/TaskList/Task.module.scss
+@@ -39,7 +39,16 @@
+     font-size: 12px;
+     line-height: 14px;
+     overflow-wrap: break-word;
+-    padding-bottom: 6px;
++    // BSY Media: was 6px, which left the last subtask in an expanded
++    // checklist (when it's also the last thing rendered on the card face)
++    // almost touching the card's bottom edge - the card content wrapper
++    // contributes no bottom padding of its own (ProjectContent/StoryContent
++    // .wrapper's padding-bottom is 0 by design, relying on each content
++    // type's own trailing margin/padding), so this is the only thing
++    // separating the last line of task text from the card edge. Doubled to
++    // 12px, matching the "double it" treatment already applied to the
++    // right-edge gap above.
++    padding-bottom: 12px;
+     padding-left: 22px;
+     // BSY Media: the ancestor card content wrapper already contributes its
+     // own 8px right padding; this adds 8px more so wrapped subtask text

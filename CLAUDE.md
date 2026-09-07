@@ -3002,3 +3002,38 @@ completed (strikethrough) subtask, an overdue (red) subtask, and a linked-task r
 icon, on a `story`-type card face using the same shared `TaskList`/`Task` components as
 `project`-type cards). Card title gap unchanged at 8px (not part of this ask). No console/container
 errors.
+
+## Widen bottom padding of the last subtask so it doesn't touch the card's bottom edge (2026-09-07)
+
+Follow-up report after the right-edge fix above shipped: the client said a card's last task was
+"almost colliding with the card's lower edge" - a vertical/bottom-edge gap issue, not the
+horizontal one just fixed. Re-verified the 0060 deploy was in fact live (measured 16px right-edge
+gaps directly on real production cards, including a real 21-task checklist and its last item)
+before realizing the report was about a different axis entirely.
+
+Measured first: `client/src/components/cards/Card/ProjectContent.module.scss` (and the equivalent
+`StoryContent.module.scss`) `.wrapper` has `padding: 6px 8px 0` - **zero bottom padding**, by
+design; every card-face content type is expected to supply its own trailing margin/padding. The
+card title area gets 8px of top breathing room from that same rule. But
+`client/src/components/cards/Card/TaskList/Task.module.scss`'s subtask `.wrapper` only had
+`padding-bottom: 6px`, so whenever an expanded checklist's last task was also the last thing
+rendered on the card face (no attachments/notification badges after it), only 6px separated the
+last line of task text from the card's actual bottom edge - measured live on a real production
+card (a 21-task checklist) and confirmed exactly 6px, versus 8px at the top of the same card.
+
+Fix (`planka-custom/patches/0061-widen-task-bottom-padding.patch`): doubled
+`Task.module.scss`'s subtask `.wrapper` `padding-bottom` from 6px to 12px, mirroring the "double
+it" treatment already applied to the right-edge gap in 0060. Left `TaskList.module.scss`'s
+`.progressRow` (`padding-bottom: 8px`, used when a checklist is collapsed) untouched since that
+wasn't the reported case and 8px wasn't flagged as an issue.
+
+Verified in an isolated before/after pair of stacks (0060 image vs the new 0061 image, same
+seeded card structure) using the same padding-inclusive-box-corrected gap formula as before but
+for the bottom edge (`cardRect.bottom - rowRect.bottom + computedPaddingBottom`): confirmed 6px →
+12px for a card whose last content is an expanded 3-task checklist (the exact reported
+scenario), with matching before/after screenshots showing visibly more breathing room after the
+last task. Also checked a card with the checklist collapsed (unaffected, still 8px, as expected)
+and a card with a description above the checklist (6px → 12px increase held there too, no
+regression - that card's true last element turned out to be a small description-indicator icon
+rendered after the task list, not the task list itself, which is expected/unrelated existing
+behavior). No new console/container errors.
