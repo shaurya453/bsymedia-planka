@@ -3037,3 +3037,26 @@ and a card with a description above the checklist (6px → 12px increase held th
 regression - that card's true last element turned out to be a small description-indicator icon
 rendered after the task list, not the task list itself, which is expected/unrelated existing
 behavior). No new console/container errors.
+
+## Widen bottom padding of the collapsed checklist progress row - the actual default-visible state (2026-09-07)
+
+The 0061 fix above turned out to target the wrong state. The client reported after deploying it
+that they still saw zero visible difference. Root cause: every real board here has
+`expandTaskListsByDefault: false` (confirmed via the API), so checklists render collapsed on
+page load - only the `.name` header and `.progressRow` (progress bar/status dot + count) show;
+the individual task `<li>` rows that 0061 fixed never render at all unless a user manually clicks
+each checklist open. Verified this directly: loaded a real production card with a 21-task
+checklist without clicking anything and confirmed `0` `<li>` elements were present in the DOM,
+with `.progressRow`'s own untouched `padding-bottom: 8px` sitting directly against the card's
+bottom edge - matching the client's screenshot exactly.
+
+Fix (`planka-custom/patches/0062-widen-progressrow-bottom-padding.patch`): doubled
+`TaskList.module.scss`'s `.progressRow` `padding-bottom` from 8px to 16px (matching its own
+already-16px right padding from 0060).
+
+Verified in an isolated before/after pair of stacks (current production image vs the new 0062
+image), explicitly *not* clicking to expand anything (reproducing the real default state):
+confirmed 8px → 16px on a single-checklist card and on a two-checklist card (checked the stacked
+case doesn't regress - both checklists' progress rows still read clearly, with the second/last
+one getting the wider gap against the card edge). Screenshots match the visual gap the client
+pointed out. No new console/container errors.

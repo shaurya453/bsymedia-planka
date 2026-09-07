@@ -1,0 +1,27 @@
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.module.scss b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+index e630ed6..f81680f 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.module.scss
++++ b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+@@ -69,13 +69,21 @@
+     margin: 0;
+   }
+ 
++  // BSY Media: bottom padding doubled 8px -> 16px (matching the right-edge
++  // value just above) - checklists render collapsed by default
++  // (expandTaskListsByDefault is off on every board here), so this
++  // progressRow - not the expanded task <li> - is what's actually sitting
++  // against the card's bottom edge on essentially every real card. The
++  // earlier 6px -> 12px bump to Task.module.scss's subtask .wrapper only
++  // ever mattered once a checklist was manually expanded, which turned out
++  // not to be the reported case at all.
+   .progressRow {
+     align-items: center;
+     display: flex;
+     gap: 8px;
+     justify-content: space-between;
+     margin: 0 -8px;
+-    padding: 0px 16px 8px 16px;
++    padding: 0px 16px 16px 16px;
+   }
+ 
+   // BSY Media: manual checklist status indicator - a small colored dot next
