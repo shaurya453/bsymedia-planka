@@ -3060,3 +3060,40 @@ confirmed 8px → 16px on a single-checklist card and on a two-checklist card (c
 case doesn't regress - both checklists' progress rows still read clearly, with the second/last
 one getting the wider gap against the card edge). Screenshots match the visual gap the client
 pointed out. No new console/container errors.
+
+## Fix bottom gap for a bare checklist name (no tasks, no status) as the card's last content (2026-09-07)
+
+Still not the right fix. The client clarified: 0061 changed spacing between expanded sub-tasks,
+which they explicitly did not want touched (reverted it back to `padding-bottom: 6px` in
+`Task.module.scss`). And their real complaint card - "Toshiba server build" - doesn't use
+sub-tasks or checklist status at all: it has three checklists (`Ethernet Cable`, `Set up Linux as
+a server`, `Get data online`) used purely as plain to-do labels, most with zero tasks inside them.
+
+Checked their actual account directly (given temporary credentials) rather than guessing again.
+`TaskList.jsx` only renders a `.progressRow` when `tasks.length > 0 || taskLists.status` is
+truthy - a checklist with neither renders *only* its bare `.name` div, nothing else. That `.name`
+has `padding-bottom: 0` and `margin: 0 -8px -2px` (the `-2px` bottom margin exists to tighten the
+gap to a `.progressRow` when one follows it). Measured directly on the real "Get data online"
+checklist (0 tasks, no status, last of the three): `cardRect.bottom - rect.bottom` = **-2px** -
+its rendered box was already extending very slightly past the card's own edge, clipped only by
+the outer `Card.module.scss` `.wrapper`'s `overflow: hidden`. This is a real, more severe version
+of the same underlying "no bottom padding by default" issue as 0062, just hitting a different
+element because this client's actual usage pattern doesn't put tasks inside checklists at all.
+
+Fix (`planka-custom/patches/0063-fix-bare-checklist-name-bottom-gap.patch`):
+- Reverted 0061 (`Task.module.scss` subtask `.wrapper` `padding-bottom` back to 6px, undoing the
+  unwanted sub-task-spacing change).
+- Added `.name:last-child { padding-bottom: 16px; }` in `TaskList.module.scss`, scoped so it only
+  fires when a checklist's bare name is genuinely the last rendered thing on the card (no
+  `.progressRow`, no later checklist, no trailing attachments/etc. after it) - a checklist
+  followed by a progress row or another checklist is untouched, since those cases already have
+  their own correct spacing (checklist-to-checklist) or are handled by 0062 (progress-row-to-edge).
+
+Verified in an isolated stack by recreating the client's exact card structure (a checklist with 2
+tasks, followed by two zero-task/no-status checklists) and confirming, without expanding
+anything: the two non-last bare names are untouched (`padding-bottom: 0px`, as before), while the
+truly-last one now gets `padding-bottom: 16px` and its previously-negative raw gap becomes a
+visually-confirmed positive 14px gap. Also checked a single-bare-checklist card (same result) and
+a checklist with a status set but no tasks (renders a status-dot-only `.progressRow`, so `.name`
+is correctly *not* last-child here and stays untouched - the existing 0062 fix on `.progressRow`
+covers that case instead, unaffected by this change). No new console/container errors.
