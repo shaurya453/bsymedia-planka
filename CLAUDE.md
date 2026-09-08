@@ -3097,3 +3097,66 @@ visually-confirmed positive 14px gap. Also checked a single-bare-checklist card 
 a checklist with a status set but no tasks (renders a status-dot-only `.progressRow`, so `.name`
 is correctly *not* last-child here and stays untouched - the existing 0062 fix on `.progressRow`
 covers that case instead, unaffected by this change). No new console/container errors.
+
+## Add "By label" option to the list sort menu (2026-09-08)
+
+Client asked for a way to sort a list's cards by label, grouping cards of the same label
+together, starting with whichever label has the most cards. PLANKA's existing "Sort List" menu
+only offered Alphabetically / Oldest first / Newest first (`client/src/components/lists/List/
+SortStep.jsx`, backed by `ListSortFieldNames.NAME`/`CREATED_AT` on both client
+(`client/src/models/List.js`'s `sortCards()`) and server (`server/api/helpers/lists/sort-one.js`).
+
+Fix (`planka-custom/patches/0064-sort-list-by-label.patch`): added a third `LABEL: 'label'` sort
+field end-to-end (server `List.SortFieldNames`, client `ListSortFieldNames`, swagger enum in
+`server/api/controllers/lists/sort.js`) and a fourth "By label" menu entry in `SortStep.jsx`
+(`common.byLabel` locale string). The actual grouping algorithm - implemented identically on both
+client (`List.js`'s `sortCards()`, for the optimistic local reorder) and server (`sort-one.js`'s
+helper, the persisted version) since neither shares code with the other for the existing
+name/createdAt cases either:
+- Count how many cards on the list carry each label.
+- For each card, pick its "dominant" label - whichever of its own labels has the highest count on
+  this list (ties broken by the label's own board position, lowest first).
+- Sort cards by that dominant label's count descending (biggest group first), tie-broken by the
+  label's board position, then by card name. Cards with no labels at all get a count of 0 and sort
+  last as their own group.
+
+Verified via the raw `POST /api/lists/:id/sort` endpoint directly (`{"fieldName": "label"}`) on a
+6-card/2-label list (3 "Urgent", 2 "Backend", 1 unlabeled): result was
+`Urgent×3 (alpha within group), Backend×2 (alpha within group), unlabeled last`, exactly as
+designed, and persisted correctly across a reload. Also drove it end-to-end through the real UI
+(right-click list header -> Sort List -> By label) and got the identical result with no console
+errors - confirms the click wiring (using the same `entryActions.sortList`/`DATA_BY_TYPE` pattern
+as the three pre-existing sort options) works correctly.
+
+## Use dark versions of list colors in dark mode (2026-09-08)
+
+Client reported that with a project's "Dark mode for cards & columns" toggle on
+(`Project.cardsDarkModeEnabled`, see the 0058-era work), the pastel list-background colors (from
+`client/src/constants/ListColors.js` / applied via the `background<Color>Soft` classes in
+`client/src/styles.module.scss`, see `List.jsx`) still render at their light-mode pastel
+brightness - and the light-grey list header/card text used in dark mode (`#b6c2cf`, set in
+`List.module.scss`'s existing `#app.dark-mode-cards-enabled` block) becomes very hard to read
+against them. Confirmed all 10 list colors have a `*Soft` variant already defined and that these
+are used *only* for list backgrounds (`grep` for `Soft\`]` usage - just the two spots in
+`List.jsx`), so this is safe to override without touching anything else.
+
+Fix (`planka-custom/patches/0065-dark-mode-list-colors.patch`): added a new
+`:global(#app.dark-mode-cards-enabled)` block at the end of `styles.module.scss` (same selector
+convention already used in `List.module.scss`/`Card.module.scss`/etc.) with dark overrides for
+each of the 10 `background<Color>Soft` classes - same hue as the light pastel, lightness dropped
+to ~20% HSL so the list is still recognizably tinted while staying legible (contrast-checked
+against both dark-mode text colors, `#b6c2cf`/`#9fadbc` - all comfortably above 4.5:1 WCAG AA
+except bright-moss/turquoise-sea against the dimmer `#9fadbc`, which land at ~4.2-4.5:1, still a
+large improvement over the ~1.5-2:1 the pastels had). Light mode is untouched - only fires under
+the dark-mode body class.
+
+Note: `ProjectBackground` (which owns the `dark-mode-cards-enabled` body-class toggle) only mounts
+when the project has a `backgroundType` set at all (`Core.jsx`: `{project && project.backgroundType
+&& <ProjectBackground />}`) - a pre-existing gate, unrelated to this fix, but worth knowing if a
+future test project with no background configured appears to have dark mode "not working."
+
+Verified in an isolated stack: set a project's background + `cardsDarkModeEnabled: true`, gave 5
+lists each of a different color, and confirmed via `getComputedStyle` (`rgb(88, 14, 28)` = the new
+dark berry-red, `#580e1c`, exactly as computed) and screenshots that dark mode shows the dark
+tinted variants with clearly legible light-grey text, while a separate light-mode screenshot on
+the same 5 colors confirms the original pastels are untouched. No console/container errors.

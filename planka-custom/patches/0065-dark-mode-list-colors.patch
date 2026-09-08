@@ -1,0 +1,61 @@
+diff --git a/client/src/styles.module.scss b/client/src/styles.module.scss
+index 770fff3..1fd8bea 100644
+--- a/client/src/styles.module.scss
++++ b/client/src/styles.module.scss
+@@ -748,3 +748,56 @@
+     color: #00858a !important;
+   }
+ }
++
++// BSY Media: dark versions of the 10 list colors, swapped in whenever the
++// project's "Dark mode for cards & columns" toggle is on (see
++// ProjectBackground.jsx, which toggles this same #app.dark-mode-cards-enabled
++// body class used throughout the other card/list dark-mode overrides). Only
++// the "Soft" variants need this - those are the only ones applied as a list's
++// own background (List.jsx), and in light mode they're pastel-light, which
++// leaves the light-grey list header/card text (List.module.scss's dark-mode
++// .headerName: #b6c2cf) almost unreadable against them. Each color below
++// keeps the same hue as its light "Soft" counterpart, just much darker, so
++// the list is still recognizably tinted while staying legible. Light mode is
++// untouched - the original pastel "Soft" classes above still apply there.
++:global(#app.dark-mode-cards-enabled) {
++  .backgroundBerryRedSoft {
++    background: #580e1c !important;
++  }
++
++  .backgroundPumpkinOrangeSoft {
++    background: #5c360a !important;
++  }
++
++  .backgroundLagoonBlueSoft {
++    background: #154351 !important;
++  }
++
++  .backgroundPinkTulipSoft {
++    background: #54122a !important;
++  }
++
++  .backgroundLightMudSoft {
++    background: #4a361c !important;
++  }
++
++  .backgroundOrangePeelSoft {
++    background: #58280e !important;
++  }
++
++  .backgroundBrightMossSoft {
++    background: #3d4a1c !important;
++  }
++
++  .backgroundAntiqueBlueSoft {
++    background: #18354e !important;
++  }
++
++  .backgroundDarkGraniteSoft {
++    background: #3b3935 !important;
++  }
++
++  .backgroundTurquoiseSeaSoft {
++    background: #1d4749 !important;
++  }
++}

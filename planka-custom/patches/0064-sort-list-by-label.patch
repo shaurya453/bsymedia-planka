@@ -1,0 +1,222 @@
+diff --git a/client/src/components/lists/List/SortStep.jsx b/client/src/components/lists/List/SortStep.jsx
+index e72a919..f068b11 100644
+--- a/client/src/components/lists/List/SortStep.jsx
++++ b/client/src/components/lists/List/SortStep.jsx
+@@ -19,6 +19,7 @@ const Types = {
+   ALPHABETICALLY: 'alphabetically',
+   OLDEST_FIRST: 'oldestFirst',
+   NEWEST_FIRST: 'newestFirst',
++  BY_LABEL: 'byLabel',
+ };
+ 
+ const DATA_BY_TYPE = {
+@@ -32,6 +33,9 @@ const DATA_BY_TYPE = {
+     fieldName: ListSortFieldNames.CREATED_AT,
+     order: SortOrders.DESC,
+   },
++  [Types.BY_LABEL]: {
++    fieldName: ListSortFieldNames.LABEL,
++  },
+ };
+ 
+ const SortStep = React.memo(({ listId, onBack, onClose }) => {
+@@ -55,7 +59,7 @@ const SortStep = React.memo(({ listId, onBack, onClose }) => {
+       </Popup.Header>
+       <Popup.Content>
+         <Menu secondary vertical className={styles.menu}>
+-          {[Types.ALPHABETICALLY, Types.OLDEST_FIRST, Types.NEWEST_FIRST].map(
++          {[Types.ALPHABETICALLY, Types.OLDEST_FIRST, Types.NEWEST_FIRST, Types.BY_LABEL].map(
+             (type) => (
+               <Menu.Item
+                 key={type}
+diff --git a/client/src/constants/Enums.js b/client/src/constants/Enums.js
+index 372e7f4..6db4d5c 100755
+--- a/client/src/constants/Enums.js
++++ b/client/src/constants/Enums.js
+@@ -79,6 +79,7 @@ export const ListTypeStates = {
+ export const ListSortFieldNames = {
+   NAME: 'name',
+   CREATED_AT: 'createdAt',
++  LABEL: 'label',
+ };
+ 
+ export const CardTypes = {
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 4824f67..cc16bc3 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -109,6 +109,7 @@ export default {
+       boardUser: 'Board user',
+       byCreationTime: 'By creation time',
+       byDefault: 'By default',
++      byLabel: 'By label',
+       canBeInvitedToWorkInBoards: 'Can be invited to work in boards.',
+       canComment: 'Can comment',
+       canCreateOwnProjectsAndBeInvitedToWorkInOthers:
+diff --git a/client/src/models/List.js b/client/src/models/List.js
+index c22cf42..7864316 100755
+--- a/client/src/models/List.js
++++ b/client/src/models/List.js
+@@ -434,6 +434,60 @@ export default class extends BaseModel {
+         cardModels.sort((card1, card2) => card1.createdAt - card2.createdAt);
+ 
+         break;
++      case ListSortFieldNames.LABEL: {
++        // BSY Media: mirrors the grouping algorithm in the server's
++        // lists/sort-one helper - group cards by their dominant label
++        // (the one shared by the most cards on this list), largest group
++        // first, unlabeled cards last. Kept in sync with the server so the
++        // optimistic local reorder (before the request round-trips) matches
++        // what actually gets persisted.
++        const countByLabelId = {};
++        cardModels.forEach((cardModel) => {
++          cardModel.labels.toRefArray().forEach((label) => {
++            countByLabelId[label.id] = (countByLabelId[label.id] || 0) + 1;
++          });
++        });
++
++        const dominantLabelByCardId = {};
++        cardModels.forEach((cardModel) => {
++          dominantLabelByCardId[cardModel.id] = cardModel.labels
++            .toRefArray()
++            .reduce((dominantLabel, label) => {
++              if (
++                !dominantLabel ||
++                countByLabelId[label.id] > countByLabelId[dominantLabel.id] ||
++                (countByLabelId[label.id] === countByLabelId[dominantLabel.id] &&
++                  label.position < dominantLabel.position)
++              ) {
++                return label;
++              }
++
++              return dominantLabel;
++            }, null);
++        });
++
++        cardModels.sort((card1, card2) => {
++          const label1 = dominantLabelByCardId[card1.id];
++          const label2 = dominantLabelByCardId[card2.id];
++          const count1 = label1 ? countByLabelId[label1.id] : 0;
++          const count2 = label2 ? countByLabelId[label2.id] : 0;
++
++          if (count1 !== count2) {
++            return count2 - count1;
++          }
++
++          const position1 = label1 ? label1.position : Infinity;
++          const position2 = label2 ? label2.position : Infinity;
++
++          if (position1 !== position2) {
++            return position1 - position2;
++          }
++
++          return card1.name.localeCompare(card2.name);
++        });
++
++        break;
++      }
+       default:
+         break;
+     }
+diff --git a/server/api/controllers/lists/sort.js b/server/api/controllers/lists/sort.js
+index d3d95b4..34e9e14 100644
+--- a/server/api/controllers/lists/sort.js
++++ b/server/api/controllers/lists/sort.js
+@@ -31,7 +31,7 @@
+  *             properties:
+  *               fieldName:
+  *                 type: string
+- *                 enum: [name, createdAt]
++ *                 enum: [name, createdAt, label]
+  *                 description: Field to sort cards by
+  *                 example: name
+  *               order:
+diff --git a/server/api/helpers/lists/sort-one.js b/server/api/helpers/lists/sort-one.js
+index fae0c03..6e659a4 100644
+--- a/server/api/helpers/lists/sort-one.js
++++ b/server/api/helpers/lists/sort-one.js
+@@ -55,6 +55,72 @@ module.exports = {
+         cards.sort((card1, card2) => new Date(card1.createdAt) - new Date(card2.createdAt));
+ 
+         break;
++      case List.SortFieldNames.LABEL: {
++        // BSY Media: group cards by label instead of ordering them
++        // individually - the group with the most cards sharing a label
++        // comes first. A card with several labels is grouped under
++        // whichever of its own labels is the largest group on this list
++        // (ties broken by the board's label order); cards with no labels
++        // at all form their own group at the end.
++        const cardLabels = await CardLabel.qm.getByCardIds(cards.map((card) => card.id));
++        const boardLabels = await Label.qm.getByBoardId(inputs.board.id);
++
++        const labelOrderById = {};
++        boardLabels.forEach((label, index) => {
++          labelOrderById[label.id] = index;
++        });
++
++        const countByLabelId = {};
++        const labelIdsByCardId = {};
++        cardLabels.forEach((cardLabel) => {
++          countByLabelId[cardLabel.labelId] = (countByLabelId[cardLabel.labelId] || 0) + 1;
++
++          if (!labelIdsByCardId[cardLabel.cardId]) {
++            labelIdsByCardId[cardLabel.cardId] = [];
++          }
++          labelIdsByCardId[cardLabel.cardId].push(cardLabel.labelId);
++        });
++
++        const dominantLabelIdByCardId = {};
++        cards.forEach((card) => {
++          const labelIds = labelIdsByCardId[card.id] || [];
++
++          dominantLabelIdByCardId[card.id] = labelIds.reduce((dominantLabelId, labelId) => {
++            if (
++              !dominantLabelId ||
++              countByLabelId[labelId] > countByLabelId[dominantLabelId] ||
++              (countByLabelId[labelId] === countByLabelId[dominantLabelId] &&
++                labelOrderById[labelId] < labelOrderById[dominantLabelId])
++            ) {
++              return labelId;
++            }
++
++            return dominantLabelId;
++          }, null);
++        });
++
++        cards.sort((card1, card2) => {
++          const labelId1 = dominantLabelIdByCardId[card1.id];
++          const labelId2 = dominantLabelIdByCardId[card2.id];
++          const count1 = labelId1 ? countByLabelId[labelId1] : 0;
++          const count2 = labelId2 ? countByLabelId[labelId2] : 0;
++
++          if (count1 !== count2) {
++            return count2 - count1;
++          }
++
++          const order1 = labelId1 ? labelOrderById[labelId1] : Infinity;
++          const order2 = labelId2 ? labelOrderById[labelId2] : Infinity;
++
++          if (order1 !== order2) {
++            return order1 - order2;
++          }
++
++          return card1.name.localeCompare(card2.name);
++        });
++
++        break;
++      }
+       default:
+         throw 'invalidFieldName';
+     }
+diff --git a/server/api/models/List.js b/server/api/models/List.js
+index 1b8267d..e9f2328 100755
+--- a/server/api/models/List.js
++++ b/server/api/models/List.js
+@@ -90,6 +90,7 @@ const TypeStates = {
+ const SortFieldNames = {
+   NAME: 'name',
+   CREATED_AT: 'createdAt',
++  LABEL: 'label',
+ };
+ 
+ // TODO: should not be here
