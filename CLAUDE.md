@@ -3160,3 +3160,103 @@ lists each of a different color, and confirmed via `getComputedStyle` (`rgb(88, 
 dark berry-red, `#580e1c`, exactly as computed) and screenshots that dark mode shows the dark
 tinted variants with clearly legible light-grey text, while a separate light-mode screenshot on
 the same 5 colors confirms the original pastels are untouched. No console/container errors.
+
+## Outage: self-signup broken for ~11 days by a dropped Caddy route, not a PLANKA bug (2026-09-12)
+
+Reported as "freelancers can't sign up, get 'Unknown error, try again later' on any device/ISP".
+**Root cause was entirely outside PLANKA/invite-service code**: on 2026-09-01 at 07:51 UTC, an
+edit to the shared `/etc/caddy/Caddyfile` (for unrelated work on a different product hosted on
+this same box, `n8ncontrol.duckdns.org`) silently dropped the pre-existing `handle_path
+/invite/*` block for `bsymedia.duckdns.org`. Confirmed via the last surviving backup that had it
+(`Caddyfile.bak-20260901075102`) - that same-timestamped backup still has the block, meaning it
+was removed in the very edit that produced it. The `systemctl reload caddy` for that edit was
+logged as **failed** (`Reload operation timed out. Killing reload process` - an unrelated slow
+in-flight connection delayed the old worker's shutdown past systemd's timeout), which is likely
+why this went unnoticed for so long - it looked like the edit never took effect. It did: Caddy's
+own admin API logged `"load complete"` a few seconds later, so the broken config was live the
+whole time regardless of what systemd reported.
+
+With that block gone, every `/invite/*` request (self-signup's `POST /invite/api/join`, the Share
+modal's invite-by-email, and pending emailed invite-accept links) fell through to `bsymedia.
+duckdns.org`'s catch-all `reverse_proxy 127.0.0.1:3001` (PLANKA itself) instead of reaching
+`invite-service` on port 3002. PLANKA's own Sails router has no such route, so it replied `404
+{"code":"E_NOT_FOUND"}` - valid JSON, but with no `error` field, which is exactly the shape
+`SignUpForm.jsx`'s `body.error || t('common.unknownError')` falls back to the bare generic text
+for. Reproduced directly: `curl -X POST https://bsymedia.duckdns.org/invite/api/join` returned
+that exact 404 before the fix.
+
+**Fixed** by restoring the missing block (backed up the live file first, to
+`Caddyfile.bak-20260912112709`), verified with `caddy validate`, reloaded (`systemctl reload
+caddy` completed cleanly this time), and confirmed the same `curl` call now returns
+`{"success":true}`. The other two unrelated sites sharing this Caddy instance
+(`autovidgen.duckdns.org`, `n8ncontrol.duckdns.org`) were confirmed unaffected before and after.
+Two test accounts created while reproducing/verifying were deleted via the admin API immediately
+after. **Lesson, worth repeating from the existing "Domain/TLS" section above**: this Caddyfile is
+shared with other products on this box - an edit for one project can silently break another, and
+a `systemctl reload` reporting failure does not guarantee the old config is still what's actually
+serving traffic; always check the actual served behavior (a real `curl` against the affected
+route), not just the systemd exit status, after any Caddyfile change here.
+
+## Replace bare "Unknown error" fallbacks with short, stable error codes (2026-09-12)
+
+Follow-up to the outage above: the generic `"Unknown error, try again later"` text is what made
+that bug hard to trace from a bug report alone - it carries zero information about which of many
+possible causes produced it. Client asked for real identifiers instead. Audited every place in
+the client that falls back to this text and found the exact same pattern (a `switch (error.
+message) { ...known cases...; default: return { content: 'common.unknownError' } }`, discarding
+`error.message` in the fallback) repeated in 5 places, all pre-existing/stock-adjacent PLANKA
+code, not something this fork introduced: `Login/Content.jsx` (login form), `Login/SignUpForm.jsx`
+(the form implicated in the outage above - a raw `fetch()` to invite-service, not this same
+`createMessage` pattern), `AdministrationModal/UsersPane/AddStep.jsx` (admin "add user"),
+`EditUserUsernameStep.jsx`, `EditUserEmailStep.jsx`, `EditUserPasswordStep.jsx` (self-service
+account settings).
+
+**Two different identifier strategies, chosen per context** rather than one blanket approach:
+- **`SignUpForm.jsx`** (the raw cross-service `fetch` case): shows the literal, already-safe-to-
+  display diagnostic value directly - `HTTP {{status}}` when the response isn't invite-service's
+  expected JSON shape (e.g. `HTTP 404`, which is exactly the outage's fingerprint and would have
+  made it identifiable from a user's report alone), or the caught JS error's `name` (`TypeError`,
+  `SyntaxError`) for a genuine network/parse failure - kept as a distinct `serverConnectionFailed`-
+  style message rather than folded into "unknown error", since a connection failure and a bad-
+  response-shape are different, actionable categories. Also hardened the response-parsing chain
+  itself: a non-JSON response (e.g. an HTML error page from a proxy layer, as opposed to this
+  outage's valid-JSON-but-wrong-app case) now still surfaces the real HTTP status via the same
+  path, instead of silently falling into the generic network-failure `.catch()` and hiding it.
+- **The other 4 files' shared `createMessage(error)` pattern** (`Content.jsx` login,
+  `AddStep.jsx`, `EditUserUsernameStep.jsx`, `EditUserEmailStep.jsx`, `EditUserPasswordStep.jsx`):
+  these run on both public/unauthenticated surfaces (the login page) and authenticated ones (admin
+  panel, account settings) - echoing PLANKA's raw internal `error.message` text to an anonymous
+  login-page visitor by default felt like more information disclosure than intended (login's own
+  `createMessage` already had an `isDebug` gate specifically limiting raw-message display to an
+  OIDC-debug config flag, which was deliberately left untouched and still takes priority). Instead,
+  new `client/src/utils/get-error-code.js` (`getErrorCode`) hashes the message into a short, stable
+  5-character code (same underlying message -> same code, always - `Math.abs(hash).toString(36)`
+  padded to 5 chars) and also `console.error`s the un-hashed original, so the raw text is still one
+  devtools-check away for anyone with browser access, without echoing it directly into the visible
+  UI. All 5 `default:` branches now return `{ ..., content: 'common.unknownErrorWithCode', values:
+  { code: ... } }` instead of a bare key, and every one of the 5 files' render call changed from
+  `t(message.content)` to `t(message.content, message.values)` (a no-op for every pre-existing,
+  already-mapped case, since `values` is `undefined` there).
+- Two new locale keys in `login.js` (merged into the shared `common` namespace along with every
+  other locale file, confirmed via `client/src/locales/en-US/index.js`'s `lodash/merge`, so usable
+  from any of the 5 files regardless of which now-somewhat-historical locale file they physically
+  live in): `unknownErrorWithCode: 'Unknown error, try again later. (Code: {{code}})'` and
+  `serverConnectionFailedWithCode: 'Server connection failed. (Code: {{code}})'`.
+
+Verified in an isolated stack (no `invite-service` container present at all, so `/invite/api/join`
+naturally 404s inside PLANKA's own router - a clean, self-contained reproduction of this exact
+outage's failure shape without needing a second service or a broken proxy): the sign-up form
+showed `"Unknown error, try again later. (Code: HTTP 404)"` end-to-end through a real browser
+submission; repeating the identical failure with a different email produced the exact same code
+both times, confirming determinism; a genuine, already-mapped error (wrong-password login ->
+"Invalid credentials") was confirmed unchanged, proving the `values`-threading change is safe for
+every pre-existing branch. The `getErrorCode` hashing function itself was additionally unit-checked
+standalone (same input -> same code twice, different input -> different code, `null`/empty handled
+without throwing). Did not live-trigger the `createMessage`-pattern files' `default` branch itself
+(would have required deliberately exhausting the active-users limit or another hard-to-stage
+server-side condition) - confidence there instead comes from the change being a small, mechanical,
+identical 3-part diff (add `getErrorCode` import; add `values: { code: getErrorCode(error.message)
+}` to the existing `default` case; change `t(message.content)` to `t(message.content,
+message.values)`) applied uniformly across all 4 files, each fully read before editing.
+
+Patch: `planka-custom/patches/0066-error-codes.patch`.

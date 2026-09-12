@@ -1,0 +1,266 @@
+diff --git a/client/src/components/common/AdministrationModal/UsersPane/AddStep.jsx b/client/src/components/common/AdministrationModal/UsersPane/AddStep.jsx
+index d73a036..3318342 100644
+--- a/client/src/components/common/AdministrationModal/UsersPane/AddStep.jsx
++++ b/client/src/components/common/AdministrationModal/UsersPane/AddStep.jsx
+@@ -17,6 +17,7 @@ import selectors from '../../../../selectors';
+ import entryActions from '../../../../entry-actions';
+ import { useForm, useNestedRef, useSteps } from '../../../../hooks';
+ import { isPassword, isUsername } from '../../../../utils/validator';
++import getErrorCode from '../../../../utils/get-error-code';
+ import { UserRoles } from '../../../../constants/Enums';
+ import { UserRoleIcons } from '../../../../constants/Icons';
+ import SelectRoleStep from './SelectRoleStep';
+@@ -46,7 +47,8 @@ const createMessage = (error) => {
+     default:
+       return {
+         type: 'warning',
+-        content: 'common.unknownError',
++        content: 'common.unknownErrorWithCode',
++        values: { code: getErrorCode(error.message) },
+       };
+   }
+ };
+@@ -170,7 +172,7 @@ const AddStep = React.memo(({ onClose }) => {
+               [message.type]: true,
+             }}
+             visible
+-            content={t(message.content)}
++            content={t(message.content, message.values)}
+             onDismiss={handleMessageDismiss}
+           />
+         )}
+diff --git a/client/src/components/common/Login/Content.jsx b/client/src/components/common/Login/Content.jsx
+index 802043d..f64f804 100644
+--- a/client/src/components/common/Login/Content.jsx
++++ b/client/src/components/common/Login/Content.jsx
+@@ -17,6 +17,7 @@ import selectors from '../../../selectors';
+ import entryActions from '../../../entry-actions';
+ import { useForm, useNestedRef } from '../../../hooks';
+ import { isUsername } from '../../../utils/validator';
++import getErrorCode from '../../../utils/get-error-code';
+ import AccessTokenSteps from '../../../constants/AccessTokenSteps';
+ import TermsModal from './TermsModal';
+ import SignUpForm from './SignUpForm';
+@@ -83,10 +84,16 @@ const createMessage = (error, isDebug) => {
+         content: 'common.serverConnectionFailed',
+       };
+     default:
+-      return {
+-        type: 'warning',
+-        content: isDebug ? error.message : 'common.unknownError',
+-      };
++      return isDebug
++        ? {
++            type: 'warning',
++            content: error.message,
++          }
++        : {
++            type: 'warning',
++            content: 'common.unknownErrorWithCode',
++            values: { code: getErrorCode(error.message) },
++          };
+   }
+ };
+ 
+@@ -257,7 +264,7 @@ const Content = React.memo(() => {
+                     [message.type]: true,
+                   }}
+                   visible
+-                  content={t(message.content)}
++                  content={t(message.content, message.values)}
+                   onDismiss={handleMessageDismiss}
+                 />
+               )}
+diff --git a/client/src/components/common/Login/SignUpForm.jsx b/client/src/components/common/Login/SignUpForm.jsx
+index 8c7891c..9969e5e 100644
+--- a/client/src/components/common/Login/SignUpForm.jsx
++++ b/client/src/components/common/Login/SignUpForm.jsx
+@@ -85,23 +85,41 @@ const SignUpForm = React.memo(({ onSuccess }) => {
+       },
+       body: JSON.stringify(cleanData),
+     })
+-      .then((response) => response.json().then((body) => ({ ok: response.ok, body })))
+-      .then(({ ok, body }) => {
++      .then((response) =>
++        response
++          .json()
++          .then((body) => ({ ok: response.ok, status: response.status, body }))
++          // BSY Media: a non-JSON response (e.g. an HTML error page from a
++          // misconfigured proxy hop in front of this service - exactly what
++          // happened on 2026-09-01, see CLAUDE.md) must still surface a
++          // useful code instead of falling through to the generic network
++          // .catch() below, which would hide the real HTTP status.
++          .catch(() => ({ ok: response.ok, status: response.status, body: null })),
++      )
++      .then(({ ok, status, body }) => {
+         setIsSubmitting(false);
+ 
+         if (!ok) {
+           setError({
+-            message: body.error || t('common.unknownError'),
++            // BSY Media: a response that isn't invite-service's own JSON
++            // shape (e.g. it got routed to the wrong backend entirely) has
++            // no `error` field - show the real HTTP status instead of a
++            // bare "Unknown error", so a report of this is actionable.
++            message: (body && body.error) || t('common.unknownErrorWithCode', {
++              code: `HTTP ${status}`,
++            }),
+           });
+           return;
+         }
+ 
+         onSuccess(cleanData.email);
+       })
+-      .catch(() => {
++      .catch((error) => {
+         setIsSubmitting(false);
+         setError({
+-          message: t('common.serverConnectionFailed'),
++          message: t('common.serverConnectionFailedWithCode', {
++            code: error && error.name ? error.name : 'NETWORK',
++          }),
+         });
+       });
+   }, [data, onSuccess, t]);
+diff --git a/client/src/components/users/EditUserEmailStep/EditUserEmailStep.jsx b/client/src/components/users/EditUserEmailStep/EditUserEmailStep.jsx
+index 96cd85c..70e712b 100644
+--- a/client/src/components/users/EditUserEmailStep/EditUserEmailStep.jsx
++++ b/client/src/components/users/EditUserEmailStep/EditUserEmailStep.jsx
+@@ -15,6 +15,7 @@ import { Input, Popup } from '../../../lib/custom-ui';
+ import selectors from '../../../selectors';
+ import entryActions from '../../../entry-actions';
+ import { useForm, useNestedRef } from '../../../hooks';
++import getErrorCode from '../../../utils/get-error-code';
+ 
+ import styles from './EditUserEmailStep.module.scss';
+ 
+@@ -37,7 +38,8 @@ const createMessage = (error) => {
+     default:
+       return {
+         type: 'warning',
+-        content: 'common.unknownError',
++        content: 'common.unknownErrorWithCode',
++        values: { code: getErrorCode(error.message) },
+       };
+   }
+ };
+@@ -160,7 +162,7 @@ const EditUserEmailStep = React.memo(({ id, onBack, onClose }) => {
+               [message.type]: true,
+             }}
+             visible
+-            content={t(message.content)}
++            content={t(message.content, message.values)}
+             onDismiss={handleMessageDismiss}
+           />
+         )}
+diff --git a/client/src/components/users/EditUserPasswordStep/EditUserPasswordStep.jsx b/client/src/components/users/EditUserPasswordStep/EditUserPasswordStep.jsx
+index a7ffa2e..9a359f5 100644
+--- a/client/src/components/users/EditUserPasswordStep/EditUserPasswordStep.jsx
++++ b/client/src/components/users/EditUserPasswordStep/EditUserPasswordStep.jsx
+@@ -16,6 +16,7 @@ import selectors from '../../../selectors';
+ import entryActions from '../../../entry-actions';
+ import { useForm, useNestedRef } from '../../../hooks';
+ import { isPassword } from '../../../utils/validator';
++import getErrorCode from '../../../utils/get-error-code';
+ 
+ import styles from './EditUserPasswordStep.module.scss';
+ 
+@@ -33,7 +34,8 @@ const createMessage = (error) => {
+     default:
+       return {
+         type: 'warning',
+-        content: 'common.unknownError',
++        content: 'common.unknownErrorWithCode',
++        values: { code: getErrorCode(error.message) },
+       };
+   }
+ };
+@@ -127,7 +129,7 @@ const EditUserPasswordStep = React.memo(({ id, onBack, onClose }) => {
+               [message.type]: true,
+             }}
+             visible
+-            content={t(message.content)}
++            content={t(message.content, message.values)}
+             onDismiss={handleMessageDismiss}
+           />
+         )}
+diff --git a/client/src/components/users/EditUserUsernameStep/EditUserUsernameStep.jsx b/client/src/components/users/EditUserUsernameStep/EditUserUsernameStep.jsx
+index 2ac2fbd..a650a31 100644
+--- a/client/src/components/users/EditUserUsernameStep/EditUserUsernameStep.jsx
++++ b/client/src/components/users/EditUserUsernameStep/EditUserUsernameStep.jsx
+@@ -15,6 +15,7 @@ import selectors from '../../../selectors';
+ import entryActions from '../../../entry-actions';
+ import { useForm, useNestedRef } from '../../../hooks';
+ import { isUsername } from '../../../utils/validator';
++import getErrorCode from '../../../utils/get-error-code';
+ 
+ import styles from './EditUserUsernameStep.module.scss';
+ 
+@@ -37,7 +38,8 @@ const createMessage = (error) => {
+     default:
+       return {
+         type: 'warning',
+-        content: 'common.unknownError',
++        content: 'common.unknownErrorWithCode',
++        values: { code: getErrorCode(error.message) },
+       };
+   }
+ };
+@@ -160,7 +162,7 @@ const EditUserUsernameStep = React.memo(({ id, onBack, onClose }) => {
+               [message.type]: true,
+             }}
+             visible
+-            content={t(message.content)}
++            content={t(message.content, message.values)}
+             onDismiss={handleMessageDismiss}
+           />
+         )}
+diff --git a/client/src/locales/en-US/login.js b/client/src/locales/en-US/login.js
+index c2b54c0..2c2a24a 100644
+--- a/client/src/locales/en-US/login.js
++++ b/client/src/locales/en-US/login.js
+@@ -23,8 +23,10 @@ export default {
+       passwordsDoNotMatch: 'Passwords do not match',
+       poweredByPlanka: 'Powered by <1>PLANKA</1>',
+       serverConnectionFailed: 'Server connection failed',
++      serverConnectionFailedWithCode: 'Server connection failed. (Code: {{code}})',
+       signUp_title: 'Sign Up',
+       unknownError: 'Unknown error, try again later',
++      unknownErrorWithCode: 'Unknown error, try again later. (Code: {{code}})',
+       useSingleSignOn: 'Use single sign-on',
+       usernameAlreadyInUse: 'Username already in use',
+       whoops_title: 'Whoops!',
+diff --git a/client/src/utils/get-error-code.js b/client/src/utils/get-error-code.js
+new file mode 100644
+index 0000000..7fdd837
+--- /dev/null
++++ b/client/src/utils/get-error-code.js
+@@ -0,0 +1,28 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++// BSY Media: turns an otherwise-opaque error string into a short, stable
++// identifier - the same underlying message always produces the same code,
++// so a user can report "Code: K3F9A" and it's immediately searchable/
++// correlatable, without echoing raw backend text on surfaces that are
++// public/unauthenticated (e.g. the login and sign-up forms). The un-hashed
++// value is also logged to the console, so anyone who can check devtools
++// (or a screen-share) still sees the real message behind the code.
++const getErrorCode = (detail) => {
++  const value = detail == null ? 'UNKNOWN' : String(detail);
++
++  let hash = 0;
++  for (let i = 0; i < value.length; i += 1) {
++    hash = (hash * 31 + value.charCodeAt(i)) | 0;
++  }
++
++  const code = Math.abs(hash).toString(36).toUpperCase().padStart(5, '0').slice(0, 5);
++
++  console.error(`[Error ${code}]`, value); // eslint-disable-line no-console
++
++  return code;
++};
++
++export default getErrorCode;
