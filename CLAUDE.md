@@ -3260,3 +3260,67 @@ identical 3-part diff (add `getErrorCode` import; add `values: { code: getErrorC
 message.values)`) applied uniformly across all 4 files, each fully read before editing.
 
 Patch: `planka-custom/patches/0066-error-codes.patch`.
+
+## Checklist card-face polish: no more white ring on the status dot, direct check-off, wider last-subtask gap (2026-09-14)
+
+Three small requested fixes to the checklist ("Task List") card-face display
+(`client/src/components/cards/Card/TaskList/`), all scoped to the compact board-view card face -
+not the full checklist editor inside the card modal (`components/task-lists/`, `Item.jsx`), which
+already has its own separate status-cycle/checkbox UI and was untouched.
+
+- **Removed the white outer ring around the manual status dot**
+  (`.statusDot` in `TaskList.module.scss`): it previously had
+  `box-shadow: inset ... , 0 0 0 1.5px #fff`, where the `0 0 0 1.5px #fff` outer ring was meant to
+  keep the dot legible against colored/dark backgrounds but instead read as a visible halo. Only
+  the subtle inset ring (`inset 0 0 0 1px rgba(9,30,66,0.13)`) remains.
+- **Added a checkbox that checks the whole checklist off directly from the card face**
+  (`.completeCheckbox` in `TaskList.jsx`/`.module.scss`): previously the only way to mark a
+  checklist's own status as Completed was to open the card, go to the Tasks tab, and click through
+  the status chip's cycle (Not Set -> To Do -> In Progress -> Completed -> ...) in `Item.jsx`. This
+  checkbox is a direct on/off shortcut for the common "just mark it done" case, writing the exact
+  same `status` field `Item.jsx`'s cycle reads/writes (so both stay in sync): checking it sets
+  `status: 'completed'`; unchecking clears it back to `status: null` (Not Set) rather than trying to
+  restore whatever status was set before, matching plain checkbox semantics rather than the full
+  multi-step cycle. Gated on the same board-editor + not-archived/trashed permission check
+  `ProjectContent.jsx`'s existing card-face stopwatch-toggle button already uses (`canEditStopwatch`
+  there, `canEdit` here) - the closest existing precedent for a directly-editable action on the
+  otherwise-mostly-read-only compact card view. The checkbox's own `checked` state reflects
+  `taskList.status === 'completed'` directly, independent of the separate `isCompleted` flag used
+  only for the checklist name's due-date coloring (which also treats "every sub-task individually
+  checked off" as implicitly complete - that broader definition intentionally isn't wired into this
+  literal status checkbox).
+  - Because the checkbox needs to render even for a checklist with zero tasks and no status set (so
+    there's something to check off in the first place), the render gate that previously hid the
+    entire `.progressRow` (`{(tasks.length > 0 || taskLists.status) && (...)}`) now also renders it
+    whenever `canEdit` is true: `{(tasks.length > 0 || taskLists.status || canEdit) && (...)}`.
+    Non-editors see no change - the row still only appears for them when there's a status or tasks
+    to show, exactly as before.
+  - Gotcha hit during verification: Semantic UI React's `Checkbox` binds its internal click-to-toggle
+    handler to the rendered `<label>` element, not the outer wrapping `<div>` - a programmatic
+    `wrapperDiv.click()` (as opposed to a real mouse click landing on the label) silently does
+    nothing. Not a product bug, just something to know if testing this by hand via devtools/JS
+    console rather than an actual click.
+- **Widened the bottom padding after the last sub-task once a checklist is expanded**
+  (`.tasks li:last-child` in `TaskList.module.scss`, new rule): each sub-task `<li>`
+  (`Task.module.scss`'s `.wrapper`) has its own `padding-bottom: 6px`, fine for spacing between
+  rows but too tight once the very last one is sitting directly against the card's bottom edge (the
+  same category of gap issue already fixed for the checklist name and collapsed progress row in the
+  two entries above this one - `ca5947e`/0063 and the 0062 patch respectively - just never extended
+  to the expanded-task-list case). Bumped to the same `16px` used by those other two "last visible
+  thing on the card" cases via a `:last-child` rule scoped to `.tasks ul`, so mid-list spacing
+  between sub-tasks is unaffected.
+
+Verified in an isolated stack via Puppeteer + direct API assertions: confirmed the status dot's
+computed `box-shadow` no longer contains a `255,255,255` ring; created a checklist with zero
+tasks/no status, clicked the new checkbox via a real mouse click on its label, and confirmed via
+the API that `status` became `'completed'` (checkbox now shows checked, status dot now shows
+"Completed"/green), then unchecked it and confirmed `status` returned to `null`; confirmed clicking
+the checkbox on a *different* checklist that already had 3 real sub-tasks and a manual "In
+Progress" status correctly overrode it to "Completed" too, and - importantly - that the click did
+**not** also bubble into the card face's separate expand/collapse click handler (sub-tasks stayed
+collapsed); expanded that same 3-subtask checklist and measured `getComputedStyle(...).paddingBottom`
+directly, confirming the last `<li>` now gets `16px` (was `6px`) while the first `<li>` is
+unaffected at `6px`. Screenshots confirm the visual result matches: no white halo around the status
+dot, a small unchecked checkbox to its left, and a comfortable gap under the last sub-task's text.
+
+Patch: `planka-custom/patches/0067-checklist-checkoff-and-padding.patch`.
