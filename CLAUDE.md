@@ -3324,3 +3324,48 @@ unaffected at `6px`. Screenshots confirm the visual result matches: no white hal
 dot, a small unchecked checkbox to its left, and a comfortable gap under the last sub-task's text.
 
 Patch: `planka-custom/patches/0067-checklist-checkoff-and-padding.patch`.
+
+## Checklist check-off moved from the card face into the card modal (2026-09-14)
+
+Follow-up correction to 0067 above: the card-face check-off checkbox added in that patch
+(`Card/TaskList/TaskList.jsx`'s `.completeCheckbox`) was removed entirely per explicit feedback -
+the check-off control belongs inside the card (like sub-tasks already work), not on the compact
+board-view card face. The card face is back to exactly its pre-0067 shape: just the status dot
+(still without the white ring - that part of 0067 was correct and is untouched) and progress bar,
+no checkbox, no `canEdit`-gated extra render branch.
+
+Instead, the existing static `<Icon name="check square outline" />` sitting to the left of every
+checklist's name inside the card modal (`CardModal/TaskLists/Item.jsx` - previously purely
+decorative, just an icon with no click handler at all) is now a real functioning `Checkbox`
+(`.moduleCheckbox` in `Item.module.scss`, replacing `.moduleIcon`, same absolute-positioned 32x32
+gutter `.moduleWrapper`'s `margin-left: 40px` already reserved for it). Clicking it writes the same
+`status` field the checklist's existing 4-state status-cycle chip (`STATUS_CYCLE`, further right in
+the same header) reads/writes - checked means `status: 'completed'`, unchecked clears it back to
+`status: null` (Not Set) - so the two controls (checkbox and status chip) always agree and either
+one can be used interchangeably. Gated on the same `canEdit` (board-editor) check already computed
+in `Item.jsx` for every other header action; non-editors see the checkbox but it's disabled, same
+as how the status chip already degrades to a plain non-clickable `<span>` for them.
+
+Gotcha re-hit during verification (same root cause as the one noted in 0067, worth restating since
+it bit a *test script* twice now, not the product): Semantic UI React's `Checkbox` binds its
+internal toggle handler to the rendered `<label>`, not the wrapping `<div>` - clicking the div
+programmatically or via `element.click()` does nothing; a real mouse click landing on the label (or
+just a normal user click anywhere in the rendered checkbox, which visually **is** the label) works
+fine. Also hit a second, unrelated Puppeteer-only bug this round: a text-content search for
+"Checklist X" during verification matched the card face's identically-named element (still mounted
+in the DOM behind the modal overlay, and earlier in document order than the portal-rendered modal)
+instead of the modal's own copy - fixed by scoping the query to `[class*="moduleWrapper"]`
+specifically, a class that only exists inside the modal.
+
+Verified in an isolated stack: confirmed the card face no longer renders any `.completeCheckbox`
+element (status dot still present); opened the card modal and confirmed the old decorative icon is
+gone and a real, initially-unchecked checkbox renders in its place; clicked it (real mouse click on
+the label) and confirmed via the API that a checklist which already had a manual "In Progress"
+status was correctly overridden to `'completed'`, that the status chip's own text updated to
+"Completed" in the same render, and that the card face's status dot (still visible, dimmed, behind
+the modal overlay) updated to green in sync; unchecked it and confirmed `status` returned to `null`
+via the API; confirmed the separate status-cycle chip button still independently works afterward
+(clicked it, status advanced to `'todo'` as expected) - proving the two controls coexist correctly
+rather than one clobbering the other's event handling.
+
+Patch: `planka-custom/patches/0068-checklist-checkbox-in-modal.patch`.

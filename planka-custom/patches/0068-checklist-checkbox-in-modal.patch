@@ -1,0 +1,223 @@
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.jsx b/client/src/components/cards/Card/TaskList/TaskList.jsx
+index 60d76a4..5dcd9a9 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.jsx
++++ b/client/src/components/cards/Card/TaskList/TaskList.jsx
+@@ -6,18 +6,16 @@
+ import React, { useCallback, useMemo } from 'react';
+ import PropTypes from 'prop-types';
+ import classNames from 'classnames';
+-import { useDispatch, useSelector } from 'react-redux';
++import { useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+-import { Checkbox, Progress } from 'semantic-ui-react';
++import { Progress } from 'semantic-ui-react';
+ import { useDidUpdate, useToggle } from '../../../../lib/hooks';
+ import { useDueDateStatus } from '../../../../hooks';
+ 
+ import selectors from '../../../../selectors';
+-import entryActions from '../../../../entry-actions';
+ import TaskListStatusColors from '../../../../constants/TaskListStatusColors';
+-import { BoardMembershipRoles, TaskListStatuses } from '../../../../constants/Enums';
++import { TaskListStatuses } from '../../../../constants/Enums';
+ import { DueDateStatuses } from '../../../../utils/get-due-date-status';
+-import { isListArchiveOrTrash } from '../../../../utils/record-helpers';
+ import Task from './Task';
+ 
+ import styles from './TaskList.module.scss';
+@@ -25,30 +23,10 @@ import styles from './TaskList.module.scss';
+ const TaskList = React.memo(({ id }) => {
+   const selectTaskListById = useMemo(() => selectors.makeSelectTaskListById(), []);
+   const selectTasksByTaskListId = useMemo(() => selectors.makeSelectTasksByTaskListId(), []);
+-  const selectCardById = useMemo(() => selectors.makeSelectCardById(), []);
+-  const selectListById = useMemo(() => selectors.makeSelectListById(), []);
+ 
+   const taskLists = useSelector((state) => selectTaskListById(state, id));
+   const tasks = useSelector((state) => selectTasksByTaskListId(state, id));
+ 
+-  // BSY Media: lets the checklist be checked off straight from the card
+-  // face (see .completeCheckbox below) - gated on board-editor permission
+-  // and archive/trash the same way the card face's stopwatch toggle in
+-  // ProjectContent.jsx already is, since that's the closest existing
+-  // precedent for a directly-editable action on the compact card view.
+-  const canEdit = useSelector((state) => {
+-    const card = selectCardById(state, taskLists.cardId);
+-    const list = selectListById(state, card.listId);
+-
+-    if (isListArchiveOrTrash(list)) {
+-      return false;
+-    }
+-
+-    const boardMembership = selectors.selectCurrentUserMembershipForCurrentBoard(state);
+-    return !!boardMembership && boardMembership.role === BoardMembershipRoles.EDITOR;
+-  });
+-
+-  const dispatch = useDispatch();
+   const [t] = useTranslation();
+ 
+   const defaultIsOpened = useSelector(
+@@ -94,19 +72,6 @@ const TaskList = React.memo(({ id }) => {
+     [toggleOpened, filteredTasks.length],
+   );
+ 
+-  // BSY Media: direct check-off shortcut - writes the same status field the
+-  // full status cycle in the card modal (Item.jsx) reads/writes, so marking
+-  // the checklist complete here also shows it as Completed there, and vice
+-  // versa. Unchecking clears the status back to Not Set rather than trying
+-  // to restore whatever manual status was set before, matching how a plain
+-  // checkbox behaves (on/off, not a multi-step cycle).
+-  const handleCompleteToggleChange = useCallback(() => {
+-    const nextStatus =
+-      taskLists.status === TaskListStatuses.COMPLETED ? null : TaskListStatuses.COMPLETED;
+-
+-    dispatch(entryActions.updateTaskList(id, { status: nextStatus }));
+-  }, [id, taskLists.status, dispatch]);
+-
+   useDidUpdate(() => {
+     toggleOpened();
+   }, [defaultIsOpened]);
+@@ -122,25 +87,11 @@ const TaskList = React.memo(({ id }) => {
+       >
+         {taskLists.name}
+       </div>
+-      {(tasks.length > 0 || taskLists.status || canEdit) && (
++      {(tasks.length > 0 || taskLists.status) && (
+         <>
+           {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events,
+                                        jsx-a11y/no-static-element-interactions */}
+           <div className={styles.progressRow} onClick={handleToggleClick}>
+-            {canEdit && (
+-              <Checkbox
+-                checked={taskLists.status === TaskListStatuses.COMPLETED}
+-                disabled={!taskLists.isPersisted}
+-                className={styles.completeCheckbox}
+-                title={t(
+-                  taskLists.status === TaskListStatuses.COMPLETED
+-                    ? 'common.markChecklistAsIncomplete'
+-                    : 'common.markChecklistAsComplete',
+-                )}
+-                onChange={handleCompleteToggleChange}
+-                onClick={(event) => event.stopPropagation()}
+-              />
+-            )}
+             {taskLists.status && (
+               <span
+                 className={styles.statusDot}
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.module.scss b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+index 298f3cd..6411110 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.module.scss
++++ b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+@@ -53,11 +53,10 @@
+     text-overflow: ellipsis;
+     white-space: nowrap;
+ 
+-    // BSY Media: a checklist with zero tasks, no status set, and no
+-    // edit-permission checkbox to show renders nothing but this .name div -
+-    // no .progressRow follows it at all (see TaskList.jsx's
+-    // `{(tasks.length > 0 || taskLists.status || canEdit) && (...)}` gate).
+-    // The -2px bottom margin above exists to tighten the gap to that
++    // BSY Media: a checklist with zero tasks and no status set renders
++    // nothing but this .name div - no .progressRow follows it at all (see
++    // TaskList.jsx's `{(tasks.length > 0 || taskLists.status) && (...)}`
++    // gate). The -2px bottom margin above exists to tighten the gap to that
+     // progressRow when one *is* present; with nothing following, that same
+     // negative margin instead pulls this text flush against (and measured,
+     // slightly past) the card's bottom edge whenever it's the last checklist
+@@ -117,17 +116,6 @@
+     width: 10px;
+   }
+ 
+-  // BSY Media: lets a checklist be checked off directly on the card face,
+-  // without opening the card modal and clicking through the full status
+-  // cycle - a shortcut for the common "just mark it done" case. Checking it
+-  // sets the checklist's status to Completed; unchecking clears the status
+-  // back to Not Set (the same status field the manual cycle in the card
+-  // modal reads/writes, so both stay in sync).
+-  .completeCheckbox {
+-    flex: none;
+-    margin-right: 2px;
+-  }
+-
+   .progressWrapper {
+     padding: 3px 0;
+     width: 100%;
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.jsx b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+index 01026a0..7a73819 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.jsx
++++ b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+@@ -10,7 +10,7 @@ import classNames from 'classnames';
+ import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+ import { Draggable } from 'react-beautiful-dnd';
+-import { Button, Icon } from 'semantic-ui-react';
++import { Button, Checkbox, Icon } from 'semantic-ui-react';
+ import { useToggle } from '../../../../lib/hooks';
+ 
+ import selectors from '../../../../selectors';
+@@ -109,6 +109,18 @@ const Item = React.memo(({ id, index }) => {
+     [taskList.id, dispatch],
+   );
+ 
++  // BSY Media: the checkbox next to the checklist name is a direct on/off
++  // shortcut for the common "just mark it done" case, writing the same
++  // status field the 4-state cycle above reads/writes (so both stay in
++  // sync) - checking it sets Completed; unchecking clears back to Not Set,
++  // rather than restoring whatever status was set before.
++  const handleCompleteToggleChange = useCallback(() => {
++    const nextStatus =
++      taskList.status === TaskListStatuses.COMPLETED ? null : TaskListStatuses.COMPLETED;
++
++    dispatch(entryActions.updateTaskList(taskList.id, { status: nextStatus }));
++  }, [taskList.id, taskList.status, dispatch]);
++
+   const handleDeleteConfirm = useCallback(() => {
+     dispatch(entryActions.deleteTaskList(taskList.id));
+   }, [taskList.id, dispatch]);
+@@ -149,7 +161,17 @@ const Item = React.memo(({ id, index }) => {
+             className={classNames(styles.wrapper, styles.wrapperDragging)}
+           >
+             <div className={styles.moduleWrapper}>
+-              <Icon name="check square outline" className={styles.moduleIcon} />
++              <Checkbox
++                checked={taskList.status === TaskListStatuses.COMPLETED}
++                disabled={!canEdit || !taskList.isPersisted}
++                className={styles.moduleCheckbox}
++                title={t(
++                  taskList.status === TaskListStatuses.COMPLETED
++                    ? 'common.markChecklistAsIncomplete'
++                    : 'common.markChecklistAsComplete',
++                )}
++                onChange={handleCompleteToggleChange}
++              />
+               {/* eslint-disable-next-line react/jsx-props-no-spreading */}
+               <div {...dragHandleProps}>
+                 <div
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.module.scss b/client/src/components/cards/CardModal/TaskLists/Item.module.scss
+index 028b7f9..a3fbc5c 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.module.scss
++++ b/client/src/components/cards/CardModal/TaskLists/Item.module.scss
+@@ -134,15 +134,19 @@
+     display: inline-block;
+   }
+ 
+-  .moduleIcon {
+-    color: #17394d;
+-    font-size: 17px;
++  // BSY Media: replaces what used to be a purely decorative "check square
++  // outline" icon in this same slot with an actual functioning checkbox -
++  // checking it marks the whole checklist Completed (same status field the
++  // status chip's cycle below reads/writes; see Item.jsx's
++  // handleCompleteToggleChange). Positioned/sized to occupy the same
++  // 32x32 gutter the icon used to (moduleWrapper's margin-left: 40px
++  // reserves that space), just centered within it instead of using the
++  // icon's own line-height-based vertical centering.
++  .moduleCheckbox {
+     height: 32px;
+     left: -40px;
+-    line-height: 32px;
+-    margin-right: 0;
+     position: absolute;
+-    top: 2px;
++    top: 9px;
+     width: 32px;
+   }
+ 
