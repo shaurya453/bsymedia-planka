@@ -3369,3 +3369,71 @@ via the API; confirmed the separate status-cycle chip button still independently
 rather than one clobbering the other's event handling.
 
 Patch: `planka-custom/patches/0068-checklist-checkbox-in-modal.patch`.
+
+## Expanded-checklist gap reduction + checklist/sub-task text color inversion (2026-09-15)
+
+Two more card-face polish fixes to the expanded-checklist view (`Card/TaskList/TaskList.jsx` and
+its `.module.scss`, plus `Card/TaskList/Task.module.scss`), both grounded in a real production
+card (`Yapmaster Media` board, "The Illegal and Disturbing Onlyfans Controversy Iceberg" card,
+`COMPLETED CASES` -> `Scriptwriting` checklists) screenshotted live via the real admin account
+before touching any code - the gap between the progress bar and the first sub-task, and between
+the last sub-task and whatever follows, were both visibly oversized on that real card, confirming
+the report.
+
+- **Gap before the first sub-task**: `.progressRow`'s `padding-bottom: 16px` (added in an earlier
+  patch specifically for the *collapsed* checklist case, where this row sits directly against the
+  card's bottom edge) was also - unintentionally - the gap rendered before the first sub-task once
+  a checklist is *expanded*, since `.tasks`' own `-2px` top margin barely dents it. Rather than
+  changing that 16px value itself (still correct for the collapsed case), `TaskList.jsx` now adds a
+  second class, `.progressRowExpanded`, only when `isOpened && filteredTasks.length > 0`, overriding
+  just the bottom padding down to `8px` for that specific state.
+- **Gap after the last sub-task**: `.tasks li:last-child`'s `padding-bottom` (added in 0067 to stop
+  a checklist's last sub-task from sitting flush against the card's bottom edge) fires for *every*
+  checklist's last sub-task unconditionally - including when another checklist follows immediately
+  after, which the real production card above demonstrated clearly (a large gap between `CASE 7`
+  and the next checklist's name, `Scriptwriting`, not just at the card's true bottom edge). Reduced
+  from `16px` to `8px`, matching `.progressRowExpanded` above so the "gap in" and "gap out" of a
+  checklist's sub-task block read as a matched pair.
+  - Tried a third, more uniform option (`6px` for both, i.e. exactly matching the normal
+    inter-sub-task rhythm with no extra emphasis at all) and rejected it after a direct side-by-side
+    screenshot comparison in an isolated stack - it read as slightly too tight/cramped in both the
+    "two checklists back to back" and "checklist is the card's last content" scenarios, undoing part
+    of 0067's original fix. `8px` was the better balance of the values tried.
+- **Checklist name / sub-task text color inverted**: the checklist's own name (`TaskList.module.scss`
+  `.name`) was `#6b808c` (lighter blue-grey) while its sub-task text (inherited from `.tasks`'s
+  `color: #333`, a dark grey) was darker - backwards from normal heading/body-text hierarchy, where
+  the more prominent heading-like text (the checklist's own name) should read darker/bolder than the
+  secondary text nested under it. Swapped: `.name` is now `#333`, `.tasks` (and therefore the
+  sub-task text it cascades to) is now `#6b808c`.
+  - This file had **no dark-mode override at all** for `.name` before now (it happened to be legible
+    on both light and dark card backgrounds by luck at `#6b808c`) - the new `#333` is not legible on
+    a dark card background, so a `#app.dark-mode-cards-enabled` block was added, mirroring the exact
+    pattern already used for the card title (`ProjectContent`/`StoryContent.module.scss`) and for
+    sub-task text (`Task.module.scss`): `#b6c2cf` for the checklist name (same value as the card
+    title), deliberately brighter than sub-task text's existing dark-mode color (`#9fadbc`) so the
+    same "name more prominent than its own sub-tasks" hierarchy holds in dark mode too. Discovered
+    and fixed this gap *during* verification, before it ever reached production - dark-mode-enabled
+    boards (confirmed at least one real one exists, the `Yapmaster Media` board used for the "before"
+    screenshot) would otherwise have gotten a near-invisible checklist name.
+
+Verified using the real admin account against real production data for the "before" state, and an
+isolated stack for precise iteration: confirmed computed `padding-bottom` values (`8px` on
+`.progressRowExpanded` and the last `<li>`, `6px` unchanged on every other sub-task) across three
+scenarios - two checklists back-to-back, a checklist as the card's only/last content, and (for
+color) a checklist with a genuinely uncompleted sub-task (the `#aaa` "completed" strikethrough color
+would have hidden the real text color otherwise). Confirmed light-mode colors
+(`checklistName: rgb(51,51,51)`, `subtaskText: rgb(107,128,140)`) and, after fixing the
+`ProjectBackground` mounting gotcha below, dark-mode colors (`checklistName: rgb(182,194,207)`,
+`subtaskText: rgb(159,173,188)`) both hold the intended darker-name/lighter-subtask relationship.
+
+Gotcha hit while building the dark-mode test fixture (test-script/methodology issue, not a product
+bug, but worth recording): setting a project's `cardsDarkModeEnabled: true` via the API alone is not
+sufficient to see the effect - `Core.jsx` only mounts the `ProjectBackground` component (which is
+what actually toggles the `#app.dark-mode-cards-enabled` body class in a `useEffect`) when
+`project.backgroundType` is also truthy. A project with dark-mode-for-cards on but no background
+image/gradient selected at all never gets the class applied, even though the Project Settings
+modal's own toggle correctly shows as on (it reads the same underlying field, independent of whether
+`ProjectBackground` itself is mounted). Fixed by also setting `backgroundType: 'gradient'` +
+`backgroundGradient: 'old-lime'` on the test project.
+
+Patch: `planka-custom/patches/0069-gap-and-color-fix.patch`.

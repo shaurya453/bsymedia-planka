@@ -1,0 +1,122 @@
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.jsx b/client/src/components/cards/Card/TaskList/TaskList.jsx
+index 5dcd9a9..0b016de 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.jsx
++++ b/client/src/components/cards/Card/TaskList/TaskList.jsx
+@@ -91,7 +91,13 @@ const TaskList = React.memo(({ id }) => {
+         <>
+           {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events,
+                                        jsx-a11y/no-static-element-interactions */}
+-          <div className={styles.progressRow} onClick={handleToggleClick}>
++          <div
++            className={classNames(
++              styles.progressRow,
++              isOpened && filteredTasks.length > 0 && styles.progressRowExpanded,
++            )}
++            onClick={handleToggleClick}
++          >
+             {taskLists.status && (
+               <span
+                 className={styles.statusDot}
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.module.scss b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+index 6411110..ba0fdb3 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.module.scss
++++ b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+@@ -43,8 +43,13 @@
+   // bumped by the same 8px to match. Right padding is also widened (8px ->
+   // 16px, margin still bleeds by the original 8px) so there's more visible
+   // breathing room before the card's right edge, matching the subtask row.
++  //
++  // BSY Media: darkened from #6b808c to #333 (swapped with the sub-task
++  // text color below, which moved the other way) - the checklist's own
++  // name is the more prominent, "heading"-like piece of text here, so it
++  // reads better darker/bolder than its own sub-tasks, not lighter.
+   .name {
+-    color: #6b808c;
++    color: #333;
+     font-size: 12px;
+     font-weight: bold;
+     margin: 0 -8px -2px;
+@@ -100,6 +105,19 @@
+     padding: 0px 16px 16px 16px;
+   }
+ 
++  // BSY Media: once expanded with visible sub-tasks below it, the
++  // progressRow is no longer the thing sitting against the card's bottom
++  // edge (the sub-task list is) - the 16px above is tuned for that other,
++  // collapsed/no-tasks case and was leaving a too-large gap before the
++  // first sub-task here. Combined with .tasks' -2px top margin below, this
++  // nets out to the same ~6px rhythm used between individual sub-tasks
++  // (Task.module.scss's .wrapper padding-bottom), so the transition from
++  // progress bar to first sub-task reads as part of the same continuous
++  // list rather than a separate, oversized gap.
++  .progressRowExpanded {
++    padding-bottom: 8px;
++  }
++
+   // BSY Media: manual checklist status indicator - a small colored dot next
+   // to the progress bar, shown whenever a status is set (todo/inProgress/
+   // completed); intentionally just a dot here, not text, per the card face
+@@ -121,19 +139,56 @@
+     width: 100%;
+   }
+ 
++  // BSY Media: lightened from #333 to #6b808c (swapped with the checklist
++  // name color above) - sub-task text now reads lighter/secondary relative
++  // to its own checklist's heading, matching normal text-hierarchy
++  // expectations (heading darker, body text underneath it lighter).
+   .tasks {
+-    color: #333;
++    color: #6b808c;
+     list-style: none;
+     margin: -2px 0 0;
+     padding-left: 0;
+ 
+-    // BSY Media: same widened-bottom-padding treatment given to .name and
+-    // .progressRow above, applied to whichever subtask row actually ends up
+-    // last once a checklist is expanded - otherwise its 6px per-row padding
+-    // (Task.module.scss's .wrapper) left the last subtask's text sitting too
+-    // close to the card's bottom edge.
++    // BSY Media: bottom padding on the last sub-task row, so it doesn't sit
++    // flush against whatever follows (the card's own bottom edge, or - just
++    // as often in practice - the next checklist's name, since this rule
++    // fires for every checklist's last sub-task, not only a checklist that's
++    // the very last thing on the card). Reduced from an earlier 16px, which
++    // read as an oversized, disconnected gap - especially between two
++    // consecutive checklists - down to the same ~8px this checklist's own
++    // progressRow now uses before its first sub-task (see
++    // .progressRowExpanded above), so the gap "before" and "after" a
++    // checklist's sub-task block feel like a matched pair.
+     li:last-child {
+-      padding-bottom: 16px;
++      padding-bottom: 8px;
+     }
+   }
+ }
++
++// BSY Media: this file previously had no dark-mode override at all for
++// .name, since #6b808c (its old light-mode color) happened to read fine on
++// both light and dark card backgrounds by luck. The new #333 (see .name
++// above) does not - it's near-invisible on a dark card background - so this
++// mirrors the same dark-mode pattern already used for the card title
++// (ProjectContent.module.scss/StoryContent.module.scss) and sub-task text
++// (Task.module.scss) to keep the checklist name legible once "Dark mode for
++// cards & columns" is enabled on a project, while still reading as the more
++// prominent of the two (brighter than Task.module.scss's #9fadbc sub-task
++// dark-mode color). The .name.nameDueSoon/.nameOverdue combo-class
++// overrides re-assert due-status coloring the same way Task.module.scss
++// already does, since #app.dark-mode-cards-enabled .name alone would
++// otherwise outrank the plain #app .nameDueSoon/.nameOverdue rules above on
++// specificity.
++:global(#app.dark-mode-cards-enabled) {
++  .name {
++    color: #b6c2cf;
++  }
++
++  .name.nameDueSoon {
++    color: #f2711c;
++  }
++
++  .name.nameOverdue {
++    color: #db2828;
++  }
++}
