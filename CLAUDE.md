@@ -3437,3 +3437,59 @@ modal's own toggle correctly shows as on (it reads the same underlying field, in
 `backgroundGradient: 'old-lime'` on the test project.
 
 Patch: `planka-custom/patches/0069-gap-and-color-fix.patch`.
+
+## Decouple checklist check-off from status; strike through completed checklists (2026-09-16)
+
+Follow-up correction to 0068's checkbox: it was writing the exact same `status` field the 4-state
+status-cycle chip (`Item.jsx`'s `STATUS_CYCLE` - Not Set/To Do/In Progress/Completed) reads/writes,
+so checking the box always force-set status to `completed` and unchecking always cleared it to
+`null` - silently overwriting whatever manual status was already set (e.g. "In Progress"). Per
+feedback, the two are now fully independent: the status chip is manual-only, never touched by the
+checkbox, and vice versa.
+
+- **New field**: `TaskList.isCompleted` (boolean, `defaultsTo: false`) - server model attribute,
+  new migration (`20260916000000_add_is_completed_to_task_list.js`, same
+  add-column-with-default-then-alter-not-null pattern as `hide_completed_tasks`/
+  `cards_dark_mode_enabled`), `task-lists/update.js` controller input + values whitelist, and the
+  client redux-orm model (`client/src/models/TaskList.js`). This is deliberately a separate concept
+  from `status` (a manually-controlled workflow label) - the checkbox now reads/writes only this
+  field, mirroring how a sub-task's own `isCompleted` field already works independently of anything
+  else on its parent checklist.
+- `Item.jsx`'s `handleCompleteToggleChange` now dispatches `{ isCompleted: !taskList.isCompleted }`
+  instead of touching `status`; the checkbox's `checked` prop reads `taskList.isCompleted` instead
+  of `status === 'completed'`.
+- **Strikethrough**: both the card-face checklist name (`Card/TaskList/TaskList.jsx`/
+  `.module.scss`) and the card-modal checklist name (`CardModal/TaskLists/Item.jsx`/`.module.scss`)
+  now get a `nameCompleted`/`moduleHeaderTitleCompleted` class - `color: #aaa; text-decoration:
+  line-through;`, the exact same treatment (and exact same hex value) a sub-task's own
+  `.nameCompleted` already uses in both locations, so a checked-off checklist reads identically to a
+  checked-off sub-task. Driven purely by the literal `isCompleted` field, not inferred from status
+  or from all-sub-tasks-being-done (matching how a sub-task's own strikethrough is never inferred
+  from anything either).
+  - Card face's local due-date-color-suppression variable was renamed from `isCompleted` to
+    `isDueDateSuppressed` to avoid confusion with the new `taskLists.isCompleted` field it now also
+    incorporates (the due-soon/overdue guard now also treats an explicitly-checked-off checklist as
+    "done", alongside the pre-existing "status is Completed" and "every sub-task checked" cases).
+  - Card face's dark-mode block (`#app.dark-mode-cards-enabled`) needed a same-specificity
+    `.name.nameCompleted` combo-class override added alongside the pre-existing
+    `.name.nameDueSoon`/`.nameOverdue` ones, for the identical reason those exist - the dark-mode
+    `.name` rule alone would otherwise outrank the plain `.nameCompleted` rule on specificity and the
+    strikethrough color would incorrectly become the dark-mode-prominent `#b6c2cf` instead of `#aaa`.
+- `Item.jsx`'s `isDeadlineCompleted` (drives the due-date chip's own completed styling) and the
+  server-side `deadline-notifications` hook's `isTaskListDeadlineActive` check both updated the same
+  way - `taskList.isCompleted`/`isCompleted` now also stops due-date warnings/pings, alongside the
+  pre-existing status/all-sub-tasks-done cases.
+- Deliberately did **not** add a dedicated activity-log/notification entry for checking a checklist
+  off (unlike a sub-task's own `COMPLETE_TASK`/`UNCOMPLETE_TASK` action types) - out of scope for
+  what was asked, and would have required new Action types, locale strings, and a notification
+  fan-out policy decision none of which were requested. Easy follow-up if wanted later.
+
+Verified in an isolated stack: created a checklist, gave it a manual "In Progress" status, then
+checked its checkbox - confirmed via the API that `status` stayed `inProgress` (untouched) while
+`isCompleted` became `true`, the checkbox rendered checked, and the checklist name showed
+`text-decoration-line: line-through` in `#aaa` in both the card modal and (after closing it) the
+card face. Then manually cycled the status chip forward (In Progress -> Completed) and confirmed via
+the API that `isCompleted` remained `true`, unaffected by the manual status change - proving the two
+fields are genuinely independent in both directions, not just one.
+
+Patch: `planka-custom/patches/0070-decouple-checkoff-strikethrough.patch`.

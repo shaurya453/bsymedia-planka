@@ -1,0 +1,325 @@
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.jsx b/client/src/components/cards/Card/TaskList/TaskList.jsx
+index 0b016de..d14fe35 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.jsx
++++ b/client/src/components/cards/Card/TaskList/TaskList.jsx
+@@ -52,11 +52,16 @@ const TaskList = React.memo(({ id }) => {
+   );
+ 
+   // BSY Media: the checklist's own deadline coloring should stop once it no
+-  // longer needs attention - either explicitly marked Completed via its
+-  // status cycle, or implicitly done because every one of its sub-tasks has
+-  // been checked off (mirrors the isTaskListDeadlineActive check the
+-  // deadline-notifications hook uses server-side to stop pinging).
+-  const isCompleted =
++  // longer needs attention - checked off via its own isCompleted checkbox
++  // (see the card modal's Item.jsx), explicitly marked Completed via its
++  // (fully independent) status cycle, or implicitly done because every one
++  // of its sub-tasks has been checked off (mirrors the
++  // isTaskListDeadlineActive check the deadline-notifications hook uses
++  // server-side to stop pinging). Named distinctly from taskLists.isCompleted
++  // itself since this is a broader "don't warn about the deadline" concept,
++  // not literally the checkbox's own state.
++  const isDueDateSuppressed =
++    !!taskLists.isCompleted ||
+     taskLists.status === TaskListStatuses.COMPLETED ||
+     (tasks.length > 0 && completedTasksTotal === tasks.length);
+ 
+@@ -81,8 +86,9 @@ const TaskList = React.memo(({ id }) => {
+       <div
+         className={classNames(
+           styles.name,
+-          !isCompleted && dueDateStatus === DueDateStatuses.DUE_SOON && styles.nameDueSoon,
+-          !isCompleted && dueDateStatus === DueDateStatuses.OVERDUE && styles.nameOverdue,
++          taskLists.isCompleted && styles.nameCompleted,
++          !isDueDateSuppressed && dueDateStatus === DueDateStatuses.DUE_SOON && styles.nameDueSoon,
++          !isDueDateSuppressed && dueDateStatus === DueDateStatuses.OVERDUE && styles.nameOverdue,
+         )}
+       >
+         {taskLists.name}
+diff --git a/client/src/components/cards/Card/TaskList/TaskList.module.scss b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+index ba0fdb3..7864e36 100644
+--- a/client/src/components/cards/Card/TaskList/TaskList.module.scss
++++ b/client/src/components/cards/Card/TaskList/TaskList.module.scss
+@@ -73,6 +73,17 @@
+     }
+   }
+ 
++  // BSY Media: struck through once the checklist's own isCompleted checkbox
++  // (set in the card modal) is checked - same treatment a sub-task's own
++  // name gets (see Task.module.scss's .nameCompleted), so a checked-off
++  // checklist reads the same way on the card face as a checked-off sub-task
++  // does. Takes priority over nameDueSoon/nameOverdue via the isDueDateSuppressed
++  // guard in TaskList.jsx (both never apply at the same time).
++  .nameCompleted {
++    color: #aaa;
++    text-decoration: line-through;
++  }
++
+   // BSY Media: checklist name turns orange/red directly on the card face
+   // once its own due date is within 24h / past due - same hex values as
+   // DueDateChip's existing due-soon/overdue status colors, for consistency.
+@@ -174,16 +185,24 @@
+ // (Task.module.scss) to keep the checklist name legible once "Dark mode for
+ // cards & columns" is enabled on a project, while still reading as the more
+ // prominent of the two (brighter than Task.module.scss's #9fadbc sub-task
+-// dark-mode color). The .name.nameDueSoon/.nameOverdue combo-class
+-// overrides re-assert due-status coloring the same way Task.module.scss
+-// already does, since #app.dark-mode-cards-enabled .name alone would
+-// otherwise outrank the plain #app .nameDueSoon/.nameOverdue rules above on
+-// specificity.
++// dark-mode color). The .name.nameCompleted/.nameDueSoon/.nameOverdue
++// combo-class overrides re-assert their own colors the same way
++// Task.module.scss already does, since #app.dark-mode-cards-enabled .name
++// alone would otherwise outrank the plain #app .nameCompleted/.nameDueSoon/
++// .nameOverdue rules above on specificity.
+ :global(#app.dark-mode-cards-enabled) {
+   .name {
+     color: #b6c2cf;
+   }
+ 
++  // BSY Media: same specificity fight as nameDueSoon/nameOverdue below -
++  // #aaa already reads fine on a dark card background (Task.module.scss's
++  // sub-task .nameCompleted relies on the same fact), this combo-class
++  // just re-asserts it over the id-qualified .name rule above.
++  .name.nameCompleted {
++    color: #aaa;
++  }
++
+   .name.nameDueSoon {
+     color: #f2711c;
+   }
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.jsx b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+index 7a73819..7768fcb 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.jsx
++++ b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+@@ -59,14 +59,16 @@ const Item = React.memo(({ id, index }) => {
+   const tasks = useSelector((state) => selectTasksByTaskListId(state, id));
+ 
+   // BSY Media: the checklist's own due-date chip should stop reading as
+-  // due-soon/overdue once it no longer needs attention - either explicitly
+-  // marked Completed via its status cycle, or implicitly done because every
+-  // one of its sub-tasks has been checked off (mirrors the
+-  // isTaskListDeadlineActive check the deadline-notifications hook uses
+-  // server-side to stop pinging, and the equivalent guard on the card-face
+-  // checklist name in Card/TaskList/TaskList.jsx).
++  // due-soon/overdue once it no longer needs attention - checked off via its
++  // own checkbox, explicitly marked Completed via its (fully independent)
++  // status cycle, or implicitly done because every one of its sub-tasks has
++  // been checked off (mirrors the isTaskListDeadlineActive check the
++  // deadline-notifications hook uses server-side to stop pinging, and the
++  // equivalent guard on the card-face checklist name in
++  // Card/TaskList/TaskList.jsx).
+   const isDeadlineCompleted =
+     !!taskList.isDueCompleted ||
++    !!taskList.isCompleted ||
+     taskList.status === TaskListStatuses.COMPLETED ||
+     (tasks.length > 0 && tasks.every((task) => task.isCompleted));
+ 
+@@ -109,17 +111,14 @@ const Item = React.memo(({ id, index }) => {
+     [taskList.id, dispatch],
+   );
+ 
+-  // BSY Media: the checkbox next to the checklist name is a direct on/off
+-  // shortcut for the common "just mark it done" case, writing the same
+-  // status field the 4-state cycle above reads/writes (so both stay in
+-  // sync) - checking it sets Completed; unchecking clears back to Not Set,
+-  // rather than restoring whatever status was set before.
++  // BSY Media: the checkbox next to the checklist name checks the checklist
++  // itself off - deliberately independent of the status cycle above (own
++  // isCompleted field, not status). Status is manually-controlled only now:
++  // checking/unchecking this box never touches it, and cycling status never
++  // touches this box either.
+   const handleCompleteToggleChange = useCallback(() => {
+-    const nextStatus =
+-      taskList.status === TaskListStatuses.COMPLETED ? null : TaskListStatuses.COMPLETED;
+-
+-    dispatch(entryActions.updateTaskList(taskList.id, { status: nextStatus }));
+-  }, [taskList.id, taskList.status, dispatch]);
++    dispatch(entryActions.updateTaskList(taskList.id, { isCompleted: !taskList.isCompleted }));
++  }, [taskList.id, taskList.isCompleted, dispatch]);
+ 
+   const handleDeleteConfirm = useCallback(() => {
+     dispatch(entryActions.deleteTaskList(taskList.id));
+@@ -162,11 +161,11 @@ const Item = React.memo(({ id, index }) => {
+           >
+             <div className={styles.moduleWrapper}>
+               <Checkbox
+-                checked={taskList.status === TaskListStatuses.COMPLETED}
++                checked={!!taskList.isCompleted}
+                 disabled={!canEdit || !taskList.isPersisted}
+                 className={styles.moduleCheckbox}
+                 title={t(
+-                  taskList.status === TaskListStatuses.COMPLETED
++                  taskList.isCompleted
+                     ? 'common.markChecklistAsIncomplete'
+                     : 'common.markChecklistAsComplete',
+                 )}
+@@ -289,7 +288,14 @@ const Item = React.memo(({ id, index }) => {
+                       )}
+                     </div>
+                   )}
+-                  <span className={styles.moduleHeaderTitle}>{taskList.name}</span>
++                  <span
++                    className={classNames(
++                      styles.moduleHeaderTitle,
++                      taskList.isCompleted && styles.moduleHeaderTitleCompleted,
++                    )}
++                  >
++                    {taskList.name}
++                  </span>
+                 </div>
+                 {(taskList.startDate || taskList.dueDate) && (
+                   <div className={styles.dates}>
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.module.scss b/client/src/components/cards/CardModal/TaskLists/Item.module.scss
+index a3fbc5c..603ed80 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.module.scss
++++ b/client/src/components/cards/CardModal/TaskLists/Item.module.scss
+@@ -123,6 +123,14 @@
+     word-wrap: break-word;
+   }
+ 
++  // BSY Media: struck through once the checklist's own isCompleted checkbox
++  // is checked - same treatment a sub-task's own name gets (see
++  // task-lists/TaskList/Task/Task.module.scss's .nameCompleted).
++  .moduleHeaderTitleCompleted {
++    color: #aaa;
++    text-decoration: line-through;
++  }
++
+   .dates {
+     display: flex;
+     flex-wrap: wrap;
+diff --git a/client/src/models/TaskList.js b/client/src/models/TaskList.js
+index ba75db4..3b57778 100755
+--- a/client/src/models/TaskList.js
++++ b/client/src/models/TaskList.js
+@@ -21,6 +21,7 @@ export default class extends BaseModel {
+     dueDate: attr(),
+     isDueCompleted: attr(),
+     status: attr(),
++    isCompleted: attr(),
+     cardId: fk({
+       to: 'Card',
+       as: 'card',
+diff --git a/server/api/controllers/task-lists/update.js b/server/api/controllers/task-lists/update.js
+index 2dbf2df..d7a3d22 100755
+--- a/server/api/controllers/task-lists/update.js
++++ b/server/api/controllers/task-lists/update.js
+@@ -73,6 +73,10 @@
+  *                 nullable: true
+  *                 description: Workflow status of the task list (null to clear)
+  *                 example: todo
++ *               isCompleted:
++ *                 type: boolean
++ *                 description: Whether the task list itself has been checked off
++ *                 example: false
+  *     responses:
+  *       200:
+  *         description: Task list updated successfully
+@@ -154,6 +158,9 @@ module.exports = {
+       isIn: Object.values(TaskList.Statuses),
+       allowNull: true,
+     },
++    isCompleted: {
++      type: 'boolean',
++    },
+   },
+ 
+   exits: {
+@@ -210,6 +217,7 @@ module.exports = {
+       'isDueCompleted',
+       'assigneeUserId',
+       'status',
++      'isCompleted',
+     ]);
+ 
+     taskList = await sails.helpers.taskLists.updateOne.with({
+diff --git a/server/api/helpers/deadline-notifications/process-task-lists.js b/server/api/helpers/deadline-notifications/process-task-lists.js
+index a1fd287..1b527e0 100644
+--- a/server/api/helpers/deadline-notifications/process-task-lists.js
++++ b/server/api/helpers/deadline-notifications/process-task-lists.js
+@@ -62,16 +62,17 @@ const notifyAndMark = async (taskList, actionType, trackingField, adminUser, web
+ };
+ 
+ // BSY Media: a checklist ("main task") shouldn't keep pinging its deadline
+-// once it no longer needs attention - either explicitly marked Completed
+-// via its own status cycle, or implicitly done because every one of its
++// once it no longer needs attention - checked off directly via its own
++// isCompleted checkbox, explicitly marked Completed via its (now fully
++// independent) status cycle, or implicitly done because every one of its
+ // sub-tasks has already been checked off. Checked independently of
+ // isDueCompleted (the separate manual "this specific due date is handled"
+ // toggle, already covered by the query criteria below), so a checklist
+-// without a completed status/tasks keeps behaving exactly as before. A
+-// checklist with zero tasks is never considered done this way - there's
++// without any of these keeps behaving exactly as before. A checklist with
++// zero tasks is never considered done via the sub-task route - there's
+ // nothing to have completed.
+ const isTaskListDeadlineActive = async (taskList) => {
+-  if (taskList.status === TaskList.Statuses.COMPLETED) {
++  if (taskList.isCompleted || taskList.status === TaskList.Statuses.COMPLETED) {
+     return false;
+   }
+ 
+diff --git a/server/api/models/TaskList.js b/server/api/models/TaskList.js
+index c4a721f..418e006 100644
+--- a/server/api/models/TaskList.js
++++ b/server/api/models/TaskList.js
+@@ -80,6 +80,11 @@
+  *           nullable: true
+  *           description: Workflow status of the task list
+  *           example: todo
++ *         isCompleted:
++ *           type: boolean
++ *           default: false
++ *           description: Whether the task list itself has been checked off - independent of status, which is a separate, manually-controlled workflow label
++ *           example: false
+  *         lastDueSoonNotifiedAt:
+  *           type: string
+  *           format: date-time
+@@ -156,6 +161,18 @@ module.exports = {
+       isIn: Object.values(Statuses),
+       allowNull: true,
+     },
++    // BSY Media: the checklist's own check-off state - deliberately separate
++    // from `status` above. `status` is a manually-controlled workflow label
++    // (Not Set/To Do/In Progress/Completed) that should only ever change via
++    // its own explicit cycle/delete actions; this field is what the checkbox
++    // next to the checklist name actually reads/writes, and what drives the
++    // strikethrough treatment on its name (mirroring a sub-task's own
++    // isCompleted field/nameCompleted styling).
++    isCompleted: {
++      type: 'boolean',
++      defaultsTo: false,
++      columnName: 'is_completed',
++    },
+     // BSY Media: deadline-notification idempotency tracking for the
+     // scheduled `deadline-notifications` hook - reset to null whenever
+     // dueDate or assigneeUserId changes (see task-lists/update-one.js), set
+diff --git a/server/db/migrations/20260916000000_add_is_completed_to_task_list.js b/server/db/migrations/20260916000000_add_is_completed_to_task_list.js
+new file mode 100644
+index 0000000..cb5ce4e
+--- /dev/null
++++ b/server/db/migrations/20260916000000_add_is_completed_to_task_list.js
+@@ -0,0 +1,21 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++exports.up = async (knex) => {
++  await knex.schema.alterTable('task_list', (table) => {
++    /* Columns */
++
++    table.boolean('is_completed').notNullable().defaultTo(false);
++  });
++
++  return knex.schema.alterTable('task_list', (table) => {
++    table.boolean('is_completed').notNullable().alter();
++  });
++};
++
++exports.down = (knex) =>
++  knex.schema.table('task_list', (table) => {
++    table.dropColumn('is_completed');
++  });
