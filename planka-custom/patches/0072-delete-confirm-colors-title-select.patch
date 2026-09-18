@@ -1,0 +1,2295 @@
+diff --git a/client/src/components/cards/Card/Card.jsx b/client/src/components/cards/Card/Card.jsx
+index 2c857f0..2dfbe57 100755
+--- a/client/src/components/cards/Card/Card.jsx
++++ b/client/src/components/cards/Card/Card.jsx
+@@ -64,10 +64,13 @@ const Card = React.memo(({ id, isInline }) => {
+       return undefined;
+     }
+ 
++    // BSY Media: a custom hex color (picked via ColorWheelPicker) isn't in
++    // this map at all - it already IS the hex value, so fall back to the
++    // color itself instead of grey.
+     const rings = labelColors.map(
+-      (color, index) => `0 0 0 ${1 + index * 2}px ${LabelGlowColors[color] || '#999999'}`,
++      (color, index) => `0 0 0 ${1 + index * 2}px ${LabelGlowColors[color] || color}`,
+     );
+-    const haloColor = LabelGlowColors[labelColors[0]] || '#999999';
++    const haloColor = LabelGlowColors[labelColors[0]] || labelColors[0];
+     const lastRingSpread = 1 + (labelColors.length - 1) * 2;
+ 
+     return {
+@@ -183,7 +186,7 @@ const Card = React.memo(({ id, isInline }) => {
+             onClick={handleClick}
+             onContextMenu={handleContextMenu}
+           >
+-            <Content cardId={id} />
++            <Content cardId={id} onNameEdit={canUseActions ? handleNameEdit : undefined} />
+           </div>
+           {canUseActions && (
+             <CardActionsPopup ref={actionsPopupRef} cardId={id} onNameEdit={handleNameEdit}>
+diff --git a/client/src/components/cards/Card/EditName.jsx b/client/src/components/cards/Card/EditName.jsx
+index ae73ebe..fad53fd 100644
+--- a/client/src/components/cards/Card/EditName.jsx
++++ b/client/src/components/cards/Card/EditName.jsx
+@@ -14,7 +14,6 @@ import { useClickAwayListener } from '../../../lib/hooks';
+ import selectors from '../../../selectors';
+ import entryActions from '../../../entry-actions';
+ import { useField, useNestedRef } from '../../../hooks';
+-import { focusEnd } from '../../../utils/element-helpers';
+ 
+ import styles from './EditName.module.scss';
+ 
+@@ -82,7 +81,7 @@ const EditName = React.memo(({ cardId, onClose }) => {
+   );
+ 
+   useEffect(() => {
+-    focusEnd(fieldRef.current);
++    fieldRef.current.select();
+   }, [fieldRef]);
+ 
+   return (
+diff --git a/client/src/components/cards/Card/ProjectContent.jsx b/client/src/components/cards/Card/ProjectContent.jsx
+index ff4b7e4..26b9ea6 100644
+--- a/client/src/components/cards/Card/ProjectContent.jsx
++++ b/client/src/components/cards/Card/ProjectContent.jsx
+@@ -26,7 +26,7 @@ import CustomFieldValueChip from '../../custom-field-values/CustomFieldValueChip
+ 
+ import styles from './ProjectContent.module.scss';
+ 
+-const ProjectContent = React.memo(({ cardId }) => {
++const ProjectContent = React.memo(({ cardId, onNameEdit }) => {
+   const selectCardById = useMemo(() => selectors.makeSelectCardById(), []);
+   const selectListById = useMemo(() => selectors.makeSelectListById(), []);
+   const selectUserIdsByCardId = useMemo(() => selectors.makeSelectUserIdsByCardId(), []);
+@@ -136,6 +136,14 @@ const ProjectContent = React.memo(({ cardId }) => {
+     [cardId, card.stopwatch, dispatch],
+   );
+ 
++  const handleTitleClick = useCallback(
++    (event) => {
++      event.stopPropagation();
++      onNameEdit();
++    },
++    [onNameEdit],
++  );
++
+   const hasInformation =
+     card.description ||
+     card.stopwatch ||
+@@ -172,7 +180,18 @@ const ProjectContent = React.memo(({ cardId }) => {
+ 
+   return (
+     <div className={styles.wrapper}>
+-      <div className={classNames(styles.name, card.isClosed && styles.nameClosed)}>{card.name}</div>
++      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events,
++                                   jsx-a11y/no-static-element-interactions */}
++      <div
++        className={classNames(
++          styles.name,
++          card.isClosed && styles.nameClosed,
++          onNameEdit && styles.nameEditable,
++        )}
++        onClick={onNameEdit ? handleTitleClick : undefined}
++      >
++        {card.name}
++      </div>
+       {coverUrl && (
+         <div className={styles.coverWrapper}>
+           <img src={coverUrl} alt="" className={styles.cover} />
+@@ -290,6 +309,11 @@ const ProjectContent = React.memo(({ cardId }) => {
+ 
+ ProjectContent.propTypes = {
+   cardId: PropTypes.string.isRequired,
++  onNameEdit: PropTypes.func,
++};
++
++ProjectContent.defaultProps = {
++  onNameEdit: undefined,
+ };
+ 
+ export default ProjectContent;
+diff --git a/client/src/components/cards/Card/ProjectContent.module.scss b/client/src/components/cards/Card/ProjectContent.module.scss
+index 052f3f5..b6a896b 100644
+--- a/client/src/components/cards/Card/ProjectContent.module.scss
++++ b/client/src/components/cards/Card/ProjectContent.module.scss
+@@ -103,6 +103,18 @@
+     text-decoration: line-through;
+   }
+ 
++  // BSY Media: hints the card face title itself is clickable-to-rename
++  // (see Card.jsx's handleNameEdit), same affordance as the checklist
++  // header title (TaskLists/Item.module.scss's .moduleHeaderTitleEditable).
++  .nameEditable {
++    border-radius: 3px;
++    cursor: pointer;
++
++    &:hover {
++      background: rgba(9, 30, 66, 0.04);
++    }
++  }
++
+   .notification {
+     background: #eb5a46;
+     color: #fff;
+diff --git a/client/src/components/cards/Card/StoryContent.jsx b/client/src/components/cards/Card/StoryContent.jsx
+index 3b01038..6d22480 100644
+--- a/client/src/components/cards/Card/StoryContent.jsx
++++ b/client/src/components/cards/Card/StoryContent.jsx
+@@ -3,7 +3,7 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useMemo } from 'react';
++import React, { useCallback, useMemo } from 'react';
+ import PropTypes from 'prop-types';
+ import classNames from 'classnames';
+ import { shallowEqual, useSelector } from 'react-redux';
+@@ -21,7 +21,7 @@ import CustomFieldValueChip from '../../custom-field-values/CustomFieldValueChip
+ 
+ import styles from './StoryContent.module.scss';
+ 
+-const StoryContent = React.memo(({ cardId }) => {
++const StoryContent = React.memo(({ cardId, onNameEdit }) => {
+   const selectCardById = useMemo(() => selectors.makeSelectCardById(), []);
+   const selectListById = useMemo(() => selectors.makeSelectListById(), []);
+   const selectLabelIdsByCardId = useMemo(() => selectors.makeSelectLabelIdsByCardId(), []);
+@@ -99,6 +99,14 @@ const StoryContent = React.memo(({ cardId }) => {
+     [card.description],
+   );
+ 
++  const handleTitleClick = useCallback(
++    (event) => {
++      event.stopPropagation();
++      onNameEdit();
++    },
++    [onNameEdit],
++  );
++
+   return (
+     <>
+       {coverUrl && (
+@@ -128,7 +136,16 @@ const StoryContent = React.memo(({ cardId }) => {
+             ))}
+           </span>
+         )}
+-        <div className={classNames(styles.name, card.isClosed && styles.nameClosed)}>
++        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events,
++                                     jsx-a11y/no-static-element-interactions */}
++        <div
++          className={classNames(
++            styles.name,
++            card.isClosed && styles.nameClosed,
++            onNameEdit && styles.nameEditable,
++          )}
++          onClick={onNameEdit ? handleTitleClick : undefined}
++        >
+           {card.name}
+         </div>
+         {card.description && <div className={styles.descriptionText}>{descriptionText}</div>}
+@@ -210,6 +227,11 @@ const StoryContent = React.memo(({ cardId }) => {
+ 
+ StoryContent.propTypes = {
+   cardId: PropTypes.string.isRequired,
++  onNameEdit: PropTypes.func,
++};
++
++StoryContent.defaultProps = {
++  onNameEdit: undefined,
+ };
+ 
+ export default StoryContent;
+diff --git a/client/src/components/cards/Card/StoryContent.module.scss b/client/src/components/cards/Card/StoryContent.module.scss
+index b47e1aa..290015a 100644
+--- a/client/src/components/cards/Card/StoryContent.module.scss
++++ b/client/src/components/cards/Card/StoryContent.module.scss
+@@ -93,6 +93,18 @@
+     text-decoration: line-through;
+   }
+ 
++  // BSY Media: hints the card face title itself is clickable-to-rename
++  // (see Card.jsx's handleNameEdit), same affordance as the checklist
++  // header title (TaskLists/Item.module.scss's .moduleHeaderTitleEditable).
++  .nameEditable {
++    border-radius: 3px;
++    cursor: pointer;
++
++    &:hover {
++      background: rgba(9, 30, 66, 0.04);
++    }
++  }
++
+   .notification {
+     background: #eb5a46;
+     color: #fff;
+diff --git a/client/src/components/cards/CardModal/NameField.jsx b/client/src/components/cards/CardModal/NameField.jsx
+index 2c4cb80..d69237f 100755
+--- a/client/src/components/cards/CardModal/NameField.jsx
++++ b/client/src/components/cards/CardModal/NameField.jsx
+@@ -38,8 +38,9 @@ const NameField = React.memo(({ defaultValue, size, onUpdate }) => {
+ 
+   const handleFocus = useCallback(() => {
+     activateEscapeInterceptor();
++    fiedRef.current.select();
+     isFocusedRef.current = true;
+-  }, [activateEscapeInterceptor]);
++  }, [activateEscapeInterceptor, fiedRef]);
+ 
+   const handleKeyDown = useCallback(
+     (event) => {
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.jsx b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+index 6e9b63c..8a8448c 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.jsx
++++ b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+@@ -30,7 +30,6 @@ import SelectAssigneeStep from '../../../task-lists/TaskList/Task/SelectAssignee
+ import DueDateChip from '../../DueDateChip';
+ import EditDueDateStep from '../../EditDueDateStep';
+ import UserAvatar from '../../../users/UserAvatar';
+-import ConfirmationStep from '../../../common/ConfirmationStep';
+ 
+ import styles from './Item.module.scss';
+ 
+@@ -149,7 +148,6 @@ const Item = React.memo(({ id, index }) => {
+   const EditPopup = usePopupInClosableContext(EditStep);
+   const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
+   const SelectAssigneePopup = usePopupInClosableContext(SelectAssigneeStep);
+-  const DeleteConfirmationPopup = usePopupInClosableContext(ConfirmationStep);
+ 
+   // BSY Media: canEdit always shows the status chip (including its default
+   // "Not Set" state, so there's something to click to start the cycle),
+@@ -297,16 +295,9 @@ const Item = React.memo(({ id, index }) => {
+                         </EditPopup>
+                       )}
+                       {canEdit && (
+-                        <DeleteConfirmationPopup
+-                          title="common.deleteTaskList"
+-                          content="common.areYouSureYouWantToDeleteThisTaskList"
+-                          buttonContent="action.deleteTaskList"
+-                          onConfirm={handleDeleteConfirm}
+-                        >
+-                          <Button className={styles.editButton}>
+-                            <Icon fitted name="trash alternate outline" size="small" />
+-                          </Button>
+-                        </DeleteConfirmationPopup>
++                        <Button className={styles.editButton} onClick={handleDeleteConfirm}>
++                          <Icon fitted name="trash alternate outline" size="small" />
++                        </Button>
+                       )}
+                     </div>
+                   )}
+diff --git a/client/src/components/common/ColorWheelPicker/ColorWheelPicker.jsx b/client/src/components/common/ColorWheelPicker/ColorWheelPicker.jsx
+new file mode 100644
+index 0000000..aa42449
+--- /dev/null
++++ b/client/src/components/common/ColorWheelPicker/ColorWheelPicker.jsx
+@@ -0,0 +1,423 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useCallback, useEffect, useRef, useState } from 'react';
++import PropTypes from 'prop-types';
++
++import { hexToHsv, hsvToHex, hsvToRgb, isValidHex } from './color-math';
++
++import styles from './ColorWheelPicker.module.scss';
++
++const RING_WIDTH = 22;
++const RING_OUTER_MARGIN = 4;
++const HANDLE_RADIUS = 6;
++
++// Angle convention used throughout this file: 0deg points to the right (+x axis) and angles
++// increase clockwise on screen (i.e. standard math angle with the y axis flipped, since canvas
++// y grows downward). This is purely an internal convention: as long as painting, hit-testing and
++// handle placement all agree, the exact direction doesn't matter.
++const angleFromCenter = (dx, dy) => {
++  let degrees = (Math.atan2(dy, dx) * 180) / Math.PI;
++  if (degrees < 0) {
++    degrees += 360;
++  }
++  return degrees;
++};
++
++const getTriangleVertices = (hue, triangleRadius) => {
++  const hueAngleRad = (hue * Math.PI) / 180;
++  const whiteAngleRad = hueAngleRad + (2 * Math.PI) / 3;
++  const blackAngleRad = hueAngleRad - (2 * Math.PI) / 3;
++
++  return {
++    huePoint: {
++      x: triangleRadius * Math.cos(hueAngleRad),
++      y: triangleRadius * Math.sin(hueAngleRad),
++    },
++    whitePoint: {
++      x: triangleRadius * Math.cos(whiteAngleRad),
++      y: triangleRadius * Math.sin(whiteAngleRad),
++    },
++    blackPoint: {
++      x: triangleRadius * Math.cos(blackAngleRad),
++      y: triangleRadius * Math.sin(blackAngleRad),
++    },
++  };
++};
++
++// Barycentric coordinates of point p relative to triangle (a, b, c). Returns weights that sum to
++// 1 when p is inside the triangle (each in [0, 1]); weights can go negative/over 1 outside it.
++const toBarycentric = (p, a, b, c) => {
++  const denom = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
++
++  const wa = ((b.y - c.y) * (p.x - c.x) + (c.x - b.x) * (p.y - c.y)) / denom;
++  const wb = ((c.y - a.y) * (p.x - c.x) + (a.x - c.x) * (p.y - c.y)) / denom;
++  const wc = 1 - wa - wb;
++
++  return { wa, wb, wc };
++};
++
++// Saturation/value derived from barycentric weights against (huePoint, whitePoint, blackPoint):
++// wa=1 => pure hue (s=1, v=1); wb=1 => white (s=0, v=1); wc=1 => black (v=0).
++const barycentricToSv = ({ wa, wb }) => {
++  const v = wa + wb;
++  const s = v === 0 ? 0 : wa / v;
++
++  return {
++    s: Math.min(Math.max(s, 0), 1),
++    v: Math.min(Math.max(v, 0), 1),
++  };
++};
++
++const svToBarycentric = (s, v) => {
++  const wa = s * v;
++  const wb = v - wa;
++  const wc = 1 - v;
++
++  return { wa, wb, wc };
++};
++
++// Clamp an out-of-triangle barycentric coordinate to the nearest point still inside the triangle.
++const clampBarycentric = ({ wa, wb, wc }) => {
++  let a = wa;
++  let b = wb;
++  let c = wc;
++
++  if (a >= 0 && b >= 0 && c >= 0) {
++    return { wa: a, wb: b, wc: c };
++  }
++
++  a = Math.max(a, 0);
++  b = Math.max(b, 0);
++  c = Math.max(c, 0);
++
++  const sum = a + b + c;
++  if (sum === 0) {
++    return { wa: 1 / 3, wb: 1 / 3, wc: 1 / 3 };
++  }
++
++  return { wa: a / sum, wb: b / sum, wc: c / sum };
++};
++
++const paintRing = (imageData, size, outerRadius, innerRadius) => {
++  const center = size / 2;
++  const { data } = imageData;
++
++  for (let y = 0; y < size; y += 1) {
++    for (let x = 0; x < size; x += 1) {
++      const dx = x + 0.5 - center;
++      const dy = y + 0.5 - center;
++      const distance = Math.sqrt(dx * dx + dy * dy);
++
++      const index = (y * size + x) * 4;
++
++      if (distance <= outerRadius && distance >= innerRadius) {
++        const hue = angleFromCenter(dx, dy);
++        const { r, g, b } = hsvToRgb({ h: hue, s: 1, v: 1 });
++
++        data[index] = r;
++        data[index + 1] = g;
++        data[index + 2] = b;
++        data[index + 3] = 255;
++      } else {
++        data[index] = 0;
++        data[index + 1] = 0;
++        data[index + 2] = 0;
++        data[index + 3] = 0;
++      }
++    }
++  }
++};
++
++const paintTriangle = (imageData, size, hue, triangleRadius) => {
++  const center = size / 2;
++  const { data } = imageData;
++
++  const { huePoint, whitePoint, blackPoint } = getTriangleVertices(hue, triangleRadius);
++  const hueRgb = hsvToRgb({ h: hue, s: 1, v: 1 });
++
++  for (let y = 0; y < size; y += 1) {
++    for (let x = 0; x < size; x += 1) {
++      const dx = x + 0.5 - center;
++      const dy = y + 0.5 - center;
++
++      const { wa, wb, wc } = toBarycentric({ x: dx, y: dy }, huePoint, whitePoint, blackPoint);
++
++      if (wa >= -0.002 && wb >= -0.002 && wc >= -0.002) {
++        const r = wa * hueRgb.r + wb * 255 + wc * 0;
++        const g = wa * hueRgb.g + wb * 255 + wc * 0;
++        const b = wa * hueRgb.b + wb * 255 + wc * 0;
++
++        const index = (y * size + x) * 4;
++        data[index] = r;
++        data[index + 1] = g;
++        data[index + 2] = b;
++        data[index + 3] = 255;
++      }
++    }
++  }
++};
++
++const drawHandle = (ctx, x, y) => {
++  ctx.beginPath();
++  ctx.arc(x, y, HANDLE_RADIUS, 0, 2 * Math.PI);
++  ctx.fillStyle = '#ffffff';
++  ctx.fill();
++  ctx.lineWidth = 2;
++  ctx.strokeStyle = '#222222';
++  ctx.stroke();
++};
++
++const ColorWheelPicker = React.memo(({ value, onChange, size }) => {
++  const [hsv, setHsv] = useState(() => hexToHsv(value || '#000000'));
++  const [hexInput, setHexInput] = useState(() => (value ? value.toLowerCase() : '#000000'));
++
++  const canvasRef = useRef(null);
++  const ringImageDataRef = useRef(null);
++  const isDraggingRef = useRef(false);
++  const dragModeRef = useRef(null); // 'hue' | 'sv'
++
++  const outerRadius = size / 2 - RING_OUTER_MARGIN;
++  const innerRadius = outerRadius - RING_WIDTH;
++  const triangleRadius = innerRadius - 2;
++
++  // Keep the free-typed hex input in sync when the HSV state changes from a drag/pointer
++  // interaction, without fighting the user's own in-progress typing.
++  const lastEmittedHexRef = useRef(hexInput);
++
++  // Sync internal HSV state from the `value` prop, but only when the change originated from
++  // OUTSIDE (not from our own drag/typing), so we don't fight an in-progress user gesture.
++  useEffect(() => {
++    if (isDraggingRef.current) {
++      return;
++    }
++
++    if (!value || !isValidHex(value)) {
++      return;
++    }
++
++    const normalizedValue = value.toLowerCase();
++    if (normalizedValue === lastEmittedHexRef.current) {
++      return;
++    }
++
++    lastEmittedHexRef.current = normalizedValue;
++    setHsv(hexToHsv(normalizedValue));
++    setHexInput(normalizedValue);
++  }, [value]);
++
++  const emitChange = useCallback(
++    (nextHsv) => {
++      const hex = hsvToHex(nextHsv);
++      lastEmittedHexRef.current = hex;
++      setHexInput(hex);
++      onChange(hex);
++    },
++    [onChange],
++  );
++
++  // Repaint the whole canvas (ring + triangle + handles) whenever the current color changes.
++  useEffect(() => {
++    const canvas = canvasRef.current;
++    if (!canvas) {
++      return;
++    }
++
++    const ctx = canvas.getContext('2d');
++
++    if (!ringImageDataRef.current) {
++      const ringImageData = ctx.createImageData(size, size);
++      paintRing(ringImageData, size, outerRadius, innerRadius);
++      ringImageDataRef.current = ringImageData;
++    }
++
++    const triangleImageData = ctx.createImageData(size, size);
++    triangleImageData.data.set(ringImageDataRef.current.data);
++    paintTriangle(triangleImageData, size, hsv.h, triangleRadius);
++
++    ctx.clearRect(0, 0, size, size);
++    ctx.putImageData(triangleImageData, 0, 0);
++
++    const center = size / 2;
++
++    // Hue handle position, on the middle of the ring band.
++    const ringHandleRadius = (outerRadius + innerRadius) / 2;
++    const hueAngleRad = (hsv.h * Math.PI) / 180;
++    const hueHandleX = center + ringHandleRadius * Math.cos(hueAngleRad);
++    const hueHandleY = center + ringHandleRadius * Math.sin(hueAngleRad);
++    drawHandle(ctx, hueHandleX, hueHandleY);
++
++    // Saturation/value handle position, from barycentric weights of the current s/v.
++    const { huePoint, whitePoint, blackPoint } = getTriangleVertices(hsv.h, triangleRadius);
++    const { wa, wb, wc } = svToBarycentric(hsv.s, hsv.v);
++    const svX = center + wa * huePoint.x + wb * whitePoint.x + wc * blackPoint.x;
++    const svY = center + wa * huePoint.y + wb * whitePoint.y + wc * blackPoint.y;
++    drawHandle(ctx, svX, svY);
++  }, [hsv, size, outerRadius, innerRadius, triangleRadius]);
++
++  const handlePointerMove = useCallback(
++    (clientX, clientY) => {
++      const canvas = canvasRef.current;
++      if (!canvas) {
++        return;
++      }
++
++      const rect = canvas.getBoundingClientRect();
++      const scaleX = size / rect.width;
++      const scaleY = size / rect.height;
++
++      const center = size / 2;
++      const x = (clientX - rect.left) * scaleX;
++      const y = (clientY - rect.top) * scaleY;
++      const dx = x - center;
++      const dy = y - center;
++
++      if (dragModeRef.current === 'hue') {
++        const hue = angleFromCenter(dx, dy);
++        setHsv((prevHsv) => {
++          const nextHsv = { ...prevHsv, h: hue };
++          emitChange(nextHsv);
++          return nextHsv;
++        });
++      } else if (dragModeRef.current === 'sv') {
++        setHsv((prevHsv) => {
++          const { huePoint, whitePoint, blackPoint } = getTriangleVertices(
++            prevHsv.h,
++            triangleRadius,
++          );
++          const barycentric = toBarycentric({ x: dx, y: dy }, huePoint, whitePoint, blackPoint);
++          const clamped = clampBarycentric(barycentric);
++          const { s, v } = barycentricToSv(clamped);
++
++          const nextHsv = { ...prevHsv, s, v };
++          emitChange(nextHsv);
++          return nextHsv;
++        });
++      }
++    },
++    [size, triangleRadius, emitChange],
++  );
++
++  const stopDragRef = useRef(null);
++
++  const handlePointerDown = useCallback(
++    (event) => {
++      const canvas = canvasRef.current;
++      if (!canvas) {
++        return;
++      }
++
++      const rect = canvas.getBoundingClientRect();
++      const scaleX = size / rect.width;
++      const scaleY = size / rect.height;
++
++      const center = size / 2;
++      const x = (event.clientX - rect.left) * scaleX;
++      const y = (event.clientY - rect.top) * scaleY;
++      const dx = x - center;
++      const dy = y - center;
++      const distance = Math.sqrt(dx * dx + dy * dy);
++
++      let mode = null;
++      if (distance >= innerRadius && distance <= outerRadius) {
++        mode = 'hue';
++      } else if (distance < innerRadius) {
++        // Anything inside the ring hole is treated as an sv-drag; out-of-triangle points are
++        // clamped to the nearest valid in-triangle point on every subsequent move.
++        mode = 'sv';
++      }
++
++      if (!mode) {
++        return;
++      }
++
++      dragModeRef.current = mode;
++      isDraggingRef.current = true;
++
++      handlePointerMove(event.clientX, event.clientY);
++
++      const onMove = (moveEvent) => {
++        handlePointerMove(moveEvent.clientX, moveEvent.clientY);
++      };
++
++      const onUp = () => {
++        isDraggingRef.current = false;
++        dragModeRef.current = null;
++        window.removeEventListener('pointermove', onMove);
++        window.removeEventListener('pointerup', onUp);
++        window.removeEventListener('pointercancel', onUp);
++        stopDragRef.current = null;
++      };
++
++      stopDragRef.current = onUp;
++
++      window.addEventListener('pointermove', onMove);
++      window.addEventListener('pointerup', onUp);
++      window.addEventListener('pointercancel', onUp);
++    },
++    [size, innerRadius, outerRadius, handlePointerMove],
++  );
++
++  useEffect(
++    () => () => {
++      if (stopDragRef.current) {
++        window.removeEventListener('pointermove', stopDragRef.current);
++        window.removeEventListener('pointerup', stopDragRef.current);
++        window.removeEventListener('pointercancel', stopDragRef.current);
++      }
++    },
++    [],
++  );
++
++  const handleHexInputChange = useCallback(
++    (event) => {
++      const nextValue = event.target.value;
++      setHexInput(nextValue);
++
++      if (isValidHex(nextValue)) {
++        const normalizedValue = nextValue.toLowerCase();
++        const nextHsv = hexToHsv(normalizedValue);
++
++        lastEmittedHexRef.current = normalizedValue;
++        setHsv(nextHsv);
++        onChange(normalizedValue);
++      }
++    },
++    [onChange],
++  );
++
++  return (
++    <div className={styles.wrapper}>
++      <canvas
++        ref={canvasRef}
++        width={size}
++        height={size}
++        className={styles.canvas}
++        onPointerDown={handlePointerDown}
++      />
++      <input
++        type="text"
++        className={styles.hexInput}
++        value={hexInput}
++        onChange={handleHexInputChange}
++        maxLength={7}
++        spellCheck={false}
++      />
++    </div>
++  );
++});
++
++ColorWheelPicker.propTypes = {
++  value: PropTypes.string,
++  onChange: PropTypes.func.isRequired,
++  size: PropTypes.number,
++};
++
++ColorWheelPicker.defaultProps = {
++  value: undefined,
++  size: 220,
++};
++
++export default ColorWheelPicker;
+diff --git a/client/src/components/common/ColorWheelPicker/ColorWheelPicker.module.scss b/client/src/components/common/ColorWheelPicker/ColorWheelPicker.module.scss
+new file mode 100644
+index 0000000..cb32813
+--- /dev/null
++++ b/client/src/components/common/ColorWheelPicker/ColorWheelPicker.module.scss
+@@ -0,0 +1,36 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .wrapper {
++    display: flex;
++    flex-direction: column;
++    align-items: center;
++  }
++
++  .canvas {
++    cursor: pointer;
++    touch-action: none;
++  }
++
++  .hexInput {
++    background: #ffffff;
++    border: 1px solid #cccccc;
++    border-radius: 3px;
++    box-sizing: border-box;
++    color: #444444;
++    font-family: monospace;
++    font-size: 13px;
++    margin-top: 10px;
++    padding: 6px 10px;
++    text-align: center;
++    width: 100px;
++
++    &:focus {
++      border-color: #999999;
++      outline: none;
++    }
++  }
++}
+diff --git a/client/src/components/common/ColorWheelPicker/color-math.js b/client/src/components/common/ColorWheelPicker/color-math.js
+new file mode 100644
+index 0000000..855028f
+--- /dev/null
++++ b/client/src/components/common/ColorWheelPicker/color-math.js
+@@ -0,0 +1,95 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++const HEX_REGEXP = /^#[0-9a-f]{6}$/i;
++
++export const isValidHex = (value) => HEX_REGEXP.test(value);
++
++const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
++
++export const hexToRgb = (hex) => {
++  const normalized = hex.replace('#', '');
++
++  return {
++    r: parseInt(normalized.substring(0, 2), 16),
++    g: parseInt(normalized.substring(2, 4), 16),
++    b: parseInt(normalized.substring(4, 6), 16),
++  };
++};
++
++const componentToHex = (component) => {
++  const hex = clamp(Math.round(component), 0, 255).toString(16);
++  return hex.length === 1 ? `0${hex}` : hex;
++};
++
++export const rgbToHex = ({ r, g, b }) =>
++  `#${componentToHex(r)}${componentToHex(g)}${componentToHex(b)}`;
++
++// h in [0, 360), s and v in [0, 1]
++export const hsvToRgb = ({ h, s, v }) => {
++  const hue = ((h % 360) + 360) % 360;
++  const c = v * s;
++  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
++  const m = v - c;
++
++  let rPrime;
++  let gPrime;
++  let bPrime;
++
++  if (hue < 60) {
++    [rPrime, gPrime, bPrime] = [c, x, 0];
++  } else if (hue < 120) {
++    [rPrime, gPrime, bPrime] = [x, c, 0];
++  } else if (hue < 180) {
++    [rPrime, gPrime, bPrime] = [0, c, x];
++  } else if (hue < 240) {
++    [rPrime, gPrime, bPrime] = [0, x, c];
++  } else if (hue < 300) {
++    [rPrime, gPrime, bPrime] = [x, 0, c];
++  } else {
++    [rPrime, gPrime, bPrime] = [c, 0, x];
++  }
++
++  return {
++    r: (rPrime + m) * 255,
++    g: (gPrime + m) * 255,
++    b: (bPrime + m) * 255,
++  };
++};
++
++// r, g, b in [0, 255]
++export const rgbToHsv = ({ r, g, b }) => {
++  const rNorm = r / 255;
++  const gNorm = g / 255;
++  const bNorm = b / 255;
++
++  const max = Math.max(rNorm, gNorm, bNorm);
++  const min = Math.min(rNorm, gNorm, bNorm);
++  const delta = max - min;
++
++  let h = 0;
++  if (delta !== 0) {
++    if (max === rNorm) {
++      h = 60 * (((gNorm - bNorm) / delta) % 6);
++    } else if (max === gNorm) {
++      h = 60 * ((bNorm - rNorm) / delta + 2);
++    } else {
++      h = 60 * ((rNorm - gNorm) / delta + 4);
++    }
++  }
++
++  if (h < 0) {
++    h += 360;
++  }
++
++  const s = max === 0 ? 0 : delta / max;
++  const v = max;
++
++  return { h, s, v };
++};
++
++export const hexToHsv = (hex) => rgbToHsv(hexToRgb(hex));
++
++export const hsvToHex = (hsv) => rgbToHex(hsvToRgb(hsv));
+diff --git a/client/src/components/common/ColorWheelPicker/index.js b/client/src/components/common/ColorWheelPicker/index.js
+new file mode 100644
+index 0000000..8232d73
+--- /dev/null
++++ b/client/src/components/common/ColorWheelPicker/index.js
+@@ -0,0 +1,8 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import ColorWheelPicker from './ColorWheelPicker';
++
++export default ColorWheelPicker;
+diff --git a/client/src/components/labels/LabelChip/LabelChip.jsx b/client/src/components/labels/LabelChip/LabelChip.jsx
+index d758230..7fd57d4 100644
+--- a/client/src/components/labels/LabelChip/LabelChip.jsx
++++ b/client/src/components/labels/LabelChip/LabelChip.jsx
+@@ -11,6 +11,7 @@ import classNames from 'classnames';
+ import { useSelector } from 'react-redux';
+ 
+ import selectors from '../../../selectors';
++import LabelGlowColors from '../../../constants/LabelGlowColors';
+ 
+ import styles from './LabelChip.module.scss';
+ import globalStyles from '../../../styles.module.scss';
+@@ -26,6 +27,12 @@ const LabelChip = React.memo(({ id, size, onClick }) => {
+ 
+   const label = useSelector((state) => selectLabelById(state, id));
+ 
++  // BSY Media: a custom hex color (picked via ColorWheelPicker) has no
++  // precomputed `background<Name>` CSS class to look up - fall back to an
++  // inline style with the raw hex instead. Named colors are untouched,
++  // still rendered via the existing className mechanism.
++  const isCustomColor = !!label.color && !LabelGlowColors[label.color];
++
+   const contentNode = (
+     <span
+       title={label.name}
+@@ -34,8 +41,9 @@ const LabelChip = React.memo(({ id, size, onClick }) => {
+         !label.name && styles.wrapperNameless,
+         styles[`wrapper${upperFirst(size)}`],
+         onClick && styles.wrapperHoverable,
+-        globalStyles[`background${upperFirst(camelCase(label.color))}`],
++        !isCustomColor && globalStyles[`background${upperFirst(camelCase(label.color))}`],
+       )}
++      style={isCustomColor ? { background: label.color } : undefined}
+     >
+       {label.name || '\u00A0'}
+     </span>
+diff --git a/client/src/components/labels/LabelsStep/Editor.jsx b/client/src/components/labels/LabelsStep/Editor.jsx
+index 39c1628..c4e0fa7 100755
+--- a/client/src/components/labels/LabelsStep/Editor.jsx
++++ b/client/src/components/labels/LabelsStep/Editor.jsx
+@@ -5,15 +5,17 @@
+ 
+ import upperFirst from 'lodash/upperFirst';
+ import camelCase from 'lodash/camelCase';
+-import React, { useEffect } from 'react';
++import React, { useCallback, useEffect, useState } from 'react';
+ import PropTypes from 'prop-types';
+ import classNames from 'classnames';
+ import { useTranslation } from 'react-i18next';
+-import { Button } from 'semantic-ui-react';
++import { Button, Icon } from 'semantic-ui-react';
+ import { Input } from '../../../lib/custom-ui';
+ 
+ import { useNestedRef } from '../../../hooks';
+ import LABEL_COLORS from '../../../constants/LabelColors';
++import LabelGlowColors from '../../../constants/LabelGlowColors';
++import ColorWheelPicker from '../../common/ColorWheelPicker';
+ 
+ import styles from './Editor.module.scss';
+ import globalStyles from '../../../styles.module.scss';
+@@ -23,10 +25,32 @@ const Editor = React.memo(({ data, onFieldChange }) => {
+ 
+   const [nameFieldRef, handleNameFieldRef] = useNestedRef('inputRef');
+ 
++  const isCustomColor = !!data.color && !LabelGlowColors[data.color];
++  // BSY Media: starts on the wheel view if the label already has a custom
++  // color, otherwise starts on the grid - purely a one-time initial choice
++  // (lazy initializer), not re-derived on every render, so clicking "back"
++  // reliably shows the grid even though the underlying color hasn't changed.
++  const [isWheelOpened, setIsWheelOpened] = useState(() => isCustomColor);
++
+   useEffect(() => {
+     nameFieldRef.current.focus();
+   }, [nameFieldRef]);
+ 
++  const handleCustomColorClick = useCallback(() => {
++    setIsWheelOpened(true);
++  }, []);
++
++  const handleBackClick = useCallback(() => {
++    setIsWheelOpened(false);
++  }, []);
++
++  const handleCustomColorChange = useCallback(
++    (value) => {
++      onFieldChange(null, { name: 'color', value });
++    },
++    [onFieldChange],
++  );
++
+   return (
+     <>
+       <div className={styles.text}>{t('common.title')}</div>
+@@ -40,22 +64,49 @@ const Editor = React.memo(({ data, onFieldChange }) => {
+         onChange={onFieldChange}
+       />
+       <div className={styles.text}>{t('common.color')}</div>
+-      <div className={styles.colorButtons}>
+-        {LABEL_COLORS.map((color) => (
++      {isWheelOpened ? (
++        <>
++          <Button
++            type="button"
++            icon="angle left"
++            className={styles.backButton}
++            onClick={handleBackClick}
++          />
++          <ColorWheelPicker
++            value={isCustomColor ? data.color : undefined}
++            onChange={handleCustomColorChange}
++          />
++        </>
++      ) : (
++        <div className={styles.colorButtons}>
++          {LABEL_COLORS.map((color) => (
++            <Button
++              key={color}
++              type="button"
++              name="color"
++              value={color}
++              className={classNames(
++                styles.colorButton,
++                color === data.color && styles.colorButtonActive,
++                globalStyles[`background${upperFirst(camelCase(color))}`],
++              )}
++              onClick={onFieldChange}
++            />
++          ))}
+           <Button
+-            key={color}
+             type="button"
+-            name="color"
+-            value={color}
+             className={classNames(
+               styles.colorButton,
+-              color === data.color && styles.colorButtonActive,
+-              globalStyles[`background${upperFirst(camelCase(color))}`],
++              styles.customColorButton,
++              isCustomColor && styles.colorButtonActive,
+             )}
+-            onClick={onFieldChange}
+-          />
+-        ))}
+-      </div>
++            style={isCustomColor ? { background: data.color } : undefined}
++            onClick={handleCustomColorClick}
++          >
++            {!isCustomColor && <Icon fitted name="paint brush" size="small" />}
++          </Button>
++        </div>
++      )}
+     </>
+   );
+ });
+diff --git a/client/src/components/labels/LabelsStep/Editor.module.scss b/client/src/components/labels/LabelsStep/Editor.module.scss
+index c719ce5..5cb2181 100644
+--- a/client/src/components/labels/LabelsStep/Editor.module.scss
++++ b/client/src/components/labels/LabelsStep/Editor.module.scss
+@@ -4,6 +4,10 @@
+  */
+ 
+ :global(#app) {
++  .backButton {
++    margin-bottom: 8px;
++  }
++
+   .colorButton {
+     margin: 0;
+     position: relative;
+@@ -13,6 +17,29 @@
+     }
+   }
+ 
++  // BSY Media: trailing swatch at the end of the color grid that opens the
++  // HSV wheel picker (ColorWheelPicker) instead of picking a fixed named
++  // color - rainbow conic-gradient by default so it reads as "pick any
++  // color"; once a custom color is actually active, an inline style
++  // overrides this background with the real chosen hex (see Editor.jsx),
++  // matching how every other swatch shows its own solid color.
++  .customColorButton {
++    align-items: center;
++    background: conic-gradient(
++      from 0deg,
++      red,
++      yellow,
++      lime,
++      cyan,
++      blue,
++      magenta,
++      red
++    );
++    color: #ffffff;
++    display: flex;
++    justify-content: center;
++  }
++
+   .colorButtonActive:before {
+     color: #ffffff;
+     content: "Г";
+diff --git a/client/src/components/lists/List/EditColorStep.jsx b/client/src/components/lists/List/EditColorStep.jsx
+index 5cfdec3..beaae3c 100644
+--- a/client/src/components/lists/List/EditColorStep.jsx
++++ b/client/src/components/lists/List/EditColorStep.jsx
+@@ -5,17 +5,19 @@
+ 
+ import upperFirst from 'lodash/upperFirst';
+ import camelCase from 'lodash/camelCase';
+-import React, { useCallback, useMemo } from 'react';
++import React, { useCallback, useMemo, useState } from 'react';
+ import PropTypes from 'prop-types';
+ import classNames from 'classnames';
+ import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+-import { Button } from 'semantic-ui-react';
++import { Button, Icon } from 'semantic-ui-react';
+ import { Popup } from '../../../lib/custom-ui';
+ 
+ import selectors from '../../../selectors';
+ import entryActions from '../../../entry-actions';
+-import LIST_COLORS from '../../../constants/ListColors';
++import LABEL_COLORS from '../../../constants/LabelColors';
++import LabelGlowColors from '../../../constants/LabelGlowColors';
++import ColorWheelPicker from '../../common/ColorWheelPicker';
+ 
+ import styles from './EditColorStep.module.scss';
+ import globalStyles from '../../../styles.module.scss';
+@@ -28,6 +30,13 @@ const EditColorStep = React.memo(({ listId, onBack, onClose }) => {
+   const dispatch = useDispatch();
+   const [t] = useTranslation();
+ 
++  const isCustomColor = !!defaultValue && !LabelGlowColors[defaultValue];
++  // BSY Media: starts on the wheel view if the list already has a custom
++  // color, otherwise starts on the grid - see the identical comment in
++  // labels/LabelsStep/Editor.jsx for why this is a one-time lazy initializer
++  // rather than continuously re-derived from `defaultValue`.
++  const [isWheelOpened, setIsWheelOpened] = useState(() => isCustomColor);
++
+   const handleSelectClick = useCallback(
+     (_, { value: color }) => {
+       dispatch(
+@@ -49,6 +58,25 @@ const EditColorStep = React.memo(({ listId, onBack, onClose }) => {
+     onClose();
+   }, [listId, onClose, dispatch]);
+ 
++  const handleCustomColorClick = useCallback(() => {
++    setIsWheelOpened(true);
++  }, []);
++
++  const handleBackClick = useCallback(() => {
++    setIsWheelOpened(false);
++  }, []);
++
++  const handleCustomColorChange = useCallback(
++    (color) => {
++      dispatch(
++        entryActions.updateList(listId, {
++          color,
++        }),
++      );
++    },
++    [listId, dispatch],
++  );
++
+   return (
+     <>
+       <Popup.Header onBack={onBack}>
+@@ -57,21 +85,48 @@ const EditColorStep = React.memo(({ listId, onBack, onClose }) => {
+         })}
+       </Popup.Header>
+       <Popup.Content>
+-        <div className={styles.colorButtons}>
+-          {LIST_COLORS.map((color) => (
++        {isWheelOpened ? (
++          <>
++            <Button
++              type="button"
++              icon="angle left"
++              className={styles.backButton}
++              onClick={handleBackClick}
++            />
++            <ColorWheelPicker
++              value={isCustomColor ? defaultValue : undefined}
++              onChange={handleCustomColorChange}
++            />
++          </>
++        ) : (
++          <div className={styles.colorButtons}>
++            {LABEL_COLORS.map((color) => (
++              <Button
++                key={color}
++                type="button"
++                value={color}
++                className={classNames(
++                  styles.colorButton,
++                  color === defaultValue && styles.colorButtonActive,
++                  globalStyles[`background${upperFirst(camelCase(color))}`],
++                )}
++                onClick={handleSelectClick}
++              />
++            ))}
+             <Button
+-              key={color}
+               type="button"
+-              value={color}
+               className={classNames(
+                 styles.colorButton,
+-                color === defaultValue && styles.colorButtonActive,
+-                globalStyles[`background${upperFirst(camelCase(color))}`],
++                styles.customColorButton,
++                isCustomColor && styles.colorButtonActive,
+               )}
+-              onClick={handleSelectClick}
+-            />
+-          ))}
+-        </div>
++              style={isCustomColor ? { background: defaultValue } : undefined}
++              onClick={handleCustomColorClick}
++            >
++              {!isCustomColor && <Icon fitted name="paint brush" size="small" />}
++            </Button>
++          </div>
++        )}
+         {defaultValue && (
+           <Button
+             fluid
+diff --git a/client/src/components/lists/List/EditColorStep.module.scss b/client/src/components/lists/List/EditColorStep.module.scss
+index 1c3fa56..6ab3270 100644
+--- a/client/src/components/lists/List/EditColorStep.module.scss
++++ b/client/src/components/lists/List/EditColorStep.module.scss
+@@ -4,6 +4,10 @@
+  */
+ 
+ :global(#app) {
++  .backButton {
++    margin-bottom: 8px;
++  }
++
+   .clearButton {
+     background: transparent;
+     box-shadow: none;
+@@ -57,4 +61,26 @@
+       display: table;
+     }
+   }
++
++  // BSY Media: trailing swatch that opens the HSV wheel picker
++  // (ColorWheelPicker) instead of a fixed named color - see the identical
++  // rule in labels/LabelsStep/Editor.module.scss for why this defaults to a
++  // rainbow conic-gradient (an inline style overrides it with the real
++  // chosen hex once a custom color is active - see EditColorStep.jsx).
++  .customColorButton {
++    align-items: center;
++    background: conic-gradient(
++      from 0deg,
++      red,
++      yellow,
++      lime,
++      cyan,
++      blue,
++      magenta,
++      red
++    );
++    color: #ffffff;
++    display: flex;
++    justify-content: center;
++  }
+ }
+diff --git a/client/src/components/lists/List/List.jsx b/client/src/components/lists/List/List.jsx
+index 2b8df10..1998cb9 100755
+--- a/client/src/components/lists/List/List.jsx
++++ b/client/src/components/lists/List/List.jsx
+@@ -21,6 +21,9 @@ import { BoardShortcutsContext } from '../../../contexts';
+ import DroppableTypes from '../../../constants/DroppableTypes';
+ import { BoardMembershipRoles, ListTypes } from '../../../constants/Enums';
+ import { ListTypeIcons } from '../../../constants/Icons';
++import LabelGlowColors from '../../../constants/LabelGlowColors';
++import ListSoftColors from '../../../constants/ListSoftColors';
++import getContrastTextColor from '../../../utils/get-contrast-text-color';
+ import EditName from './EditName';
+ import ActionsStep from './ActionsStep';
+ import DraggableCard from '../../cards/DraggableCard';
+@@ -51,6 +54,10 @@ const List = React.memo(({ id, index }) => {
+   const clipboard = useSelector(selectors.selectClipboard);
+   const isFavoritesActive = useSelector(selectors.selectIsFavoritesActiveForCurrentUser);
+ 
++  const cardsDarkModeEnabled = useSelector(
++    (state) => selectors.selectCurrentProject(state).cardsDarkModeEnabled,
++  );
++
+   const list = useSelector((state) => selectListById(state, id));
+   const cardIds = useSelector((state) => selectFilteredCardIdsByListId(state, id));
+ 
+@@ -164,6 +171,47 @@ const List = React.memo(({ id, index }) => {
+     cardsWrapperRef.current.scrollTop = cardsWrapperRef.current.scrollHeight;
+   }, [scrollBottomState]);
+ 
++  const colorProps = useMemo(() => {
++    if (!list.color) {
++      return {
++        wrapperClassName: undefined,
++        wrapperStyle: undefined,
++        iconClassName: undefined,
++        iconStyle: undefined,
++        headerTextStyle: undefined,
++      };
++    }
++
++    if (LabelGlowColors[list.color]) {
++      const pascalName = upperFirst(camelCase(list.color));
++      const softHex = ListSoftColors[list.color][cardsDarkModeEnabled ? 'dark' : 'light'];
++
++      return {
++        wrapperClassName: globalStyles[`background${pascalName}Soft`],
++        wrapperStyle: undefined,
++        iconClassName: globalStyles[`color${pascalName}`],
++        iconStyle: undefined,
++        headerTextStyle: {
++          color: getContrastTextColor(softHex),
++        },
++      };
++    }
++
++    return {
++      wrapperClassName: undefined,
++      wrapperStyle: {
++        backgroundColor: list.color,
++      },
++      iconClassName: undefined,
++      iconStyle: {
++        color: list.color,
++      },
++      headerTextStyle: {
++        color: getContrastTextColor(list.color),
++      },
++    };
++  }, [list.color, cardsDarkModeEnabled]);
++
+   const ActionsPopup = usePopup(ActionsStep);
+   const ArchiveCardsPopup = usePopup(ArchiveCardsStep);
+ 
+@@ -218,8 +266,9 @@ const List = React.memo(({ id, index }) => {
+             className={classNames(
+               styles.outerWrapper,
+               isFavoritesActive && styles.outerWrapperWithFavorites,
+-              list.color && globalStyles[`background${upperFirst(camelCase(list.color))}Soft`],
++              colorProps.wrapperClassName,
+             )}
++            style={colorProps.wrapperStyle}
+             onTransitionEnd={handleWrapperTransitionEnd}
+           >
+             {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events,
+@@ -233,14 +282,12 @@ const List = React.memo(({ id, index }) => {
+               {isEditNameOpened ? (
+                 <EditName listId={id} onClose={handleEditNameClose} />
+               ) : (
+-                <div className={styles.headerName}>
++                <div className={styles.headerName} style={list.color && colorProps.headerTextStyle}>
+                   {list.color && (
+                     <Icon
+                       name="circle"
+-                      className={classNames(
+-                        styles.headerNameColor,
+-                        globalStyles[`color${upperFirst(camelCase(list.color))}`],
+-                      )}
++                      className={classNames(styles.headerNameColor, colorProps.iconClassName)}
++                      style={colorProps.iconStyle}
+                     />
+                   )}
+                   {list.name}
+@@ -288,11 +335,8 @@ const List = React.memo(({ id, index }) => {
+                 <button
+                   type="button"
+                   disabled={!list.isPersisted}
+-                  className={classNames(
+-                    styles.addCardButton,
+-                    list.color &&
+-                      globalStyles[`background${upperFirst(camelCase(list.color))}Soft`],
+-                  )}
++                  className={classNames(styles.addCardButton, colorProps.wrapperClassName)}
++                  style={colorProps.wrapperStyle}
+                   onClick={handleAddCardClick}
+                 >
+                   <PlusMathIcon className={styles.addCardButtonIcon} />
+diff --git a/client/src/components/task-lists/TaskList/Task/EditName.jsx b/client/src/components/task-lists/TaskList/Task/EditName.jsx
+index 233ff86..d7885bd 100755
+--- a/client/src/components/task-lists/TaskList/Task/EditName.jsx
++++ b/client/src/components/task-lists/TaskList/Task/EditName.jsx
+@@ -14,7 +14,6 @@ import { useClickAwayListener } from '../../../../lib/hooks';
+ import selectors from '../../../../selectors';
+ import entryActions from '../../../../entry-actions';
+ import { useField, useNestedRef } from '../../../../hooks';
+-import { focusEnd } from '../../../../utils/element-helpers';
+ 
+ import styles from './EditName.module.scss';
+ 
+@@ -67,7 +66,7 @@ const EditName = React.memo(({ taskId, onClose }) => {
+   const clickAwayProps = useClickAwayListener([fieldRef, buttonRef], submit, handleClickAwayCancel);
+ 
+   useEffect(() => {
+-    focusEnd(fieldRef.current);
++    fieldRef.current.select();
+   }, [fieldRef]);
+ 
+   return (
+diff --git a/client/src/components/task-lists/TaskList/Task/Task.jsx b/client/src/components/task-lists/TaskList/Task/Task.jsx
+index 99ca2b3..61be600 100755
+--- a/client/src/components/task-lists/TaskList/Task/Task.jsx
++++ b/client/src/components/task-lists/TaskList/Task/Task.jsx
+@@ -26,7 +26,6 @@ import Linkify from '../../../common/Linkify';
+ import UserAvatar from '../../../users/UserAvatar';
+ import DueDateChip from '../../../cards/DueDateChip';
+ import EditDueDateStep from '../../../cards/EditDueDateStep';
+-import ConfirmationStep from '../../../common/ConfirmationStep';
+ 
+ import styles from './Task.module.scss';
+ 
+@@ -122,7 +121,6 @@ const Task = React.memo(({ id, index }) => {
+ 
+   const SelectAssigneePopup = usePopupInClosableContext(SelectAssigneeStep);
+   const EditDatesPopup = usePopupInClosableContext(EditDueDateStep);
+-  const DeleteConfirmationPopup = usePopupInClosableContext(ConfirmationStep);
+ 
+   return (
+     <Draggable
+@@ -254,16 +252,9 @@ const Task = React.memo(({ id, index }) => {
+                             <Icon fitted name="pencil" size="small" />
+                           </Button>
+                         )}
+-                        <DeleteConfirmationPopup
+-                          title="common.deleteTask"
+-                          content="common.areYouSureYouWantToDeleteThisTask"
+-                          buttonContent="action.deleteTask"
+-                          onConfirm={handleDeleteConfirm}
+-                        >
+-                          <Button className={styles.editButton}>
+-                            <Icon fitted name="trash alternate outline" size="small" />
+-                          </Button>
+-                        </DeleteConfirmationPopup>
++                        <Button className={styles.editButton} onClick={handleDeleteConfirm}>
++                          <Icon fitted name="trash alternate outline" size="small" />
++                        </Button>
+                       </>
+                     ) : (
+                       <UserAvatar
+diff --git a/client/src/constants/ListColors.js b/client/src/constants/ListColors.js
+deleted file mode 100644
+index a807f17..0000000
+--- a/client/src/constants/ListColors.js
++++ /dev/null
+@@ -1,17 +0,0 @@
+-/*!
+- * Copyright (c) 2024 PLANKA Software GmbH
+- * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+- */
+-
+-export default [
+-  'berry-red',
+-  'pumpkin-orange',
+-  'lagoon-blue',
+-  'pink-tulip',
+-  'light-mud',
+-  'orange-peel',
+-  'bright-moss',
+-  'antique-blue',
+-  'dark-granite',
+-  'turquoise-sea',
+-];
+diff --git a/client/src/constants/ListSoftColors.js b/client/src/constants/ListSoftColors.js
+new file mode 100644
+index 0000000..4882d78
+--- /dev/null
++++ b/client/src/constants/ListSoftColors.js
+@@ -0,0 +1,55 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++// BSY Media: light- and dark-mode "Soft" background hex values for all 42
++// list colors, mirroring the .background<Name>Soft rules in
++// styles.module.scss (light mode) and its :global(#app.dark-mode-cards-enabled)
++// override block (dark mode). Kept here, alongside the CSS, so List.jsx can
++// look up the actual rendered background hex for a named color and feed it
++// into getContrastTextColor() without re-parsing CSS at runtime.
++export default {
++  'berry-red': { light: '#f6c6cf', dark: '#580e1c' },
++  'pumpkin-orange': { light: '#f6d2a8', dark: '#5c360a' },
++  'lagoon-blue': { light: '#bfe3ee', dark: '#154351' },
++  'pink-tulip': { light: '#f2c1d3', dark: '#54122a' },
++  'light-mud': { light: '#e6d4bc', dark: '#4a361c' },
++  'orange-peel': { light: '#f2c6ae', dark: '#58280e' },
++  'bright-moss': { light: '#d7e4b6', dark: '#3d4a1c' },
++  'antique-blue': { light: '#c7dcee', dark: '#18354e' },
++  'dark-granite': { light: '#d8d6d3', dark: '#3b3935' },
++  'turquoise-sea': { light: '#b7e1e3', dark: '#1d4749' },
++  'muddy-grey': { light: '#d5d3ce', dark: '#37352f' },
++  'autumn-leafs': { light: '#e6dfbc', dark: '#4f4517' },
++  'morning-sky': { light: '#bcdde6', dark: '#17434f' },
++  'egg-yellow': { light: '#e6dcbc', dark: '#4f4117' },
++  'desert-sand': { light: '#e6dabc', dark: '#4f3f17' },
++  'fresh-salad': { light: '#e2e6bc', dark: '#4a4f17' },
++  'midnight-blue': { light: '#bcd5e6', dark: '#17384f' },
++  'light-orange': { light: '#e6d1bc', dark: '#4f3317' },
++  'light-concrete': { light: '#d4d4ce', dark: '#36372f' },
++  'sunny-grass': { light: '#e3e6bc', dark: '#4c4f17' },
++  'navy-blue': { light: '#bcd9e6', dark: '#173d4f' },
++  'lilac-eyes': { light: '#bccbe6', dark: '#1a2c4c' },
++  'apricot-red': { light: '#e6bebc', dark: '#4f1a17' },
++  'silver-glint': { light: '#d2d1d0', dark: '#343332' },
++  'deep-ocean': { light: '#bcd8e6', dark: '#173d4f' },
++  'summer-sky': { light: '#bccfe6', dark: '#17304f' },
++  'light-cocoa': { light: '#e6c5bd', dark: '#4a251c' },
++  'grey-stone': { light: '#cbd0d7', dark: '#2d3239' },
++  'tank-green': { light: '#d0d9c9', dark: '#323c2a' },
++  'coral-green': { light: '#bde4e5', dark: '#1d4849' },
++  'sugar-plum': { light: '#bfc3e3', dark: '#1f2347' },
++  'shady-rust': { light: '#dec9c4', dark: '#422a24' },
++  'wet-rock': { light: '#ccd3d6', dark: '#2e3538' },
++  'wet-moss': { light: '#c4dec8', dark: '#244229' },
++  'lavender-fields': { light: '#d9c4de', dark: '#3c2442' },
++  'piggy-red': { light: '#e6bcc7', dark: '#4f1725' },
++  'gun-metal': { light: '#c9d3da', dark: '#2a353c' },
++  'modern-green': { light: '#bce6c4', dark: '#1b4b24' },
++  'french-coast': { light: '#bce6e5', dark: '#174f4e' },
++  'sweet-lilac': { light: '#dec3df', dark: '#422442' },
++  'red-burgundy': { light: '#e0c2ce', dark: '#43232f' },
++  'pirate-gold': { light: '#e6d8bc', dark: '#4f3c17' },
++};
+diff --git a/client/src/styles.module.scss b/client/src/styles.module.scss
+index 1fd8bea..a6e87da 100644
+--- a/client/src/styles.module.scss
++++ b/client/src/styles.module.scss
+@@ -370,14 +370,26 @@
+     background: #69655a !important;
+   }
+ 
++  .backgroundMuddyGreySoft {
++    background: #d5d3ce !important;
++  }
++
+   .backgroundAutumnLeafs {
+     background: #c9b037 !important;
+   }
+ 
++  .backgroundAutumnLeafsSoft {
++    background: #e6dfbc !important;
++  }
++
+   .backgroundMorningSky {
+     background: #52b9d5 !important;
+   }
+ 
++  .backgroundMorningSkySoft {
++    background: #bcdde6 !important;
++  }
++
+   .backgroundAntiqueBlue {
+     background: #6c99bb !important;
+   }
+@@ -390,10 +402,18 @@
+     background: #f9c423 !important;
+   }
+ 
++  .backgroundEggYellowSoft {
++    background: #e6dcbc !important;
++  }
++
+   .backgroundDesertSand {
+     background: #fad371 !important;
+   }
+ 
++  .backgroundDesertSandSoft {
++    background: #e6dabc !important;
++  }
++
+   .backgroundDarkGranite {
+     background: #8b8680 !important;
+   }
+@@ -406,6 +426,10 @@
+     background: #ced85e !important;
+   }
+ 
++  .backgroundFreshSaladSoft {
++    background: #e2e6bc !important;
++  }
++
+   .backgroundLagoonBlue {
+     background: #109dc0 !important;
+   }
+@@ -418,10 +442,18 @@
+     background: #0a63a0 !important;
+   }
+ 
++  .backgroundMidnightBlueSoft {
++    background: #bcd5e6 !important;
++  }
++
+   .backgroundLightOrange {
+     background: #fdae5f !important;
+   }
+ 
++  .backgroundLightOrangeSoft {
++    background: #e6d1bc !important;
++  }
++
+   .backgroundPumpkinOrange {
+     background: #ed9223 !important;
+   }
+@@ -434,22 +466,42 @@
+     background: #afb0a4 !important;
+   }
+ 
++  .backgroundLightConcreteSoft {
++    background: #d4d4ce !important;
++  }
++
+   .backgroundSunnyGrass {
+     background: #beca02 !important;
+   }
+ 
++  .backgroundSunnyGrassSoft {
++    background: #e3e6bc !important;
++  }
++
+   .backgroundNavyBlue {
+     background: #1d7299 !important;
+   }
+ 
++  .backgroundNavyBlueSoft {
++    background: #bcd9e6 !important;
++  }
++
+   .backgroundLilacEyes {
+     background: #406cbd !important;
+   }
+ 
++  .backgroundLilacEyesSoft {
++    background: #bccbe6 !important;
++  }
++
+   .backgroundApricotRed {
+     background: #fc736c !important;
+   }
+ 
++  .backgroundApricotRedSoft {
++    background: #e6bebc !important;
++  }
++
+   .backgroundOrangePeel {
+     background: #de692f !important;
+   }
+@@ -462,6 +514,10 @@
+     background: linear-gradient(160deg, #adadad, #92908d, #e2e2e2, #928e8e, #726f6e) !important;
+   }
+ 
++  .backgroundSilverGlintSoft {
++    background: #d2d1d0 !important;
++  }
++
+   .backgroundBrightMoss {
+     background: #96b352 !important;
+   }
+@@ -474,10 +530,18 @@
+     background: #004c70 !important;
+   }
+ 
++  .backgroundDeepOceanSoft {
++    background: #bcd8e6 !important;
++  }
++
+   .backgroundSummerSky {
+     background: #5d9cec !important;
+   }
+ 
++  .backgroundSummerSkySoft {
++    background: #bccfe6 !important;
++  }
++
+   .backgroundBerryRed {
+     background: #e83855 !important;
+   }
+@@ -490,22 +554,42 @@
+     background: #a85540 !important;
+   }
+ 
++  .backgroundLightCocoaSoft {
++    background: #e6c5bd !important;
++  }
++
+   .backgroundGreyStone {
+     background: #aab2bd !important;
+   }
+ 
++  .backgroundGreyStoneSoft {
++    background: #cbd0d7 !important;
++  }
++
+   .backgroundTankGreen {
+     background: #8aa177 !important;
+   }
+ 
++  .backgroundTankGreenSoft {
++    background: #d0d9c9 !important;
++  }
++
+   .backgroundCoralGreen {
+     background: #2b6a6c !important;
+   }
+ 
++  .backgroundCoralGreenSoft {
++    background: #bde4e5 !important;
++  }
++
+   .backgroundSugarPlum {
+     background: #7e86c7 !important;
+   }
+ 
++  .backgroundSugarPlumSoft {
++    background: #bfc3e3 !important;
++  }
++
+   .backgroundPinkTulip {
+     background: #e34f7c !important;
+   }
+@@ -518,14 +602,26 @@
+     background: #87564a !important;
+   }
+ 
++  .backgroundShadyRustSoft {
++    background: #dec9c4 !important;
++  }
++
+   .backgroundWetRock {
+     background: #83949b !important;
+   }
+ 
++  .backgroundWetRockSoft {
++    background: #ccd3d6 !important;
++  }
++
+   .backgroundWetMoss {
+     background: #4a8753 !important;
+   }
+ 
++  .backgroundWetMossSoft {
++    background: #c4dec8 !important;
++  }
++
+   .backgroundTurquoiseSea {
+     background: #00858a !important;
+   }
+@@ -538,10 +634,18 @@
+     background: #b287bd !important;
+   }
+ 
++  .backgroundLavenderFieldsSoft {
++    background: #d9c4de !important;
++  }
++
+   .backgroundPiggyRed {
+     background: #f97394 !important;
+   }
+ 
++  .backgroundPiggyRedSoft {
++    background: #e6bcc7 !important;
++  }
++
+   .backgroundLightMud {
+     background: #c7a57a !important;
+   }
+@@ -554,26 +658,50 @@
+     background: #4f6573 !important;
+   }
+ 
++  .backgroundGunMetalSoft {
++    background: #c9d3da !important;
++  }
++
+   .backgroundModernGreen {
+     background: #77ce87 !important;
+   }
+ 
++  .backgroundModernGreenSoft {
++    background: #bce6c4 !important;
++  }
++
+   .backgroundFrenchCoast {
+     background: #00b4b1 !important;
+   }
+ 
++  .backgroundFrenchCoastSoft {
++    background: #bce6e5 !important;
++  }
++
+   .backgroundSweetLilac {
+     background: #975298 !important;
+   }
+ 
++  .backgroundSweetLilacSoft {
++    background: #dec3df !important;
++  }
++
+   .backgroundRedBurgundy {
+     background: #ad5f7d !important;
+   }
+ 
++  .backgroundRedBurgundySoft {
++    background: #e0c2ce !important;
++  }
++
+   .backgroundPirateGold {
+     background: linear-gradient(160deg, #a54e07, #b47e11, #fef1a2, #bc881b, #a54e07) !important;
+   }
+ 
++  .backgroundPirateGoldSoft {
++    background: #e6d8bc !important;
++  }
++
+   .backgroundOceanDive {
+     background: linear-gradient(to top, #062e53, #1ad0e0) !important;
+   }
+@@ -747,6 +875,134 @@
+   .colorTurquoiseSea {
+     color: #00858a !important;
+   }
++
++  .colorMuddyGrey {
++    color: #69655a !important;
++  }
++
++  .colorAutumnLeafs {
++    color: #c9b037 !important;
++  }
++
++  .colorMorningSky {
++    color: #52b9d5 !important;
++  }
++
++  .colorEggYellow {
++    color: #f9c423 !important;
++  }
++
++  .colorDesertSand {
++    color: #fad371 !important;
++  }
++
++  .colorFreshSalad {
++    color: #ced85e !important;
++  }
++
++  .colorMidnightBlue {
++    color: #0a63a0 !important;
++  }
++
++  .colorLightOrange {
++    color: #fdae5f !important;
++  }
++
++  .colorLightConcrete {
++    color: #afb0a4 !important;
++  }
++
++  .colorSunnyGrass {
++    color: #beca02 !important;
++  }
++
++  .colorNavyBlue {
++    color: #1d7299 !important;
++  }
++
++  .colorLilacEyes {
++    color: #406cbd !important;
++  }
++
++  .colorApricotRed {
++    color: #fc736c !important;
++  }
++
++  .colorSilverGlint {
++    color: #92908d !important;
++  }
++
++  .colorDeepOcean {
++    color: #004c70 !important;
++  }
++
++  .colorSummerSky {
++    color: #5d9cec !important;
++  }
++
++  .colorLightCocoa {
++    color: #a85540 !important;
++  }
++
++  .colorGreyStone {
++    color: #aab2bd !important;
++  }
++
++  .colorTankGreen {
++    color: #8aa177 !important;
++  }
++
++  .colorCoralGreen {
++    color: #2b6a6c !important;
++  }
++
++  .colorSugarPlum {
++    color: #7e86c7 !important;
++  }
++
++  .colorShadyRust {
++    color: #87564a !important;
++  }
++
++  .colorWetRock {
++    color: #83949b !important;
++  }
++
++  .colorWetMoss {
++    color: #4a8753 !important;
++  }
++
++  .colorLavenderFields {
++    color: #b287bd !important;
++  }
++
++  .colorPiggyRed {
++    color: #f97394 !important;
++  }
++
++  .colorGunMetal {
++    color: #4f6573 !important;
++  }
++
++  .colorModernGreen {
++    color: #77ce87 !important;
++  }
++
++  .colorFrenchCoast {
++    color: #00b4b1 !important;
++  }
++
++  .colorSweetLilac {
++    color: #975298 !important;
++  }
++
++  .colorRedBurgundy {
++    color: #ad5f7d !important;
++  }
++
++  .colorPirateGold {
++    color: #b47e11 !important;
++  }
+ }
+ 
+ // BSY Media: dark versions of the 10 list colors, swapped in whenever the
+@@ -800,4 +1056,132 @@
+   .backgroundTurquoiseSeaSoft {
+     background: #1d4749 !important;
+   }
++
++  .backgroundMuddyGreySoft {
++    background: #37352f !important;
++  }
++
++  .backgroundAutumnLeafsSoft {
++    background: #4f4517 !important;
++  }
++
++  .backgroundMorningSkySoft {
++    background: #17434f !important;
++  }
++
++  .backgroundEggYellowSoft {
++    background: #4f4117 !important;
++  }
++
++  .backgroundDesertSandSoft {
++    background: #4f3f17 !important;
++  }
++
++  .backgroundFreshSaladSoft {
++    background: #4a4f17 !important;
++  }
++
++  .backgroundMidnightBlueSoft {
++    background: #17384f !important;
++  }
++
++  .backgroundLightOrangeSoft {
++    background: #4f3317 !important;
++  }
++
++  .backgroundLightConcreteSoft {
++    background: #36372f !important;
++  }
++
++  .backgroundSunnyGrassSoft {
++    background: #4c4f17 !important;
++  }
++
++  .backgroundNavyBlueSoft {
++    background: #173d4f !important;
++  }
++
++  .backgroundLilacEyesSoft {
++    background: #1a2c4c !important;
++  }
++
++  .backgroundApricotRedSoft {
++    background: #4f1a17 !important;
++  }
++
++  .backgroundSilverGlintSoft {
++    background: #343332 !important;
++  }
++
++  .backgroundDeepOceanSoft {
++    background: #173d4f !important;
++  }
++
++  .backgroundSummerSkySoft {
++    background: #17304f !important;
++  }
++
++  .backgroundLightCocoaSoft {
++    background: #4a251c !important;
++  }
++
++  .backgroundGreyStoneSoft {
++    background: #2d3239 !important;
++  }
++
++  .backgroundTankGreenSoft {
++    background: #323c2a !important;
++  }
++
++  .backgroundCoralGreenSoft {
++    background: #1d4849 !important;
++  }
++
++  .backgroundSugarPlumSoft {
++    background: #1f2347 !important;
++  }
++
++  .backgroundShadyRustSoft {
++    background: #422a24 !important;
++  }
++
++  .backgroundWetRockSoft {
++    background: #2e3538 !important;
++  }
++
++  .backgroundWetMossSoft {
++    background: #244229 !important;
++  }
++
++  .backgroundLavenderFieldsSoft {
++    background: #3c2442 !important;
++  }
++
++  .backgroundPiggyRedSoft {
++    background: #4f1725 !important;
++  }
++
++  .backgroundGunMetalSoft {
++    background: #2a353c !important;
++  }
++
++  .backgroundModernGreenSoft {
++    background: #1b4b24 !important;
++  }
++
++  .backgroundFrenchCoastSoft {
++    background: #174f4e !important;
++  }
++
++  .backgroundSweetLilacSoft {
++    background: #422442 !important;
++  }
++
++  .backgroundRedBurgundySoft {
++    background: #43232f !important;
++  }
++
++  .backgroundPirateGoldSoft {
++    background: #4f3c17 !important;
++  }
+ }
+diff --git a/client/src/utils/get-background-lightness.js b/client/src/utils/get-background-lightness.js
+index a988024..231b9fc 100644
+--- a/client/src/utils/get-background-lightness.js
++++ b/client/src/utils/get-background-lightness.js
+@@ -14,7 +14,7 @@ const LIGHTNESS_THRESHOLD = 140; // 0-255 relative luminance midpoint-ish
+ const SAMPLE_SIZE = 16; // downscale to keep canvas sampling cheap
+ 
+ // Relative luminance (ITU-R BT.709 coefficients), 0-255 scale.
+-const getLuminance = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
++export const getLuminance = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+ 
+ const getImageAverageLuminance = (imageUrl) =>
+   new Promise((resolve, reject) => {
+diff --git a/client/src/utils/get-contrast-text-color.js b/client/src/utils/get-contrast-text-color.js
+new file mode 100644
+index 0000000..9e662b7
+--- /dev/null
++++ b/client/src/utils/get-contrast-text-color.js
+@@ -0,0 +1,28 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++// BSY Media: picks a legible list-header text color for a given background
++// hex, reusing the same luminance formula/threshold already used for
++// project-background scrim detection (see get-background-lightness.js).
++// Returns the existing hardcoded light-mode (#17394d) or dark-mode
++// (#b6c2cf) .headerName text colors from List.module.scss, whichever
++// contrasts better against the given background.
++
++import { getLuminance, isLuminanceLight } from './get-background-lightness';
++
++const LIGHT_MODE_TEXT_COLOR = '#17394d';
++const DARK_MODE_TEXT_COLOR = '#b6c2cf';
++
++const getContrastTextColor = (hex) => {
++  const r = parseInt(hex.substring(1, 3), 16);
++  const g = parseInt(hex.substring(3, 5), 16);
++  const b = parseInt(hex.substring(5, 7), 16);
++
++  const luminance = getLuminance(r, g, b);
++
++  return isLuminanceLight(luminance) ? LIGHT_MODE_TEXT_COLOR : DARK_MODE_TEXT_COLOR;
++};
++
++export default getContrastTextColor;
+diff --git a/server/api/controllers/labels/create.js b/server/api/controllers/labels/create.js
+index b9025a7..1d00eaf 100755
+--- a/server/api/controllers/labels/create.js
++++ b/server/api/controllers/labels/create.js
+@@ -44,7 +44,7 @@
+  *               color:
+  *                 type: string
+  *                 enum: [muddy-grey, autumn-leafs, morning-sky, antique-blue, egg-yellow, desert-sand, dark-granite, fresh-salad, lagoon-blue, midnight-blue, light-orange, pumpkin-orange, light-concrete, sunny-grass, navy-blue, lilac-eyes, apricot-red, orange-peel, silver-glint, bright-moss, deep-ocean, summer-sky, berry-red, light-cocoa, grey-stone, tank-green, coral-green, sugar-plum, pink-tulip, shady-rust, wet-rock, wet-moss, turquoise-sea, lavender-fields, piggy-red, light-mud, gun-metal, modern-green, french-coast, sweet-lilac, red-burgundy, pirate-gold]
+- *                 description: Color of the label
++ *                 description: Color of the label (one of the enum values, or a custom "#rrggbb" hex string)
+  *                 example: berry-red
+  *     responses:
+  *       200:
+@@ -98,7 +98,7 @@ module.exports = {
+     },
+     color: {
+       type: 'string',
+-      isIn: Label.COLORS,
++      custom: Label.isColor,
+       required: true,
+     },
+   },
+diff --git a/server/api/controllers/labels/update.js b/server/api/controllers/labels/update.js
+index 3ce026a..eb80b87 100755
+--- a/server/api/controllers/labels/update.js
++++ b/server/api/controllers/labels/update.js
+@@ -41,7 +41,7 @@
+  *               color:
+  *                 type: string
+  *                 enum: [muddy-grey, autumn-leafs, morning-sky, antique-blue, egg-yellow, desert-sand, dark-granite, fresh-salad, lagoon-blue, midnight-blue, light-orange, pumpkin-orange, light-concrete, sunny-grass, navy-blue, lilac-eyes, apricot-red, orange-peel, silver-glint, bright-moss, deep-ocean, summer-sky, berry-red, light-cocoa, grey-stone, tank-green, coral-green, sugar-plum, pink-tulip, shady-rust, wet-rock, wet-moss, turquoise-sea, lavender-fields, piggy-red, light-mud, gun-metal, modern-green, french-coast, sweet-lilac, red-burgundy, pirate-gold]
+- *                 description: Color of the label
++ *                 description: Color of the label (one of the enum values, or a custom "#rrggbb" hex string)
+  *                 example: berry-red
+  *     responses:
+  *       200:
+@@ -94,7 +94,7 @@ module.exports = {
+     },
+     color: {
+       type: 'string',
+-      isIn: Label.COLORS,
++      custom: Label.isColor,
+     },
+   },
+ 
+diff --git a/server/api/controllers/lists/update.js b/server/api/controllers/lists/update.js
+index 8dca673..a8c3d56 100755
+--- a/server/api/controllers/lists/update.js
++++ b/server/api/controllers/lists/update.js
+@@ -48,9 +48,9 @@
+  *                 example: To Do
+  *               color:
+  *                 type: string
+- *                 enum: [berry-red, pumpkin-orange, lagoon-blue, pink-tulip, light-mud, orange-peel, bright-moss, antique-blue, dark-granite, turquoise-sea]
++ *                 enum: [muddy-grey, autumn-leafs, morning-sky, antique-blue, egg-yellow, desert-sand, dark-granite, fresh-salad, lagoon-blue, midnight-blue, light-orange, pumpkin-orange, light-concrete, sunny-grass, navy-blue, lilac-eyes, apricot-red, orange-peel, silver-glint, bright-moss, deep-ocean, summer-sky, berry-red, light-cocoa, grey-stone, tank-green, coral-green, sugar-plum, pink-tulip, shady-rust, wet-rock, wet-moss, turquoise-sea, lavender-fields, piggy-red, light-mud, gun-metal, modern-green, french-coast, sweet-lilac, red-burgundy, pirate-gold]
+  *                 nullable: true
+- *                 description: Color for the list
++ *                 description: Color for the list (one of the enum values, or a custom "#rrggbb" hex string)
+  *                 example: lagoon-blue
+  *     responses:
+  *       200:
+@@ -110,7 +110,7 @@ module.exports = {
+     },
+     color: {
+       type: 'string',
+-      isIn: List.COLORS,
++      custom: List.isColor,
+       allowNull: true,
+     },
+   },
+diff --git a/server/api/models/Label.js b/server/api/models/Label.js
+index f2ad9ac..d701374 100755
+--- a/server/api/models/Label.js
++++ b/server/api/models/Label.js
+@@ -45,7 +45,7 @@
+  *         color:
+  *           type: string
+  *           enum: [muddy-grey, autumn-leafs, morning-sky, antique-blue, egg-yellow, desert-sand, dark-granite, fresh-salad, lagoon-blue, midnight-blue, light-orange, pumpkin-orange, light-concrete, sunny-grass, navy-blue, lilac-eyes, apricot-red, orange-peel, silver-glint, bright-moss, deep-ocean, summer-sky, berry-red, light-cocoa, grey-stone, tank-green, coral-green, sugar-plum, pink-tulip, shady-rust, wet-rock, wet-moss, turquoise-sea, lavender-fields, piggy-red, light-mud, gun-metal, modern-green, french-coast, sweet-lilac, red-burgundy, pirate-gold]
+- *           description: Color of the label
++ *           description: Color of the label (one of the enum values, or a custom "#rrggbb" hex string)
+  *           example: berry-red
+  *         createdAt:
+  *           type: string
+@@ -106,8 +106,11 @@ const COLORS = [
+   'pirate-gold',
+ ];
+ 
++const isColor = (value) => COLORS.includes(value) || /^#[0-9a-f]{6}$/i.test(value);
++
+ module.exports = {
+   COLORS,
++  isColor,
+ 
+   attributes: {
+     //  ╔═╗╦═╗╦╔╦╗╦╔╦╗╦╦  ╦╔═╗╔═╗
+@@ -125,7 +128,7 @@ module.exports = {
+     },
+     color: {
+       type: 'string',
+-      isIn: COLORS,
++      custom: isColor,
+       required: true,
+     },
+ 
+diff --git a/server/api/models/List.js b/server/api/models/List.js
+index e9f2328..3d860a7 100755
+--- a/server/api/models/List.js
++++ b/server/api/models/List.js
+@@ -51,9 +51,9 @@
+  *           example: To Do
+  *         color:
+  *           type: string
+- *           enum: [berry-red, pumpkin-orange, lagoon-blue, pink-tulip, light-mud, orange-peel, bright-moss, antique-blue, dark-granite, turquoise-sea]
++ *           enum: [muddy-grey, autumn-leafs, morning-sky, antique-blue, egg-yellow, desert-sand, dark-granite, fresh-salad, lagoon-blue, midnight-blue, light-orange, pumpkin-orange, light-concrete, sunny-grass, navy-blue, lilac-eyes, apricot-red, orange-peel, silver-glint, bright-moss, deep-ocean, summer-sky, berry-red, light-cocoa, grey-stone, tank-green, coral-green, sugar-plum, pink-tulip, shady-rust, wet-rock, wet-moss, turquoise-sea, lavender-fields, piggy-red, light-mud, gun-metal, modern-green, french-coast, sweet-lilac, red-burgundy, pirate-gold]
+  *           nullable: true
+- *           description: Color for the list
++ *           description: Color for the list (one of the enum values, or a custom "#rrggbb" hex string)
+  *           example: lagoon-blue
+  *         archivedAt:
+  *           type: string
+@@ -109,18 +109,52 @@ const TYPE_STATE_BY_TYPE = {
+ };
+ 
+ const COLORS = [
+-  'berry-red',
+-  'pumpkin-orange',
++  'muddy-grey',
++  'autumn-leafs',
++  'morning-sky',
++  'antique-blue',
++  'egg-yellow',
++  'desert-sand',
++  'dark-granite',
++  'fresh-salad',
+   'lagoon-blue',
+-  'pink-tulip',
+-  'light-mud',
++  'midnight-blue',
++  'light-orange',
++  'pumpkin-orange',
++  'light-concrete',
++  'sunny-grass',
++  'navy-blue',
++  'lilac-eyes',
++  'apricot-red',
+   'orange-peel',
++  'silver-glint',
+   'bright-moss',
+-  'antique-blue',
+-  'dark-granite',
++  'deep-ocean',
++  'summer-sky',
++  'berry-red',
++  'light-cocoa',
++  'grey-stone',
++  'tank-green',
++  'coral-green',
++  'sugar-plum',
++  'pink-tulip',
++  'shady-rust',
++  'wet-rock',
++  'wet-moss',
+   'turquoise-sea',
++  'lavender-fields',
++  'piggy-red',
++  'light-mud',
++  'gun-metal',
++  'modern-green',
++  'french-coast',
++  'sweet-lilac',
++  'red-burgundy',
++  'pirate-gold',
+ ];
+ 
++const isColor = (value) => COLORS.includes(value) || /^#[0-9a-f]{6}$/i.test(value);
++
+ module.exports = {
+   Types,
+   TypeStates,
+@@ -130,6 +164,7 @@ module.exports = {
+   KANBAN_TYPES,
+   TYPE_STATE_BY_TYPE,
+   COLORS,
++  isColor,
+ 
+   attributes: {
+     //  ╔═╗╦═╗╦╔╦╗╦╔╦╗╦╦  ╦╔═╗╔═╗
+@@ -152,7 +187,7 @@ module.exports = {
+     },
+     color: {
+       type: 'string',
+-      isIn: COLORS,
++      custom: isColor,
+       allowNull: true,
+     },
+     // BSY Media: hides a real active/closed list from the Kanban view

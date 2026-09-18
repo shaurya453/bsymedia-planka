@@ -3553,3 +3553,90 @@ renamed) name again, appended text, then clicked elsewhere in the modal - confir
 click-away committed the edit. Zero console errors throughout.
 
 Patch: `planka-custom/patches/0071-inline-checklist-rename-and-add.patch`.
+
+## No-confirmation delete for sub-tasks/checklists, expanded + custom colors, select-all on title click (2026-09-18)
+
+Three independent changes, built in parallel via 4 background agents in isolated git worktrees
+(zero file overlap between them, merged with no conflicts) plus a manual integration pass:
+
+- **Delete confirmation removed for sub-tasks and checklists only**: `task-lists/TaskList/Task/Task.jsx`
+  and `cards/CardModal/TaskLists/Item.jsx`'s trash buttons now call their existing
+  `handleDeleteConfirm` (`deleteTask`/`deleteTaskList`) directly from `onClick`, instead of routing
+  through `usePopupInClosableContext(ConfirmationStep)`. The shared `ConfirmationStep` component
+  itself is untouched and still gates every other delete action in the app (lists, boards, projects,
+  labels, attachments, comments, cards, webhooks, users, board memberships) - verified via a
+  regression check that right-click → Delete List still shows its confirmation popup.
+
+- **Select-all on title click**, matching the checklist name editor's pre-existing (and correct)
+  pattern: `task-lists/TaskList/Task/EditName.jsx` and `cards/Card/EditName.jsx` swapped
+  `focusEnd(fieldRef.current)` for `fieldRef.current.select()` on mount; `cards/CardModal/NameField.jsx`
+  (an always-editable textarea, not a click-to-open field) gained the same `.select()` call inside its
+  existing `handleFocus`. The card **face** title previously had no click-to-rename at all (only the
+  three-dot menu's "Edit Title" or the `T` shortcut) - `Card.jsx` now passes
+  `onNameEdit={canUseActions ? handleNameEdit : undefined}` down to `ProjectContent.jsx`/
+  `StoryContent.jsx` (not `InlineContent.jsx`, which keeps static text - same isInline scope
+  precedent as the label glow feature), which wire it to the name `<div>`'s `onClick` with
+  `event.stopPropagation()` (needed since the parent `.content` wrapper already navigates to the
+  card on click).
+
+- **List colors expanded from 10 to the full 42-color label palette, plus a custom color wheel for
+  both lists and labels**: `server/api/models/List.js`'s `COLORS` enum now matches `Label.js`'s 42
+  entries; both models (and the `lists/update`, `labels/update`, `labels/create` controllers) swapped
+  `isIn: COLORS` for a `custom: isColor` validator (`COLORS.includes(value) ||
+  /^#[0-9a-f]{6}$/i.test(value)`) so a raw hex string is also accepted - no DB migration needed,
+  `color` was already an unconstrained string column. `styles.module.scss` gained the missing 32
+  `.color<Name>` (reusing each name's existing bold hex) and light/dark `.background<Name>Soft`
+  pairs (derived via one fixed HSL formula - same hue, saturation capped at 45%/55%, lightness
+  82%/20% - the original 10 hand-tuned pairs are untouched, zero regression risk); the same 32 new
+  hex pairs are mirrored into new `constants/ListSoftColors.js` (`{ light, dark }` per name) purely
+  so `List.jsx` can look up the actual rendered background hex in JS for contrast calculation without
+  re-parsing CSS.
+  - **Custom color wheel**: new self-contained `common/ColorWheelPicker/` component - a canvas-based
+    HSV hue-ring + saturation/value triangle picker (the "brightness diamond" - it's actually a
+    triangle, the classic GIMP/Krita-style widget), built with zero new npm dependencies (none of
+    `react-color`/`@uiw/react-color`/etc. were already present, and adding one just for this felt
+    heavier than ~400 lines of canvas + pointer-math). Hue ring and triangle are painted per-pixel
+    via `putImageData` (avoids relying on `createConicGradient` support); dragging computes
+    angle-from-center for hue or barycentric coordinates (clamped back into the triangle if the
+    pointer leaves it mid-drag) for saturation/value; a synced hex text input allows exact
+    entry/paste. `onChange` fires continuously during drag, like a native `<input type="color">`.
+  - Both `labels/LabelsStep/Editor.jsx` and `lists/List/EditColorStep.jsx` (previously
+    near-duplicate 42-swatch-grid / 10-swatch-grid components) got a trailing "custom color" swatch
+    (rainbow conic-gradient by default, overridden with the real hex once active) that toggles a
+    local `isWheelOpened` state to swap the grid for the wheel - a plain local toggle, not a new step
+    in the parent multi-step popup, so `ActionsStep.jsx`/`AddStep.jsx`/`EditStep.jsx` needed no
+    changes. `EditColorStep.jsx` also switched its import from the now-deleted `ListColors.js` to
+    `LabelColors.js` (`LABEL_COLORS`) directly, since lists and labels now share one palette.
+  - **List header text contrast**: `List.jsx` now branches on whether `list.color` is one of the 42
+    named identifiers (`LabelGlowColors[list.color]` truthy) or a raw custom hex. Named colors:
+    rendering is 100% unchanged (still the CSS-class-driven `background<Name>Soft`/`color<Name>`
+    classes), only the header TEXT color is computed by feeding `ListSoftColors[list.color]`'s
+    actual rendered hex through a new `getContrastTextColor()` helper (in new
+    `utils/get-contrast-text-color.js`, built on a newly-exported `getLuminance` from the existing
+    `utils/get-background-lightness.js`) that returns the same two constants already hardcoded
+    there (`#17394d` light / `#b6c2cf` dark) based on luminance. Custom hex colors: rendered directly
+    as-is via inline `style` (WYSIWYG, no automatic pastel-softening - a color wheel implies the user
+    wants that *exact* color), with the same contrast helper picking the header text color per-instance
+    - this is the actual case that needed dynamic contrast, since a raw custom hex can be any
+    lightness at all, unlike the always-narrow-lightness-band named "Soft" palette.
+  - `labels/LabelChip/LabelChip.jsx` and `Card.jsx`'s card-edge label-glow calculation both gained
+    the same named-vs-custom branch: a custom label color renders as a direct inline
+    `background`/glow-ring color instead of falling back to a `background<Name>` CSS class that
+    wouldn't exist for a hex string (`LabelChip`) or a grey `#999999` fallback (`Card.jsx`'s glow).
+
+Verified in an isolated stack via Puppeteer, covering all three changes together: clicked a sub-task's
+and a checklist's trash icons - both deleted immediately via the API with no confirmation popup shown;
+confirmed right-click → Delete List still shows its confirmation (regression check). Clicked a card's
+title on the board face, inside the card modal, and a sub-task's title - confirmed all three fields
+open/focus with the entire existing text selected (`selectionStart === 0`,
+`selectionEnd === value.length`). Opened a list's color picker - confirmed the full 42-swatch grid (up
+from 10) plus a trailing custom swatch; clicked it, confirmed the HSV wheel+triangle canvas renders,
+set a hex via its text input to a very dark color (`#101010`) then a very light one (`#f5f5f5`) -
+confirmed via the API the list's `color` persisted as the raw hex both times, and confirmed the header
+text computed style flipped from light (`rgb(182, 194, 207)`) to dark (`rgb(23, 57, 77)`) correctly.
+Did the same for a label via its own color editor (custom hex `#39ff14`, saved via the popup's Save
+button) - confirmed via the API the label's color persisted, and confirmed the card's own
+`box-shadow` (the label-glow ring) rendered in that exact custom hue (`rgb(57, 255, 20)`), not the
+grey fallback. Zero console errors throughout.
+
+Patch: `planka-custom/patches/0072-delete-confirm-colors-title-select.patch`.
