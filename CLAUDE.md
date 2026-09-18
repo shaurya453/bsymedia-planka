@@ -3493,3 +3493,63 @@ the API that `isCompleted` remained `true`, unaffected by the manual status chan
 fields are genuinely independent in both directions, not just one.
 
 Patch: `planka-custom/patches/0070-decouple-checkoff-strikethrough.patch`.
+
+## Inline checklist rename + frictionless checklist creation (2026-09-18)
+
+Checklists ("main tasks") get the same two UX conveniences their own sub-tasks already had:
+click-to-rename in place, and a create flow that stays open and refocused after each Enter instead
+of closing a popup every time.
+
+- **Click-to-rename**: new `CardModal/TaskLists/EditName.jsx` (+ `.module.scss`), modeled directly
+  on the existing sub-task rename flow (`task-lists/TaskList/Task/EditName.jsx`) - single-line
+  `Input` instead of a multi-line `TextArea` (checklist names are short titles, like the old popup's
+  own field), same submit-on-Enter/cancel-on-Escape/submit-on-click-away pattern via
+  `useClickAwayListener`. `Item.jsx`'s checklist-name `<span>` gained an `onClick` (gated on
+  `canEdit && taskList.isPersisted`, matching every other per-checklist action's own gate) that
+  swaps it for `<EditName>`; `isEditNameOpened` also now feeds into the `Draggable`'s
+  `isDragDisabled` (mirroring `Task.jsx`) so a drag can't start out from under an open rename field,
+  and into `ClosableContext` (mirroring every other popup/inline-edit already wired into it here) so
+  it doesn't fight the card modal's own escape/close handling.
+  - The pencil icon still opens the full `EditStep.jsx` settings popup (name +
+    `showOnFrontOfCard`/`hideCompletedTasks` toggles) unchanged - renaming was pulled out into its
+    own fast path, but the toggle settings still need the popup, same as before.
+- **Frictionless creation**: new `task-lists/AddTaskList.jsx` (+ `.module.scss`) replaces the old
+  `AddTaskListStep.jsx` popup (deleted - it had exactly one caller) with an inline component modeled
+  on sub-tasks' own `AddTask.jsx` - typing a name and pressing Enter creates the checklist, then
+  clears the field and refocuses it (`useToggle` + `useDidUpdate` refocus-on-toggle pattern,
+  identical to `AddTask.jsx`) rather than closing anything, so a run of checklists can be typed one
+  after another without re-clicking the add button each time. Escape or clicking away closes the
+  field (discarding whatever's typed but not yet submitted, same as `AddTask.jsx`). `TaskLists.jsx`
+  now owns its own `isAddOpened` state + `ClosableContext` wiring directly (previously delegated to
+  `usePopupInClosableContext`), same pattern `TaskList.jsx` (the modal's sub-task list) already uses
+  for its own `AddTask`.
+  - The two settings the old popup asked about every time (`showOnFrontOfCard`, `hideCompletedTasks`)
+    are no longer asked at creation - every quick-added checklist gets their same old defaults
+    (`true`/`false`) baked in directly, still editable afterwards via the pencil's `EditStep.jsx`
+    popup exactly as before.
+  - Button label switches between "Add task list" (empty card) and "Add another task list" (card
+    already has at least one checklist) - same convention `TaskList.jsx`'s own
+    `addTask`/`addAnotherTask` label switch already uses for sub-tasks.
+- **Bug caught during verification, fixed before shipping**: both new `.module.scss` files
+  originally styled the Semantic UI `Input`'s own wrapper div directly (`.field { display: block;
+  ... }`), which clobbers that wrapper's own `display: flex` - the thing that makes a `fluid` Input's
+  inner `<input>` stretch to 100% width. Result: the input visually collapsed to the browser's tiny
+  default text-input width instead of filling the header/row. Fixed by styling the nested `<input>`
+  itself (`.field input { ... }`) instead of the wrapper, matching the working pattern already used
+  elsewhere in this codebase for exactly this (`custom-fields/CustomField/ValueField.module.scss`'s
+  `.field input`). Caught via a Puppeteer screenshot during verification, not by inspection alone -
+  worth remembering next time a `fluid` custom-ui `Input` needs its own background/border/padding.
+
+Verified in an isolated stack via Puppeteer: on an empty card, clicked "Add task list", typed
+"Checklist One", pressed Enter - confirmed via the API a checklist named "Checklist One" now exists,
+and confirmed in the DOM the input field was still open, cleared, and focused (not closed). Typed
+"Checklist Two", pressed Enter - confirmed a second checklist was created the same way, no re-click
+needed. Pressed Escape - confirmed the field closed and the button now read "Add another task list".
+Clicked "Checklist One"'s own name - confirmed an input opened with the full name pre-selected and
+focused; typed a replacement and pressed Enter - confirmed via the API the name changed (and that
+`isCompleted`/`status` were untouched by the rename). Clicked "Checklist Two"'s name, typed garbage,
+pressed Escape - confirmed via the API the name was unchanged. Clicked "Checklist One"'s (already
+renamed) name again, appended text, then clicked elsewhere in the modal - confirmed via the API the
+click-away committed the edit. Zero console errors throughout.
+
+Patch: `planka-custom/patches/0071-inline-checklist-rename-and-add.patch`.

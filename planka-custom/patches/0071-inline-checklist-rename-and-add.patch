@@ -1,0 +1,616 @@
+diff --git a/client/src/components/cards/CardModal/TaskLists/EditName.jsx b/client/src/components/cards/CardModal/TaskLists/EditName.jsx
+new file mode 100644
+index 0000000..9bc44fb
+--- /dev/null
++++ b/client/src/components/cards/CardModal/TaskLists/EditName.jsx
+@@ -0,0 +1,103 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useCallback, useEffect, useMemo } from 'react';
++import PropTypes from 'prop-types';
++import { useDispatch, useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
++import { Button, Form } from 'semantic-ui-react';
++import { Input } from '../../../../lib/custom-ui';
++import { useClickAwayListener } from '../../../../lib/hooks';
++
++import selectors from '../../../../selectors';
++import entryActions from '../../../../entry-actions';
++import { useField, useNestedRef } from '../../../../hooks';
++
++import styles from './EditName.module.scss';
++
++// BSY Media: click-to-rename for the checklist's own name, right in the
++// header - mirrors the sub-task rename flow (task-lists/TaskList/Task/
++// EditName.jsx), so renaming a checklist no longer requires opening the
++// pencil's full settings popup (EditStep.jsx, still used for
++// showOnFrontOfCard/hideCompletedTasks) just to change its title.
++const EditName = React.memo(({ taskListId, onClose }) => {
++  const selectTaskListById = useMemo(() => selectors.makeSelectTaskListById(), []);
++
++  const defaultValue = useSelector((state) => selectTaskListById(state, taskListId).name);
++
++  const dispatch = useDispatch();
++  const [t] = useTranslation();
++  const [value, handleFieldChange] = useField(defaultValue);
++
++  const [fieldRef, handleFieldRef] = useNestedRef('inputRef');
++  const [buttonRef, handleButtonRef] = useNestedRef();
++
++  const submit = useCallback(() => {
++    const cleanValue = value.trim();
++
++    if (cleanValue && cleanValue !== defaultValue) {
++      dispatch(
++        entryActions.updateTaskList(taskListId, {
++          name: cleanValue,
++        }),
++      );
++    }
++
++    onClose();
++  }, [taskListId, onClose, defaultValue, dispatch, value]);
++
++  const handleSubmit = useCallback(() => {
++    submit();
++  }, [submit]);
++
++  const handleFieldKeyDown = useCallback(
++    (event) => {
++      if (event.key === 'Escape') {
++        onClose();
++      }
++    },
++    [onClose],
++  );
++
++  const handleClickAwayCancel = useCallback(() => {
++    fieldRef.current.focus();
++  }, [fieldRef]);
++
++  const clickAwayProps = useClickAwayListener([fieldRef, buttonRef], submit, handleClickAwayCancel);
++
++  useEffect(() => {
++    fieldRef.current.select();
++  }, [fieldRef]);
++
++  return (
++    <Form onSubmit={handleSubmit} className={styles.wrapper}>
++      <Input
++        {...clickAwayProps} // eslint-disable-line react/jsx-props-no-spreading
++        fluid
++        ref={handleFieldRef}
++        value={value}
++        maxLength={128}
++        className={styles.field}
++        onKeyDown={handleFieldKeyDown}
++        onChange={handleFieldChange}
++      />
++      <div className={styles.controls}>
++        <Button
++          {...clickAwayProps} // eslint-disable-line react/jsx-props-no-spreading
++          positive
++          ref={handleButtonRef}
++          content={t('action.save')}
++        />
++      </div>
++    </Form>
++  );
++});
++
++EditName.propTypes = {
++  taskListId: PropTypes.string.isRequired,
++  onClose: PropTypes.func.isRequired,
++};
++
++export default EditName;
+diff --git a/client/src/components/cards/CardModal/TaskLists/EditName.module.scss b/client/src/components/cards/CardModal/TaskLists/EditName.module.scss
+new file mode 100644
+index 0000000..29de907
+--- /dev/null
++++ b/client/src/components/cards/CardModal/TaskLists/EditName.module.scss
+@@ -0,0 +1,42 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .controls {
++    clear: both;
++    margin-top: 6px;
++  }
++
++  // BSY Media: styles the nested <input> itself, not the .field wrapper div -
++  // the wrapper is Semantic UI's own ".ui.fluid.input" element, which relies
++  // on its own display: flex to make the inner input stretch to 100% width;
++  // styling the wrapper directly (as an earlier version of this file did,
++  // e.g. with display: block) clobbers that and collapses the input back to
++  // its tiny browser-default width. See custom-fields/CustomField/
++  // ValueField.module.scss's ".field input" for the same working pattern.
++  .field input {
++    background: #fff;
++    border: 1px solid rgba(9, 30, 66, 0.13);
++    border-radius: 3px;
++    color: #17394d;
++    font-size: 16px;
++    font-weight: bold;
++    padding: 6px 8px;
++
++    &:focus {
++      outline: none;
++    }
++  }
++
++  // BSY Media: fills the same flex slot the plain .moduleHeaderTitle span
++  // occupied in Item.jsx (moduleHeader is display: flex, with padding-right
++  // already reserved for the actions overlay) - flex: 1 + min-width: 0 lets
++  // the field grow to fill it without pushing the reserved actions space.
++  .wrapper {
++    flex: 1;
++    min-width: 0;
++    padding: 6px 0;
++  }
++}
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.jsx b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+index 7768fcb..6e9b63c 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.jsx
++++ b/client/src/components/cards/CardModal/TaskLists/Item.jsx
+@@ -3,7 +3,7 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useCallback, useMemo } from 'react';
++import React, { useCallback, useContext, useMemo, useState } from 'react';
+ import ReactDOM from 'react-dom';
+ import PropTypes from 'prop-types';
+ import classNames from 'classnames';
+@@ -11,18 +11,20 @@ import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+ import { Draggable } from 'react-beautiful-dnd';
+ import { Button, Checkbox, Icon } from 'semantic-ui-react';
+-import { useToggle } from '../../../../lib/hooks';
++import { useDidUpdate, useToggle } from '../../../../lib/hooks';
+ 
+ import selectors from '../../../../selectors';
+ import entryActions from '../../../../entry-actions';
+ import { usePopupInClosableContext } from '../../../../hooks';
+ import { BoardMembershipRoles, TaskListStatuses } from '../../../../constants/Enums';
++import { ClosableContext } from '../../../../contexts';
+ import TaskListStatusColors, {
+   TaskListStatusTextColors,
+   TASK_LIST_STATUS_NOT_SET_COLOR,
+   TASK_LIST_STATUS_NOT_SET_TEXT_COLOR,
+ } from '../../../../constants/TaskListStatusColors';
+ import EditStep from './EditStep';
++import EditName from './EditName';
+ import TaskList from '../../../task-lists/TaskList';
+ import SelectAssigneeStep from '../../../task-lists/TaskList/Task/SelectAssigneeStep';
+ import DueDateChip from '../../DueDateChip';
+@@ -82,11 +84,31 @@ const Item = React.memo(({ id, index }) => {
+   const [t] = useTranslation();
+ 
+   const [isCompletedVisible, toggleCompletedVisible] = useToggle();
++  const [isEditNameOpened, setIsEditNameOpened] = useState(false);
++  const [, , setIsClosableActive] = useContext(ClosableContext);
+ 
+   const handleToggleCompletedVisibleClick = useCallback(() => {
+     toggleCompletedVisible();
+   }, [toggleCompletedVisible]);
+ 
++  // BSY Media: clicking the checklist's own name renames it inline, same as
++  // clicking a sub-task's name does (task-lists/TaskList/Task/Task.jsx's
++  // handleClick) - no need to open the pencil's full settings popup just to
++  // fix a typo in the title.
++  const handleNameClick = useCallback(() => {
++    if (canEdit && taskList.isPersisted) {
++      setIsEditNameOpened(true);
++    }
++  }, [canEdit, taskList.isPersisted]);
++
++  const handleEditNameClose = useCallback(() => {
++    setIsEditNameOpened(false);
++  }, []);
++
++  useDidUpdate(() => {
++    setIsClosableActive(isEditNameOpened);
++  }, [isEditNameOpened]);
++
+   const handleUserSelect = useCallback(
+     (userId) => {
+       dispatch(entryActions.updateTaskList(taskList.id, { assigneeUserId: userId }));
+@@ -150,7 +172,7 @@ const Item = React.memo(({ id, index }) => {
+     <Draggable
+       draggableId={`task-list:${id}`}
+       index={index}
+-      isDragDisabled={!taskList.isPersisted || !canEdit}
++      isDragDisabled={isEditNameOpened || !taskList.isPersisted || !canEdit}
+     >
+       {({ innerRef, draggableProps, dragHandleProps }, { isDragging }) => {
+         const contentNode = (
+@@ -288,14 +310,22 @@ const Item = React.memo(({ id, index }) => {
+                       )}
+                     </div>
+                   )}
+-                  <span
+-                    className={classNames(
+-                      styles.moduleHeaderTitle,
+-                      taskList.isCompleted && styles.moduleHeaderTitleCompleted,
+-                    )}
+-                  >
+-                    {taskList.name}
+-                  </span>
++                  {isEditNameOpened ? (
++                    <EditName taskListId={id} onClose={handleEditNameClose} />
++                  ) : (
++                    // eslint-disable-next-line jsx-a11y/click-events-have-key-events,
++                    //                          jsx-a11y/no-static-element-interactions
++                    <span
++                      className={classNames(
++                        styles.moduleHeaderTitle,
++                        canEdit && taskList.isPersisted && styles.moduleHeaderTitleEditable,
++                        taskList.isCompleted && styles.moduleHeaderTitleCompleted,
++                      )}
++                      onClick={handleNameClick}
++                    >
++                      {taskList.name}
++                    </span>
++                  )}
+                 </div>
+                 {(taskList.startDate || taskList.dueDate) && (
+                   <div className={styles.dates}>
+diff --git a/client/src/components/cards/CardModal/TaskLists/Item.module.scss b/client/src/components/cards/CardModal/TaskLists/Item.module.scss
+index 603ed80..c3ee2d7 100644
+--- a/client/src/components/cards/CardModal/TaskLists/Item.module.scss
++++ b/client/src/components/cards/CardModal/TaskLists/Item.module.scss
+@@ -123,6 +123,18 @@
+     word-wrap: break-word;
+   }
+ 
++  // BSY Media: hints the title itself is clickable-to-rename (see Item.jsx's
++  // handleNameClick), same affordance sub-task names get via
++  // Task.module.scss's .textPointable.
++  .moduleHeaderTitleEditable {
++    border-radius: 3px;
++    cursor: pointer;
++
++    &:hover {
++      background: rgba(9, 30, 66, 0.04);
++    }
++  }
++
+   // BSY Media: struck through once the checklist's own isCompleted checkbox
+   // is checked - same treatment a sub-task's own name gets (see
+   // task-lists/TaskList/Task/Task.module.scss's .nameCompleted).
+diff --git a/client/src/components/cards/CardModal/TaskLists/TaskLists.jsx b/client/src/components/cards/CardModal/TaskLists/TaskLists.jsx
+index f8fc2bc..fbeae71 100644
+--- a/client/src/components/cards/CardModal/TaskLists/TaskLists.jsx
++++ b/client/src/components/cards/CardModal/TaskLists/TaskLists.jsx
+@@ -3,7 +3,7 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useCallback } from 'react';
++import React, { useCallback, useContext, useState } from 'react';
+ import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+ import { DragDropContext, Droppable } from 'react-beautiful-dnd';
+@@ -14,9 +14,10 @@ import selectors from '../../../../selectors';
+ import entryActions from '../../../../entry-actions';
+ import parseDndId from '../../../../utils/parse-dnd-id';
+ import DroppableTypes from '../../../../constants/DroppableTypes';
+-import { usePopupInClosableContext } from '../../../../hooks';
++import { useDidUpdate } from '../../../../lib/hooks';
+ import { BoardMembershipRoles } from '../../../../constants/Enums';
+-import AddTaskListStep from '../../../task-lists/AddTaskListStep';
++import { ClosableContext } from '../../../../contexts';
++import AddTaskList from '../../../task-lists/AddTaskList';
+ import Item from './Item';
+ 
+ import globalStyles from '../../../../styles.module.scss';
+@@ -38,10 +39,23 @@ const TaskLists = React.memo(() => {
+     return !!boardMembership && boardMembership.role === BoardMembershipRoles.EDITOR;
+   });
+ 
+-  const AddTaskListPopup = usePopupInClosableContext(AddTaskListStep);
++  const [isAddOpened, setIsAddOpened] = useState(false);
++  const [, , setIsClosableActive] = useContext(ClosableContext);
+ 
+   const dispatch = useDispatch();
+ 
++  const handleAddClick = useCallback(() => {
++    setIsAddOpened(true);
++  }, []);
++
++  const handleAddClose = useCallback(() => {
++    setIsAddOpened(false);
++  }, []);
++
++  useDidUpdate(() => {
++    setIsClosableActive(isAddOpened);
++  }, [isAddOpened]);
++
+   const handleDragStart = useCallback(() => {
+     document.body.classList.add(globalStyles.dragging);
+     closePopup();
+@@ -94,12 +108,12 @@ const TaskLists = React.memo(() => {
+         </Droppable>
+       </DragDropContext>
+       {canAdd && (
+-        <AddTaskListPopup>
+-          <Button fluid className={styles.addButton}>
++        <AddTaskList isOpened={isAddOpened} onClose={handleAddClose}>
++          <Button fluid className={styles.addButton} onClick={handleAddClick}>
+             <Icon name="plus" />
+-            {t('action.addTaskList')}
++            {taskListIds.length > 0 ? t('action.addAnotherTaskList') : t('action.addTaskList')}
+           </Button>
+-        </AddTaskListPopup>
++        </AddTaskList>
+       )}
+     </>
+   );
+diff --git a/client/src/components/task-lists/AddTaskList.jsx b/client/src/components/task-lists/AddTaskList.jsx
+new file mode 100644
+index 0000000..4a166e5
+--- /dev/null
++++ b/client/src/components/task-lists/AddTaskList.jsx
+@@ -0,0 +1,123 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useCallback, useEffect } from 'react';
++import PropTypes from 'prop-types';
++import { useDispatch } from 'react-redux';
++import { useTranslation } from 'react-i18next';
++import { Button, Form } from 'semantic-ui-react';
++import { Input } from '../../lib/custom-ui';
++import { useClickAwayListener, useDidUpdate, useToggle } from '../../lib/hooks';
++
++import entryActions from '../../entry-actions';
++import { useForm, useNestedRef } from '../../hooks';
++
++import styles from './AddTaskList.module.scss';
++
++const DEFAULT_DATA = {
++  name: '',
++};
++
++// BSY Media: replaces the old popup (AddTaskListStep.jsx, which asked for
++// showOnFrontOfCard/hideCompletedTasks on every single creation) with an
++// inline, frictionless add flow mirroring sub-tasks' own AddTask.jsx -
++// type a name, press Enter, the checklist is created and the field clears
++// and stays focused, ready for the next name. The two settings the popup
++// used to ask about are created with their defaults (true/false, same
++// defaults the popup itself used) and remain editable afterwards via each
++// checklist's own pencil (EditStep.jsx).
++const AddTaskList = React.memo(({ children, isOpened, onClose }) => {
++  const dispatch = useDispatch();
++  const [t] = useTranslation();
++  const [data, handleFieldChange, setData] = useForm(DEFAULT_DATA);
++  const [focusFieldState, focusField] = useToggle();
++
++  const [fieldRef, handleFieldRef] = useNestedRef('inputRef');
++  const [submitButtonRef, handleSubmitButtonRef] = useNestedRef();
++
++  const submit = useCallback(() => {
++    const cleanData = {
++      name: data.name.trim(),
++      showOnFrontOfCard: true,
++      hideCompletedTasks: false,
++    };
++
++    if (!cleanData.name) {
++      fieldRef.current.select();
++      return;
++    }
++
++    dispatch(entryActions.createTaskListInCurrentCard(cleanData));
++
++    setData(DEFAULT_DATA);
++    focusField();
++  }, [dispatch, data, setData, focusField, fieldRef]);
++
++  const handleSubmit = useCallback(() => {
++    submit();
++  }, [submit]);
++
++  const handleFieldKeyDown = useCallback(
++    (event) => {
++      if (event.key === 'Escape') {
++        onClose();
++      }
++    },
++    [onClose],
++  );
++
++  const handleClickAwayCancel = useCallback(() => {
++    fieldRef.current.focus();
++  }, [fieldRef]);
++
++  const clickAwayProps = useClickAwayListener([fieldRef, submitButtonRef], onClose, handleClickAwayCancel);
++
++  useEffect(() => {
++    if (isOpened) {
++      fieldRef.current.focus();
++    }
++  }, [isOpened, fieldRef]);
++
++  useDidUpdate(() => {
++    fieldRef.current.focus();
++  }, [focusFieldState]);
++
++  if (!isOpened) {
++    return children;
++  }
++
++  return (
++    <Form className={styles.wrapper} onSubmit={handleSubmit}>
++      <Input
++        {...clickAwayProps} // eslint-disable-line react/jsx-props-no-spreading
++        fluid
++        ref={handleFieldRef}
++        name="name"
++        value={data.name}
++        placeholder={t('common.enterTaskListName')}
++        maxLength={128}
++        className={styles.field}
++        onKeyDown={handleFieldKeyDown}
++        onChange={handleFieldChange}
++      />
++      <div className={styles.controls}>
++        <Button
++          {...clickAwayProps} // eslint-disable-line react/jsx-props-no-spreading
++          positive
++          ref={handleSubmitButtonRef}
++          content={t('action.addTaskList')}
++        />
++      </div>
++    </Form>
++  );
++});
++
++AddTaskList.propTypes = {
++  children: PropTypes.element.isRequired,
++  isOpened: PropTypes.bool.isRequired,
++  onClose: PropTypes.func.isRequired,
++};
++
++export default AddTaskList;
+diff --git a/client/src/components/task-lists/AddTaskList.module.scss b/client/src/components/task-lists/AddTaskList.module.scss
+new file mode 100644
+index 0000000..e3581dd
+--- /dev/null
++++ b/client/src/components/task-lists/AddTaskList.module.scss
+@@ -0,0 +1,32 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++:global(#app) {
++  .controls {
++    display: flex;
++    margin-top: 6px;
++  }
++
++  // BSY Media: styles the nested <input>, not the .field wrapper div - see
++  // CardModal/TaskLists/EditName.module.scss's identical comment for why
++  // (styling the Semantic UI ".ui.fluid.input" wrapper directly breaks its
++  // own flex-based full-width behavior).
++  .field input {
++    background: #fff;
++    border: 1px solid rgba(9, 30, 66, 0.13);
++    border-radius: 3px;
++    color: #17394d;
++    font-size: 14px;
++    padding: 8px 12px;
++
++    &:focus {
++      outline: none;
++    }
++  }
++
++  .wrapper {
++    margin-top: 6px;
++  }
++}
+diff --git a/client/src/components/task-lists/AddTaskListStep.jsx b/client/src/components/task-lists/AddTaskListStep.jsx
+deleted file mode 100644
+index 731b805..0000000
+--- a/client/src/components/task-lists/AddTaskListStep.jsx
++++ /dev/null
+@@ -1,68 +0,0 @@
+-/*!
+- * Copyright (c) 2024 PLANKA Software GmbH
+- * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+- */
+-
+-import React, { useCallback, useRef } from 'react';
+-import PropTypes from 'prop-types';
+-import { useDispatch } from 'react-redux';
+-import { useTranslation } from 'react-i18next';
+-import { Button, Form } from 'semantic-ui-react';
+-import { Popup } from '../../lib/custom-ui';
+-
+-import entryActions from '../../entry-actions';
+-import { useForm } from '../../hooks';
+-import TaskListEditor from './TaskListEditor';
+-
+-const AddTaskListStep = React.memo(({ onClose }) => {
+-  const dispatch = useDispatch();
+-  const [t] = useTranslation();
+-
+-  const [data, handleFieldChange] = useForm({
+-    name: t('common.taskList', {
+-      context: 'title',
+-    }),
+-    showOnFrontOfCard: true,
+-    hideCompletedTasks: false,
+-  });
+-
+-  const taskListEditorRef = useRef(null);
+-
+-  const handleSubmit = useCallback(() => {
+-    const cleanData = {
+-      ...data,
+-      name: data.name.trim(),
+-    };
+-
+-    if (!cleanData.name) {
+-      taskListEditorRef.current.selectNameField();
+-      return;
+-    }
+-
+-    dispatch(entryActions.createTaskListInCurrentCard(cleanData));
+-
+-    onClose();
+-  }, [onClose, dispatch, data, taskListEditorRef]);
+-
+-  return (
+-    <>
+-      <Popup.Header>
+-        {t('common.addTaskList', {
+-          context: 'title',
+-        })}
+-      </Popup.Header>
+-      <Popup.Content>
+-        <Form onSubmit={handleSubmit}>
+-          <TaskListEditor ref={taskListEditorRef} data={data} onFieldChange={handleFieldChange} />
+-          <Button positive content={t('action.addTaskList')} />
+-        </Form>
+-      </Popup.Content>
+-    </>
+-  );
+-});
+-
+-AddTaskListStep.propTypes = {
+-  onClose: PropTypes.func.isRequired,
+-};
+-
+-export default AddTaskListStep;
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 1a37c51..b99fb12 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -215,6 +215,7 @@ export default {
+       enterFilename: 'Enter filename',
+       enterListTitle: 'Enter list title...',
+       enterTaskDescription: 'Enter task description...',
++      enterTaskListName: 'Enter task list name...',
+       events: 'Events',
+       excludedEvents: 'Excluded events',
+       expandTaskListsByDefault: 'Expand task lists by default',
+@@ -452,6 +453,7 @@ export default {
+       addAnotherCard: 'Add another card',
+       addAnotherList: 'Add another list',
+       addAnotherTask: 'Add another task',
++      addAnotherTaskList: 'Add another task list',
+       addCard: 'Add card',
+       addCard_title: 'Add Card',
+       addComment: 'Add comment',
