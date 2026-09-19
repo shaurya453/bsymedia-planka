@@ -3902,3 +3902,36 @@ a `story`-type card's title, confirming both card-face renderers were fixed. Zer
 zero console errors.
 
 Patch: `planka-custom/patches/0078-card-face-title-click.patch`.
+
+## URGENT hotfix: picking one of patch 0077's 23 new colors on a list crashed the whole app (2026-09-19)
+
+Live production bug report: picking a new color for the "Brain dump" list on the "Shaurya's life"
+board made the entire screen go blank/solid-colored. Reproduced directly against production (temp
+project, real admin account): clicking almost any list-color swatch threw
+`TypeError: Cannot read properties of undefined (reading 'light')` in the browser console and
+unmounted the whole React tree, leaving only the page's dark background visible - exactly matching
+"solid color on the entire screen".
+
+Root cause: patch 0077 (same day) expanded the shared color palette from 42 to 65 colors and added
+the 23 new colors' `.background<Name>Soft` CSS rules (light mode + dark-mode-cards override) to
+`styles.module.scss`, but never added matching entries to `client/src/constants/ListSoftColors.js` -
+a separate hex lookup table (duplicating those same CSS values in JS form) that
+`List.jsx`'s header-text-contrast calculation reads via
+`ListSoftColors[list.color][cardsDarkModeEnabled ? 'dark' : 'light']`. For any of the 23 new colors,
+`ListSoftColors[list.color]` was `undefined`, so indexing `.light`/`.dark` off it threw during render.
+This only affected **lists** (`List.jsx`'s contrast lookup) - labels have no equivalent lookup table
+and were never affected.
+
+Fix: added the 23 missing entries to `ListSoftColors.js`, sourced directly from the existing
+`.background<Name>Soft` hex values already in `styles.module.scss` (both the light-mode block and the
+dark-mode-cards override block) - not re-derived, just copied from the single source of truth that
+already existed. Verified programmatically: all 65 label-array colors now have a `ListSoftColors`
+entry, zero duplicates, zero extras.
+
+Verified live against production (not just an isolated stack, given severity): created a temp
+project/board/list, clicked through all 65 color swatches (plus the "no color" reset) on the list's
+color picker one at a time, confirmed the app never crashed and the console stayed clean of errors
+for the full pass. Cleaned up the temp project afterward; confirmed the production project list is
+back to exactly the 8 real projects.
+
+Patch: `planka-custom/patches/0079-fix-list-soft-colors-crash.patch`.

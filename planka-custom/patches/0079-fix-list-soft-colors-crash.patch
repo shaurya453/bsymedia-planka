@@ -1,0 +1,34 @@
+diff --git a/client/src/constants/ListSoftColors.js b/client/src/constants/ListSoftColors.js
+index 4882d78..40d0d4c 100644
+--- a/client/src/constants/ListSoftColors.js
++++ b/client/src/constants/ListSoftColors.js
+@@ -52,4 +52,29 @@ export default {
+   'sweet-lilac': { light: '#dec3df', dark: '#422442' },
+   'red-burgundy': { light: '#e0c2ce', dark: '#43232f' },
+   'pirate-gold': { light: '#e6d8bc', dark: '#4f3c17' },
++  // BSY Media: the 23 colors added 2026-09-19 (patch 0077) - mirrors the
++  // .background<Name>Soft rules added to styles.module.scss at the same time.
++  'coral-flame': { light: '#e6c0bc', dark: '#4f1c17' },
++  'burnt-sienna': { light: '#e6c2bc', dark: '#4f1e17' },
++  'terracotta-clay': { light: '#e6c3bc', dark: '#4f2017' },
++  'clay-ember': { light: '#e2c7c0', dark: '#462820' },
++  'honey-amber': { light: '#e6d2bc', dark: '#4f3517' },
++  'amber-glow': { light: '#e6d3bc', dark: '#4f3617' },
++  'wheat-gold': { light: '#e6e3bc', dark: '#4f4b17' },
++  'marigold': { light: '#e6ddbc', dark: '#4f4317' },
++  'citrine-moss': { light: '#e6e3bc', dark: '#4f4c17' },
++  'sage-leaf': { light: '#c6e0c2', dark: '#274422' },
++  'olive-grove': { light: '#d3dec4', dark: '#354224' },
++  'forest-fern': { light: '#cae1c1', dark: '#2b4521' },
++  'azure-lagoon': { light: '#bcdde6', dark: '#17444f' },
++  'deep-teal': { light: '#bce5e6', dark: '#174f4f' },
++  'orchid-mist': { light: '#dac4df', dark: '#3d2442' },
++  'violet-bloom': { light: '#dbc3df', dark: '#3e2442' },
++  'plum-blossom': { light: '#dcc4de', dark: '#3f2442' },
++  'mulberry-wine': { light: '#ddc4df', dark: '#412442' },
++  'rose-blush': { light: '#e6bcc7', dark: '#4f1726' },
++  'watermelon-pink': { light: '#e6bcc8', dark: '#4f1727' },
++  'raspberry-wine': { light: '#e6bcc8', dark: '#4f1726' },
++  'taupe-shadow': { light: '#d4d2ce', dark: '#363430' },
++  'sage-grey': { light: '#cdd5cf', dark: '#2f3730' },
+ };
