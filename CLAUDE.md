@@ -3874,3 +3874,31 @@ but-unfilled space); screenshotted both pickers and visually confirmed a fully p
 8x7 grid with smooth per-column gradients. Zero new lint errors, zero console errors.
 
 Patch: `planka-custom/patches/0077-compact-hue-columns.patch`.
+
+## Card-face title click reverted to open the card, not enter rename mode (2026-09-19)
+
+Patch 0072 (2026-09-18) wired the Kanban board card face's title text to trigger inline rename
+(with the full name pre-selected) on click, as part of a broader "select-all on title click"
+request that also covered the card modal and sub-tasks. Client asked for this specifically reverted
+on the card **face** - clicking a card's title there should open the card (the plain default
+behavior, same as clicking anywhere else on the card), not start renaming it. The card modal's own
+name field and sub-task/checklist name click-to-rename are untouched - this is scoped to the
+compact/full Kanban card face only.
+
+Reverted the exact wiring 0072 added: `Card.jsx` no longer passes `onNameEdit` down to `Content`
+(`ProjectContent`/`StoryContent`) - only the three-dot menu's "Edit Title" action
+(`CardActionsPopup`'s own separate `onNameEdit={handleNameEdit}`) still triggers rename, unchanged.
+`ProjectContent.jsx`/`StoryContent.jsx` had their `onNameEdit` prop, `handleTitleClick` callback, and
+the name `<div>`'s conditional `onClick`/`.nameEditable` hover-affordance class fully removed (not
+left as dead code) - the title `<div>` is back to plain static text, so a click on it now falls
+through to the parent `.content` wrapper's own `onClick={handleClick}`, which navigates to open the
+card. The now-unused `.nameEditable` CSS rule was removed from both `.module.scss` files.
+`InlineContent.jsx` (dense list/table row view) was never wired to this in the first place (0072
+explicitly scoped it out - a dense row has no room for the affordance) and needed no change.
+
+Verified in an isolated stack via Puppeteer: clicking a `project`-type card's title on the board face
+navigates to `/cards/:id` (opens the card) instead of showing an inline rename field; same check for
+a `story`-type card's title, confirming both card-face renderers were fixed. Zero new lint errors,
+zero console errors.
+
+Patch: `planka-custom/patches/0078-card-face-title-click.patch`.

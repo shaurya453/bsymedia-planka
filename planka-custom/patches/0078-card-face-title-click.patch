@@ -1,0 +1,186 @@
+diff --git a/client/src/components/cards/Card/Card.jsx b/client/src/components/cards/Card/Card.jsx
+index 2dfbe57..a310a26 100755
+--- a/client/src/components/cards/Card/Card.jsx
++++ b/client/src/components/cards/Card/Card.jsx
+@@ -186,7 +186,7 @@ const Card = React.memo(({ id, isInline }) => {
+             onClick={handleClick}
+             onContextMenu={handleContextMenu}
+           >
+-            <Content cardId={id} onNameEdit={canUseActions ? handleNameEdit : undefined} />
++            <Content cardId={id} />
+           </div>
+           {canUseActions && (
+             <CardActionsPopup ref={actionsPopupRef} cardId={id} onNameEdit={handleNameEdit}>
+diff --git a/client/src/components/cards/Card/ProjectContent.jsx b/client/src/components/cards/Card/ProjectContent.jsx
+index 26b9ea6..ff4b7e4 100644
+--- a/client/src/components/cards/Card/ProjectContent.jsx
++++ b/client/src/components/cards/Card/ProjectContent.jsx
+@@ -26,7 +26,7 @@ import CustomFieldValueChip from '../../custom-field-values/CustomFieldValueChip
+ 
+ import styles from './ProjectContent.module.scss';
+ 
+-const ProjectContent = React.memo(({ cardId, onNameEdit }) => {
++const ProjectContent = React.memo(({ cardId }) => {
+   const selectCardById = useMemo(() => selectors.makeSelectCardById(), []);
+   const selectListById = useMemo(() => selectors.makeSelectListById(), []);
+   const selectUserIdsByCardId = useMemo(() => selectors.makeSelectUserIdsByCardId(), []);
+@@ -136,14 +136,6 @@ const ProjectContent = React.memo(({ cardId, onNameEdit }) => {
+     [cardId, card.stopwatch, dispatch],
+   );
+ 
+-  const handleTitleClick = useCallback(
+-    (event) => {
+-      event.stopPropagation();
+-      onNameEdit();
+-    },
+-    [onNameEdit],
+-  );
+-
+   const hasInformation =
+     card.description ||
+     card.stopwatch ||
+@@ -180,18 +172,7 @@ const ProjectContent = React.memo(({ cardId, onNameEdit }) => {
+ 
+   return (
+     <div className={styles.wrapper}>
+-      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events,
+-                                   jsx-a11y/no-static-element-interactions */}
+-      <div
+-        className={classNames(
+-          styles.name,
+-          card.isClosed && styles.nameClosed,
+-          onNameEdit && styles.nameEditable,
+-        )}
+-        onClick={onNameEdit ? handleTitleClick : undefined}
+-      >
+-        {card.name}
+-      </div>
++      <div className={classNames(styles.name, card.isClosed && styles.nameClosed)}>{card.name}</div>
+       {coverUrl && (
+         <div className={styles.coverWrapper}>
+           <img src={coverUrl} alt="" className={styles.cover} />
+@@ -309,11 +290,6 @@ const ProjectContent = React.memo(({ cardId, onNameEdit }) => {
+ 
+ ProjectContent.propTypes = {
+   cardId: PropTypes.string.isRequired,
+-  onNameEdit: PropTypes.func,
+-};
+-
+-ProjectContent.defaultProps = {
+-  onNameEdit: undefined,
+ };
+ 
+ export default ProjectContent;
+diff --git a/client/src/components/cards/Card/ProjectContent.module.scss b/client/src/components/cards/Card/ProjectContent.module.scss
+index b6a896b..052f3f5 100644
+--- a/client/src/components/cards/Card/ProjectContent.module.scss
++++ b/client/src/components/cards/Card/ProjectContent.module.scss
+@@ -103,18 +103,6 @@
+     text-decoration: line-through;
+   }
+ 
+-  // BSY Media: hints the card face title itself is clickable-to-rename
+-  // (see Card.jsx's handleNameEdit), same affordance as the checklist
+-  // header title (TaskLists/Item.module.scss's .moduleHeaderTitleEditable).
+-  .nameEditable {
+-    border-radius: 3px;
+-    cursor: pointer;
+-
+-    &:hover {
+-      background: rgba(9, 30, 66, 0.04);
+-    }
+-  }
+-
+   .notification {
+     background: #eb5a46;
+     color: #fff;
+diff --git a/client/src/components/cards/Card/StoryContent.jsx b/client/src/components/cards/Card/StoryContent.jsx
+index 6d22480..3b01038 100644
+--- a/client/src/components/cards/Card/StoryContent.jsx
++++ b/client/src/components/cards/Card/StoryContent.jsx
+@@ -3,7 +3,7 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useCallback, useMemo } from 'react';
++import React, { useMemo } from 'react';
+ import PropTypes from 'prop-types';
+ import classNames from 'classnames';
+ import { shallowEqual, useSelector } from 'react-redux';
+@@ -21,7 +21,7 @@ import CustomFieldValueChip from '../../custom-field-values/CustomFieldValueChip
+ 
+ import styles from './StoryContent.module.scss';
+ 
+-const StoryContent = React.memo(({ cardId, onNameEdit }) => {
++const StoryContent = React.memo(({ cardId }) => {
+   const selectCardById = useMemo(() => selectors.makeSelectCardById(), []);
+   const selectListById = useMemo(() => selectors.makeSelectListById(), []);
+   const selectLabelIdsByCardId = useMemo(() => selectors.makeSelectLabelIdsByCardId(), []);
+@@ -99,14 +99,6 @@ const StoryContent = React.memo(({ cardId, onNameEdit }) => {
+     [card.description],
+   );
+ 
+-  const handleTitleClick = useCallback(
+-    (event) => {
+-      event.stopPropagation();
+-      onNameEdit();
+-    },
+-    [onNameEdit],
+-  );
+-
+   return (
+     <>
+       {coverUrl && (
+@@ -136,16 +128,7 @@ const StoryContent = React.memo(({ cardId, onNameEdit }) => {
+             ))}
+           </span>
+         )}
+-        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events,
+-                                     jsx-a11y/no-static-element-interactions */}
+-        <div
+-          className={classNames(
+-            styles.name,
+-            card.isClosed && styles.nameClosed,
+-            onNameEdit && styles.nameEditable,
+-          )}
+-          onClick={onNameEdit ? handleTitleClick : undefined}
+-        >
++        <div className={classNames(styles.name, card.isClosed && styles.nameClosed)}>
+           {card.name}
+         </div>
+         {card.description && <div className={styles.descriptionText}>{descriptionText}</div>}
+@@ -227,11 +210,6 @@ const StoryContent = React.memo(({ cardId, onNameEdit }) => {
+ 
+ StoryContent.propTypes = {
+   cardId: PropTypes.string.isRequired,
+-  onNameEdit: PropTypes.func,
+-};
+-
+-StoryContent.defaultProps = {
+-  onNameEdit: undefined,
+ };
+ 
+ export default StoryContent;
+diff --git a/client/src/components/cards/Card/StoryContent.module.scss b/client/src/components/cards/Card/StoryContent.module.scss
+index 290015a..b47e1aa 100644
+--- a/client/src/components/cards/Card/StoryContent.module.scss
++++ b/client/src/components/cards/Card/StoryContent.module.scss
+@@ -93,18 +93,6 @@
+     text-decoration: line-through;
+   }
+ 
+-  // BSY Media: hints the card face title itself is clickable-to-rename
+-  // (see Card.jsx's handleNameEdit), same affordance as the checklist
+-  // header title (TaskLists/Item.module.scss's .moduleHeaderTitleEditable).
+-  .nameEditable {
+-    border-radius: 3px;
+-    cursor: pointer;
+-
+-    &:hover {
+-      background: rgba(9, 30, 66, 0.04);
+-    }
+-  }
+-
+   .notification {
+     background: #eb5a46;
+     color: #fff;
