@@ -1,0 +1,306 @@
+diff --git a/client/src/components/labels/LabelsStep/Editor.module.scss b/client/src/components/labels/LabelsStep/Editor.module.scss
+index f2374c0..80e14c2 100644
+--- a/client/src/components/labels/LabelsStep/Editor.module.scss
++++ b/client/src/components/labels/LabelsStep/Editor.module.scss
+@@ -8,9 +8,14 @@
+     margin-bottom: 8px;
+   }
+ 
++  // BSY Media: box-sizing/padding reset - Semantic UI's default `.ui.button` padding was being
++  // added on top of the 40px width/height (content-box), inflating each swatch to 64x48px and
++  // causing adjacent rows/columns to visually overlap instead of sitting in their own grid cell.
+   .colorButton {
++    box-sizing: border-box;
+     height: 40px;
+     margin: 0;
++    padding: 0;
+     position: relative;
+     width: 40px;
+ 
+@@ -55,21 +60,22 @@
+     transform: rotate(-135deg);
+   }
+ 
+-  // BSY Media: hue-family matrix (see constants/LabelColorGrid.js) - columns run left-to-right
+-  // across the spectrum, each column's swatches explicitly placed via inline gridColumn/gridRow
+-  // (not flow order) since columns have different heights. Fixed, fully explicit track sizes (not
+-  // auto-fill) so this renders byte-for-byte identically to the list color editor's swatch grid
++  // BSY Media: greyscale row (row 1) + hue-family matrix below it (see
++  // constants/LabelColorGrid.js) - columns run left-to-right across the spectrum, each swatch
++  // explicitly placed via inline gridColumn/gridRow (not flow order) since columns/rows have
++  // different heights. Fixed, fully explicit track sizes (not auto-fill) so this renders
++  // byte-for-byte identically to the list color editor's swatch grid
+   // (lists/List/EditColorStep.module.scss) regardless of where each popup gets anchored.
+   .colorButtons {
+     box-sizing: content-box;
+     display: grid;
+     gap: 6px;
+-    grid-template-columns: repeat(9, 40px);
+-    grid-template-rows: repeat(7, 40px);
++    grid-template-columns: repeat(8, 40px);
++    grid-template-rows: repeat(8, 40px);
+     margin-bottom: 12px;
+     max-height: 60vh;
+     overflow-y: auto;
+-    width: 408px;
++    width: 362px;
+ 
+     @supports (-moz-appearance: none) {
+       scrollbar-color: rgba(0, 0, 0, 0.32) transparent;
+diff --git a/client/src/components/lists/List/EditColorStep.module.scss b/client/src/components/lists/List/EditColorStep.module.scss
+index 8bad269..34b4b61 100644
+--- a/client/src/components/lists/List/EditColorStep.module.scss
++++ b/client/src/components/lists/List/EditColorStep.module.scss
+@@ -24,9 +24,14 @@
+     }
+   }
+ 
++  // BSY Media: box-sizing/padding reset - Semantic UI's default `.ui.button` padding was being
++  // added on top of the 40px width/height (content-box), inflating each swatch to 64x48px and
++  // causing adjacent rows/columns to visually overlap instead of sitting in their own grid cell.
+   .colorButton {
++    box-sizing: border-box;
+     height: 40px;
+     margin: 0;
++    padding: 0;
+     position: relative;
+     width: 40px;
+ 
+@@ -48,21 +53,22 @@
+     transform: rotate(-135deg);
+   }
+ 
+-  // BSY Media: hue-family matrix (see constants/LabelColorGrid.js) - columns run left-to-right
+-  // across the spectrum, each column's swatches explicitly placed via inline gridColumn/gridRow
+-  // (not flow order) since columns have different heights. Fixed, fully explicit track sizes (not
+-  // auto-fill) so this renders byte-for-byte identically to the label editor's swatch grid
++  // BSY Media: greyscale row (row 1) + hue-family matrix below it (see
++  // constants/LabelColorGrid.js) - columns run left-to-right across the spectrum, each swatch
++  // explicitly placed via inline gridColumn/gridRow (not flow order) since columns/rows have
++  // different heights. Fixed, fully explicit track sizes (not auto-fill) so this renders
++  // byte-for-byte identically to the label editor's swatch grid
+   // (labels/LabelsStep/Editor.module.scss) regardless of where each popup gets anchored.
+   .colorButtons {
+     box-sizing: content-box;
+     display: grid;
+     gap: 6px;
+-    grid-template-columns: repeat(9, 40px);
+-    grid-template-rows: repeat(7, 40px);
++    grid-template-columns: repeat(8, 40px);
++    grid-template-rows: repeat(8, 40px);
+     margin-bottom: 12px;
+     max-height: 60vh;
+     overflow-y: auto;
+-    width: 408px;
++    width: 362px;
+ 
+     @supports (-moz-appearance: none) {
+       scrollbar-color: rgba(0, 0, 0, 0.32) transparent;
+diff --git a/client/src/constants/LabelColorGrid.js b/client/src/constants/LabelColorGrid.js
+index 818dfab..be18437 100644
+--- a/client/src/constants/LabelColorGrid.js
++++ b/client/src/constants/LabelColorGrid.js
+@@ -3,13 +3,14 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-// BSY Media: swatch-picker layout for the 42-color palette, computed (not guessed) from each
+-// color's real HSL values. Columns run left-to-right across the visible spectrum (red -> orange
+-// -> yellow -> green -> teal -> blue -> purple -> pink), with a trailing achromatic column; within
+-// each column, colors are sorted lightest (top) to darkest (bottom) - i.e. tints above, shades
+-// below. `pirate-gold` and `silver-glint` are rendered as metallic gradients rather than flat
+-// colors, so they're kept out of this matrix entirely and shown in their own "special" section
+-// instead, alongside the custom color wheel (see Editor.jsx / EditColorStep.jsx).
++// BSY Media: swatch-picker layout for the 42-color palette, matching the reference layout
++// (greyscale strip across the top row, hue-family columns below it) while keeping every real
++// existing color (nothing invented). Columns run left-to-right across the visible spectrum (red
++// -> orange -> yellow -> green -> teal -> blue -> purple -> pink); within each column, colors are
++// sorted lightest (top) to darkest (bottom) - i.e. tints above, shades below. `pirate-gold` and
++// `silver-glint` are rendered as metallic gradients rather than flat colors, so they're kept out
++// of this matrix entirely and shown in their own "special" section instead, alongside the custom
++// color wheel (see Editor.jsx / EditColorStep.jsx).
+ const HUE_COLUMNS = [
+   ['apricot-red', 'light-cocoa', 'shady-rust'],
+   ['desert-sand', 'light-orange', 'light-mud', 'pumpkin-orange', 'orange-peel'],
+@@ -27,23 +28,30 @@ const HUE_COLUMNS = [
+   ],
+   ['sugar-plum', 'lavender-fields', 'sweet-lilac'],
+   ['piggy-red', 'pink-tulip', 'berry-red', 'red-burgundy'],
+-  ['grey-stone', 'light-concrete', 'wet-rock', 'dark-granite', 'muddy-grey'],
+ ];
+ 
++// BSY Media: the 5 achromatic colors, rendered as their own row above the hue matrix (dark ->
++// light, left -> right) rather than as a 9th column - matches the reference layout's top
++// greyscale strip. Kept out of HUE_COLUMNS since these aren't part of any hue family.
++const GREY_ROW = ['muddy-grey', 'dark-granite', 'wet-rock', 'light-concrete', 'grey-stone'];
++
+ export const SPECIAL_COLORS = ['pirate-gold', 'silver-glint'];
+ 
+-export const GRID_COLUMN_COUNT = HUE_COLUMNS.length;
+-export const GRID_ROW_COUNT = Math.max(...HUE_COLUMNS.map((column) => column.length));
++export const GRID_COLUMN_COUNT = Math.max(GREY_ROW.length, HUE_COLUMNS.length);
++export const GRID_ROW_COUNT = 1 + Math.max(...HUE_COLUMNS.map((column) => column.length));
+ 
+-// flattened for rendering: one entry per swatch with its explicit 1-indexed grid coordinates,
+-// since columns have different heights and CSS Grid's auto-placement can't express "start a new
+-// column early" on its own.
+-export const GRID_ITEMS = HUE_COLUMNS.flatMap((column, columnIndex) =>
+-  column.map((color, rowIndex) => ({
+-    color,
+-    column: columnIndex + 1,
+-    row: rowIndex + 1,
+-  })),
+-);
++// flattened for rendering: one entry per swatch with its explicit 1-indexed grid coordinates
++// (row 1 is reserved for the grey row; hue columns start at row 2), since columns have different
++// heights and CSS Grid's auto-placement can't express "start a new column early" on its own.
++export const GRID_ITEMS = [
++  ...GREY_ROW.map((color, columnIndex) => ({ color, column: columnIndex + 1, row: 1 })),
++  ...HUE_COLUMNS.flatMap((column, columnIndex) =>
++    column.map((color, rowIndex) => ({
++      color,
++      column: columnIndex + 1,
++      row: rowIndex + 2,
++    })),
++  ),
++];
+ 
+ export default HUE_COLUMNS;
+diff --git a/client/src/constants/LabelColors.js b/client/src/constants/LabelColors.js
+index 7ac8c3f..ee30a64 100644
+--- a/client/src/constants/LabelColors.js
++++ b/client/src/constants/LabelColors.js
+@@ -3,10 +3,16 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-// BSY Media: order mirrors the swatch-grid column layout in LabelColorGrid.js (read one hue
+-// column top-to-bottom, then move to the next column left-to-right), with the two special
+-// metallic-gradient colors trailing - see that file for how the grid is actually laid out.
++// BSY Media: order mirrors the swatch-grid layout in LabelColorGrid.js (the greyscale row,
++// dark -> light, then one hue column top-to-bottom before moving to the next column
++// left-to-right), with the two special metallic-gradient colors trailing - see that file for how
++// the grid is actually laid out.
+ export default [
++  'muddy-grey',
++  'dark-granite',
++  'wet-rock',
++  'light-concrete',
++  'grey-stone',
+   'apricot-red',
+   'light-cocoa',
+   'shady-rust',
+@@ -42,11 +48,6 @@ export default [
+   'pink-tulip',
+   'berry-red',
+   'red-burgundy',
+-  'grey-stone',
+-  'light-concrete',
+-  'wet-rock',
+-  'dark-granite',
+-  'muddy-grey',
+   'pirate-gold',
+   'silver-glint',
+ ];
+diff --git a/client/src/constants/LabelGlowColors.js b/client/src/constants/LabelGlowColors.js
+index 8a56fcd..7b47289 100644
+--- a/client/src/constants/LabelGlowColors.js
++++ b/client/src/constants/LabelGlowColors.js
+@@ -9,6 +9,11 @@
+ // use a representative solid color from their gradient instead. Order
+ // mirrors LabelColors.js/LabelColorGrid.js.
+ export default {
++  'muddy-grey': '#69655a',
++  'dark-granite': '#8b8680',
++  'wet-rock': '#83949b',
++  'light-concrete': '#afb0a4',
++  'grey-stone': '#aab2bd',
+   'apricot-red': '#fc736c',
+   'light-cocoa': '#a85540',
+   'shady-rust': '#87564a',
+@@ -44,11 +49,6 @@ export default {
+   'pink-tulip': '#e34f7c',
+   'berry-red': '#e83855',
+   'red-burgundy': '#ad5f7d',
+-  'grey-stone': '#aab2bd',
+-  'light-concrete': '#afb0a4',
+-  'wet-rock': '#83949b',
+-  'dark-granite': '#8b8680',
+-  'muddy-grey': '#69655a',
+   'pirate-gold': '#b47e11',
+   'silver-glint': '#92908d',
+ };
+diff --git a/server/api/models/Label.js b/server/api/models/Label.js
+index ae8ca24..dab2867 100755
+--- a/server/api/models/Label.js
++++ b/server/api/models/Label.js
+@@ -44,7 +44,7 @@
+  *           example: Bug
+  *         color:
+  *           type: string
+- *           enum: [apricot-red, light-cocoa, shady-rust, desert-sand, light-orange, light-mud, pumpkin-orange, orange-peel, fresh-salad, egg-yellow, autumn-leafs, sunny-grass, modern-green, tank-green, bright-moss, wet-moss, morning-sky, lagoon-blue, french-coast, coral-green, turquoise-sea, summer-sky, antique-blue, lilac-eyes, gun-metal, navy-blue, midnight-blue, deep-ocean, sugar-plum, lavender-fields, sweet-lilac, piggy-red, pink-tulip, berry-red, red-burgundy, grey-stone, light-concrete, wet-rock, dark-granite, muddy-grey, pirate-gold, silver-glint]
++ *           enum: [muddy-grey, dark-granite, wet-rock, light-concrete, grey-stone, apricot-red, light-cocoa, shady-rust, desert-sand, light-orange, light-mud, pumpkin-orange, orange-peel, fresh-salad, egg-yellow, autumn-leafs, sunny-grass, modern-green, tank-green, bright-moss, wet-moss, morning-sky, lagoon-blue, french-coast, coral-green, turquoise-sea, summer-sky, antique-blue, lilac-eyes, gun-metal, navy-blue, midnight-blue, deep-ocean, sugar-plum, lavender-fields, sweet-lilac, piggy-red, pink-tulip, berry-red, red-burgundy, pirate-gold, silver-glint]
+  *           description: Color of the label (one of the enum values, or a custom "#rrggbb" hex string)
+  *           example: berry-red
+  *         createdAt:
+@@ -62,6 +62,11 @@
+  */
+ 
+ const COLORS = [
++  'muddy-grey',
++  'dark-granite',
++  'wet-rock',
++  'light-concrete',
++  'grey-stone',
+   'apricot-red',
+   'light-cocoa',
+   'shady-rust',
+@@ -97,11 +102,6 @@ const COLORS = [
+   'pink-tulip',
+   'berry-red',
+   'red-burgundy',
+-  'grey-stone',
+-  'light-concrete',
+-  'wet-rock',
+-  'dark-granite',
+-  'muddy-grey',
+   'pirate-gold',
+   'silver-glint',
+ ];
+diff --git a/server/api/models/List.js b/server/api/models/List.js
+index 9292cfd..694f273 100755
+--- a/server/api/models/List.js
++++ b/server/api/models/List.js
+@@ -51,7 +51,7 @@
+  *           example: To Do
+  *         color:
+  *           type: string
+- *           enum: [apricot-red, light-cocoa, shady-rust, desert-sand, light-orange, light-mud, pumpkin-orange, orange-peel, fresh-salad, egg-yellow, autumn-leafs, sunny-grass, modern-green, tank-green, bright-moss, wet-moss, morning-sky, lagoon-blue, french-coast, coral-green, turquoise-sea, summer-sky, antique-blue, lilac-eyes, gun-metal, navy-blue, midnight-blue, deep-ocean, sugar-plum, lavender-fields, sweet-lilac, piggy-red, pink-tulip, berry-red, red-burgundy, grey-stone, light-concrete, wet-rock, dark-granite, muddy-grey, pirate-gold, silver-glint]
++ *           enum: [muddy-grey, dark-granite, wet-rock, light-concrete, grey-stone, apricot-red, light-cocoa, shady-rust, desert-sand, light-orange, light-mud, pumpkin-orange, orange-peel, fresh-salad, egg-yellow, autumn-leafs, sunny-grass, modern-green, tank-green, bright-moss, wet-moss, morning-sky, lagoon-blue, french-coast, coral-green, turquoise-sea, summer-sky, antique-blue, lilac-eyes, gun-metal, navy-blue, midnight-blue, deep-ocean, sugar-plum, lavender-fields, sweet-lilac, piggy-red, pink-tulip, berry-red, red-burgundy, pirate-gold, silver-glint]
+  *           nullable: true
+  *           description: Color for the list (one of the enum values, or a custom "#rrggbb" hex string)
+  *           example: lagoon-blue
+@@ -109,6 +109,11 @@ const TYPE_STATE_BY_TYPE = {
+ };
+ 
+ const COLORS = [
++  'muddy-grey',
++  'dark-granite',
++  'wet-rock',
++  'light-concrete',
++  'grey-stone',
+   'apricot-red',
+   'light-cocoa',
+   'shady-rust',
+@@ -144,11 +149,6 @@ const COLORS = [
+   'pink-tulip',
+   'berry-red',
+   'red-burgundy',
+-  'grey-stone',
+-  'light-concrete',
+-  'wet-rock',
+-  'dark-granite',
+-  'muddy-grey',
+   'pirate-gold',
+   'silver-glint',
+ ];

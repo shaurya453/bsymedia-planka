@@ -3775,3 +3775,52 @@ contains exactly gold, silver, and the custom-wheel button, separate from the ma
 errors; zero console errors.
 
 Patch: `planka-custom/patches/0075-color-matrix-and-dot-removal.patch`.
+
+## Reorganize color grids to match a reference layout image; fix a real swatch box-sizing bug (2026-09-19)
+
+Client added a reference screenshot (`03aafb64fcc93ae71755413db3413d071c469e87.png`, committed to
+the repo root) showing a classic Google/Trello-style palette layout - a greyscale strip across the
+top row, then hue-family columns below it (each running light-to-dark top-to-bottom) - and asked
+to reorganize the label/list color grids to match it, keeping every swatch square and clearly
+separated with no overlap. Sampled the reference image's actual pixel colors (Python/PIL, a 9-col
+x 8-row grid at 26px spacing) to confirm its structure precisely rather than eyeballing it, before
+touching any code.
+
+- **Grey family moved from a trailing column (patch 0075's layout) to a leading row.**
+  `constants/LabelColorGrid.js`'s `HUE_COLUMNS` dropped its 9th (all-grey) entry; a new `GREY_ROW =
+  ['muddy-grey', 'dark-granite', 'wet-rock', 'light-concrete', 'grey-stone']` (dark -> light, matching
+  the reference's black-to-white left-to-right ordering) is placed at grid row 1, with the 8
+  remaining hue-family columns (unchanged from 0075: red, orange, yellow, green, teal, blue, purple,
+  pink) shifted down to start at row 2. `GRID_ITEMS` (the flattened `{color, column, row}` list both
+  `Editor.jsx`/`EditColorStep.jsx` already consume unchanged - no JS component changes were needed,
+  only the data file and the two grids' CSS track counts) now produces an 8-column x 8-row layout (40
+  cells total: 5 grey + 35 across the 8 hue columns). `GRID_COLUMN_COUNT`/`GRID_ROW_COUNT` both
+  recompute automatically from the two source arrays. Both `.module.scss` files' `.colorButtons`
+  updated from `repeat(9, 40px)`/`repeat(7, 40px)`/`width: 408px` to `repeat(8, 40px)`/
+  `repeat(8, 40px)`/`width: 362px` to match. `LabelColors.js`/`LabelGlowColors.js` and both server
+  `Label.js`/`List.js` `COLORS` arrays reordered to the same new reading order (grey row first, then
+  hue columns column-major, then gold/silver) - order doesn't affect validation (membership-based),
+  but keeping all 4 files in sync avoids future drift.
+- **Real bug found and fixed, not just a reorg**: verifying the "square, no overlap" requirement via
+  `getBoundingClientRect()` (not just eyeballing a screenshot) showed every swatch actually rendering
+  at 64x48px, not the intended 40x40px square, despite `.colorButton` explicitly setting
+  `height: 40px; width: 40px`. Root cause: `.colorButton` never set its own `box-sizing`, so it
+  inherited Semantic UI's default `.ui.button` behavior of adding its own default padding (`5px 12px
+  3px`) on top of the specified content width under `box-sizing: content-box` - inflating the
+  rendered box well past its grid cell and visibly overlapping the row below (confirmed in a
+  screenshot - rows had no visible gap between them despite the grid's own `gap: 6px`). This bug
+  predates this patch (present since 0074/0075's grid work) but had never been directly measured
+  until this session's geometry check caught it. Fixed in both `.module.scss` files by adding
+  `box-sizing: border-box; padding: 0;` to `.colorButton` - re-measured post-fix at a clean 40x40px
+  with the full 6px gap visible between every swatch, both rows and columns.
+
+Verified in an isolated stack via Puppeteer: reconstructed both the list and label pickers' grey row
+and hue-column contents from their rendered `gridColumn`/`gridRow` coordinates and confirmed both
+match the new layout exactly; confirmed both grids render byte-for-byte identical geometry (362px
+container, 40px swatches - re-verified this was actually 40px post-fix, not just re-asserting the
+old, buggy 64px value); confirmed the special section (gold, silver, custom wheel) is unchanged and
+separate from the matrix; screenshotted both pickers and visually confirmed clean, evenly-gapped
+squares with the greyscale strip on top - matching the reference image's overall structure. Zero
+console errors.
+
+Patch: `planka-custom/patches/0076-grid-reference-layout.patch`.
