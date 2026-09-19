@@ -1,0 +1,997 @@
+diff --git a/client/src/components/labels/LabelsStep/Editor.jsx b/client/src/components/labels/LabelsStep/Editor.jsx
+index d9dad2a..3b746bd 100755
+--- a/client/src/components/labels/LabelsStep/Editor.jsx
++++ b/client/src/components/labels/LabelsStep/Editor.jsx
+@@ -13,7 +13,7 @@ import { Button, Icon } from 'semantic-ui-react';
+ import { Input } from '../../../lib/custom-ui';
+ 
+ import { useNestedRef } from '../../../hooks';
+-import { GRID_ITEMS, SPECIAL_COLORS } from '../../../constants/LabelColorGrid';
++import { GREY_ROW, HUE_COLUMNS, SPECIAL_COLORS } from '../../../constants/LabelColorGrid';
+ import LabelGlowColors from '../../../constants/LabelGlowColors';
+ import ColorWheelPicker from '../../common/ColorWheelPicker';
+ 
+@@ -80,21 +80,42 @@ const Editor = React.memo(({ data, onFieldChange }) => {
+       ) : (
+         <>
+           <div className={styles.colorButtons}>
+-            {GRID_ITEMS.map(({ color, column, row }) => (
+-              <Button
+-                key={color}
+-                type="button"
+-                name="color"
+-                value={color}
+-                style={{ gridColumn: column, gridRow: row }}
+-                className={classNames(
+-                  styles.colorButton,
+-                  color === data.color && styles.colorButtonActive,
+-                  globalStyles[`background${upperFirst(camelCase(color))}`],
+-                )}
+-                onClick={onFieldChange}
+-              />
+-            ))}
++            <div className={styles.greyRow}>
++              {GREY_ROW.map((color) => (
++                <Button
++                  key={color}
++                  type="button"
++                  name="color"
++                  value={color}
++                  className={classNames(
++                    styles.colorButton,
++                    color === data.color && styles.colorButtonActive,
++                    globalStyles[`background${upperFirst(camelCase(color))}`],
++                  )}
++                  onClick={onFieldChange}
++                />
++              ))}
++            </div>
++            <div className={styles.hueColumns}>
++              {HUE_COLUMNS.map((column) => (
++                <div key={column[0]} className={styles.hueColumn}>
++                  {column.map((color) => (
++                    <Button
++                      key={color}
++                      type="button"
++                      name="color"
++                      value={color}
++                      className={classNames(
++                        styles.colorButton,
++                        color === data.color && styles.colorButtonActive,
++                        globalStyles[`background${upperFirst(camelCase(color))}`],
++                      )}
++                      onClick={onFieldChange}
++                    />
++                  ))}
++                </div>
++              ))}
++            </div>
+           </div>
+           <div className={styles.specialColorButtons}>
+             {SPECIAL_COLORS.map((color) => (
+diff --git a/client/src/components/labels/LabelsStep/Editor.module.scss b/client/src/components/labels/LabelsStep/Editor.module.scss
+index 80e14c2..c6a8c43 100644
+--- a/client/src/components/labels/LabelsStep/Editor.module.scss
++++ b/client/src/components/labels/LabelsStep/Editor.module.scss
+@@ -13,6 +13,7 @@
+   // causing adjacent rows/columns to visually overlap instead of sitting in their own grid cell.
+   .colorButton {
+     box-sizing: border-box;
++    flex-shrink: 0;
+     height: 40px;
+     margin: 0;
+     padding: 0;
+@@ -60,18 +61,17 @@
+     transform: rotate(-135deg);
+   }
+ 
+-  // BSY Media: greyscale row (row 1) + hue-family matrix below it (see
+-  // constants/LabelColorGrid.js) - columns run left-to-right across the spectrum, each swatch
+-  // explicitly placed via inline gridColumn/gridRow (not flow order) since columns/rows have
+-  // different heights. Fixed, fully explicit track sizes (not auto-fill) so this renders
+-  // byte-for-byte identically to the list color editor's swatch grid
++  // BSY Media: greyscale row + hue-family columns below it (see constants/LabelColorGrid.js) -
++  // columns run left-to-right across the spectrum. Deliberately flex, not a fixed-height CSS
++  // grid: each hue column has a different number of colors (3 to 7), and flex lets each column
++  // size to exactly its own content instead of every column reserving blank cells to match the
++  // tallest one. Fixed swatch/gap sizes (see .colorButton/.greyRow/.hueColumns/.hueColumn below)
++  // so this renders byte-for-byte identically to the list color editor's swatch grid
+   // (lists/List/EditColorStep.module.scss) regardless of where each popup gets anchored.
+   .colorButtons {
+-    box-sizing: content-box;
+-    display: grid;
++    display: flex;
++    flex-direction: column;
+     gap: 6px;
+-    grid-template-columns: repeat(8, 40px);
+-    grid-template-rows: repeat(8, 40px);
+     margin-bottom: 12px;
+     max-height: 60vh;
+     overflow-y: auto;
+@@ -97,6 +97,23 @@
+     }
+   }
+ 
++  .greyRow {
++    display: flex;
++    gap: 6px;
++  }
++
++  .hueColumns {
++    align-items: flex-start;
++    display: flex;
++    gap: 6px;
++  }
++
++  .hueColumn {
++    display: flex;
++    flex-direction: column;
++    gap: 6px;
++  }
++
+   // BSY Media: the two metallic-gradient colors (gold, silver) plus the custom color wheel
+   // trigger, set apart from the hue matrix above since they aren't part of the spectrum.
+   .specialColorButtons {
+diff --git a/client/src/components/lists/List/EditColorStep.jsx b/client/src/components/lists/List/EditColorStep.jsx
+index b7cf04b..6fc6d4b 100644
+--- a/client/src/components/lists/List/EditColorStep.jsx
++++ b/client/src/components/lists/List/EditColorStep.jsx
+@@ -15,7 +15,7 @@ import { Popup } from '../../../lib/custom-ui';
+ 
+ import selectors from '../../../selectors';
+ import entryActions from '../../../entry-actions';
+-import { GRID_ITEMS, SPECIAL_COLORS } from '../../../constants/LabelColorGrid';
++import { GREY_ROW, HUE_COLUMNS, SPECIAL_COLORS } from '../../../constants/LabelColorGrid';
+ import LabelGlowColors from '../../../constants/LabelGlowColors';
+ import ColorWheelPicker from '../../common/ColorWheelPicker';
+ 
+@@ -101,20 +101,40 @@ const EditColorStep = React.memo(({ listId, onBack, onClose }) => {
+         ) : (
+           <>
+             <div className={styles.colorButtons}>
+-              {GRID_ITEMS.map(({ color, column, row }) => (
+-                <Button
+-                  key={color}
+-                  type="button"
+-                  value={color}
+-                  style={{ gridColumn: column, gridRow: row }}
+-                  className={classNames(
+-                    styles.colorButton,
+-                    color === defaultValue && styles.colorButtonActive,
+-                    globalStyles[`background${upperFirst(camelCase(color))}`],
+-                  )}
+-                  onClick={handleSelectClick}
+-                />
+-              ))}
++              <div className={styles.greyRow}>
++                {GREY_ROW.map((color) => (
++                  <Button
++                    key={color}
++                    type="button"
++                    value={color}
++                    className={classNames(
++                      styles.colorButton,
++                      color === defaultValue && styles.colorButtonActive,
++                      globalStyles[`background${upperFirst(camelCase(color))}`],
++                    )}
++                    onClick={handleSelectClick}
++                  />
++                ))}
++              </div>
++              <div className={styles.hueColumns}>
++                {HUE_COLUMNS.map((column) => (
++                  <div key={column[0]} className={styles.hueColumn}>
++                    {column.map((color) => (
++                      <Button
++                        key={color}
++                        type="button"
++                        value={color}
++                        className={classNames(
++                          styles.colorButton,
++                          color === defaultValue && styles.colorButtonActive,
++                          globalStyles[`background${upperFirst(camelCase(color))}`],
++                        )}
++                        onClick={handleSelectClick}
++                      />
++                    ))}
++                  </div>
++                ))}
++              </div>
+             </div>
+             <div className={styles.specialColorButtons}>
+               {SPECIAL_COLORS.map((color) => (
+diff --git a/client/src/components/lists/List/EditColorStep.module.scss b/client/src/components/lists/List/EditColorStep.module.scss
+index 34b4b61..61ba81c 100644
+--- a/client/src/components/lists/List/EditColorStep.module.scss
++++ b/client/src/components/lists/List/EditColorStep.module.scss
+@@ -29,6 +29,7 @@
+   // causing adjacent rows/columns to visually overlap instead of sitting in their own grid cell.
+   .colorButton {
+     box-sizing: border-box;
++    flex-shrink: 0;
+     height: 40px;
+     margin: 0;
+     padding: 0;
+@@ -53,18 +54,17 @@
+     transform: rotate(-135deg);
+   }
+ 
+-  // BSY Media: greyscale row (row 1) + hue-family matrix below it (see
+-  // constants/LabelColorGrid.js) - columns run left-to-right across the spectrum, each swatch
+-  // explicitly placed via inline gridColumn/gridRow (not flow order) since columns/rows have
+-  // different heights. Fixed, fully explicit track sizes (not auto-fill) so this renders
+-  // byte-for-byte identically to the label editor's swatch grid
++  // BSY Media: greyscale row + hue-family columns below it (see constants/LabelColorGrid.js) -
++  // columns run left-to-right across the spectrum. Deliberately flex, not a fixed-height CSS
++  // grid: each hue column has a different number of colors (3 to 7), and flex lets each column
++  // size to exactly its own content instead of every column reserving blank cells to match the
++  // tallest one. Fixed swatch/gap sizes (see .colorButton/.greyRow/.hueColumns/.hueColumn below)
++  // so this renders byte-for-byte identically to the label editor's swatch grid
+   // (labels/LabelsStep/Editor.module.scss) regardless of where each popup gets anchored.
+   .colorButtons {
+-    box-sizing: content-box;
+-    display: grid;
++    display: flex;
++    flex-direction: column;
+     gap: 6px;
+-    grid-template-columns: repeat(8, 40px);
+-    grid-template-rows: repeat(8, 40px);
+     margin-bottom: 12px;
+     max-height: 60vh;
+     overflow-y: auto;
+@@ -90,6 +90,23 @@
+     }
+   }
+ 
++  .greyRow {
++    display: flex;
++    gap: 6px;
++  }
++
++  .hueColumns {
++    align-items: flex-start;
++    display: flex;
++    gap: 6px;
++  }
++
++  .hueColumn {
++    display: flex;
++    flex-direction: column;
++    gap: 6px;
++  }
++
+   // BSY Media: the two metallic-gradient colors (gold, silver) plus the custom color wheel
+   // trigger, set apart from the hue matrix above since they aren't part of the spectrum.
+   .specialColorButtons {
+diff --git a/client/src/constants/LabelColorGrid.js b/client/src/constants/LabelColorGrid.js
+index be18437..5e8898c 100644
+--- a/client/src/constants/LabelColorGrid.js
++++ b/client/src/constants/LabelColorGrid.js
+@@ -3,20 +3,64 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-// BSY Media: swatch-picker layout for the 42-color palette, matching the reference layout
+-// (greyscale strip across the top row, hue-family columns below it) while keeping every real
+-// existing color (nothing invented). Columns run left-to-right across the visible spectrum (red
+-// -> orange -> yellow -> green -> teal -> blue -> purple -> pink); within each column, colors are
+-// sorted lightest (top) to darkest (bottom) - i.e. tints above, shades below. `pirate-gold` and
+-// `silver-glint` are rendered as metallic gradients rather than flat colors, so they're kept out
+-// of this matrix entirely and shown in their own "special" section instead, alongside the custom
+-// color wheel (see Editor.jsx / EditColorStep.jsx).
+-const HUE_COLUMNS = [
+-  ['apricot-red', 'light-cocoa', 'shady-rust'],
+-  ['desert-sand', 'light-orange', 'light-mud', 'pumpkin-orange', 'orange-peel'],
+-  ['fresh-salad', 'egg-yellow', 'autumn-leafs', 'sunny-grass'],
+-  ['modern-green', 'tank-green', 'bright-moss', 'wet-moss'],
+-  ['morning-sky', 'lagoon-blue', 'french-coast', 'coral-green', 'turquoise-sea'],
++// BSY Media: swatch-picker layout for the palette, matching the reference layout (greyscale strip
++// across the top row, hue-family columns below it). Columns run left-to-right across the visible
++// spectrum (red -> orange -> yellow -> green -> teal -> blue -> purple -> pink); within each
++// column, colors are sorted lightest (top) to darkest (bottom) - i.e. tints above, shades below.
++// Every column (and the grey row) has exactly 7 colors - the original 42-color palette only had 3
++// to 7 colors per family, which left visibly uneven/blank-looking space below the shorter columns;
++// the added colors (computed via HSL interpolation between each family's existing hues, not
++// guessed - see the 2026-09-19 CLAUDE.md entry for the exact method) fill every column out to
++// match the tallest one, so the grid reads as a genuinely complete, evenly-populated palette.
++// `pirate-gold` and `silver-glint` are rendered as metallic gradients rather than flat colors, so
++// they're kept out of this matrix entirely and shown in their own "special" section instead,
++// alongside the custom color wheel (see Editor.jsx / EditColorStep.jsx).
++export const HUE_COLUMNS = [
++  [
++    'apricot-red',
++    'coral-flame',
++    'burnt-sienna',
++    'terracotta-clay',
++    'light-cocoa',
++    'clay-ember',
++    'shady-rust',
++  ],
++  [
++    'desert-sand',
++    'light-orange',
++    'honey-amber',
++    'light-mud',
++    'amber-glow',
++    'pumpkin-orange',
++    'orange-peel',
++  ],
++  [
++    'fresh-salad',
++    'wheat-gold',
++    'egg-yellow',
++    'marigold',
++    'autumn-leafs',
++    'citrine-moss',
++    'sunny-grass',
++  ],
++  [
++    'modern-green',
++    'sage-leaf',
++    'tank-green',
++    'olive-grove',
++    'bright-moss',
++    'forest-fern',
++    'wet-moss',
++  ],
++  [
++    'morning-sky',
++    'azure-lagoon',
++    'lagoon-blue',
++    'french-coast',
++    'deep-teal',
++    'coral-green',
++    'turquoise-sea',
++  ],
+   [
+     'summer-sky',
+     'antique-blue',
+@@ -26,32 +70,39 @@ const HUE_COLUMNS = [
+     'midnight-blue',
+     'deep-ocean',
+   ],
+-  ['sugar-plum', 'lavender-fields', 'sweet-lilac'],
+-  ['piggy-red', 'pink-tulip', 'berry-red', 'red-burgundy'],
++  [
++    'sugar-plum',
++    'lavender-fields',
++    'orchid-mist',
++    'violet-bloom',
++    'plum-blossom',
++    'mulberry-wine',
++    'sweet-lilac',
++  ],
++  [
++    'piggy-red',
++    'rose-blush',
++    'watermelon-pink',
++    'pink-tulip',
++    'berry-red',
++    'raspberry-wine',
++    'red-burgundy',
++  ],
+ ];
+ 
+-// BSY Media: the 5 achromatic colors, rendered as their own row above the hue matrix (dark ->
++// BSY Media: the 7 achromatic colors, rendered as their own row above the hue matrix (dark ->
+ // light, left -> right) rather than as a 9th column - matches the reference layout's top
+ // greyscale strip. Kept out of HUE_COLUMNS since these aren't part of any hue family.
+-const GREY_ROW = ['muddy-grey', 'dark-granite', 'wet-rock', 'light-concrete', 'grey-stone'];
++export const GREY_ROW = [
++  'muddy-grey',
++  'taupe-shadow',
++  'dark-granite',
++  'wet-rock',
++  'sage-grey',
++  'light-concrete',
++  'grey-stone',
++];
+ 
+ export const SPECIAL_COLORS = ['pirate-gold', 'silver-glint'];
+ 
+-export const GRID_COLUMN_COUNT = Math.max(GREY_ROW.length, HUE_COLUMNS.length);
+-export const GRID_ROW_COUNT = 1 + Math.max(...HUE_COLUMNS.map((column) => column.length));
+-
+-// flattened for rendering: one entry per swatch with its explicit 1-indexed grid coordinates
+-// (row 1 is reserved for the grey row; hue columns start at row 2), since columns have different
+-// heights and CSS Grid's auto-placement can't express "start a new column early" on its own.
+-export const GRID_ITEMS = [
+-  ...GREY_ROW.map((color, columnIndex) => ({ color, column: columnIndex + 1, row: 1 })),
+-  ...HUE_COLUMNS.flatMap((column, columnIndex) =>
+-    column.map((color, rowIndex) => ({
+-      color,
+-      column: columnIndex + 1,
+-      row: rowIndex + 2,
+-    })),
+-  ),
+-];
+-
+ export default HUE_COLUMNS;
+diff --git a/client/src/constants/LabelColors.js b/client/src/constants/LabelColors.js
+index ee30a64..8976643 100644
+--- a/client/src/constants/LabelColors.js
++++ b/client/src/constants/LabelColors.js
+@@ -9,29 +9,45 @@
+ // the grid is actually laid out.
+ export default [
+   'muddy-grey',
++  'taupe-shadow',
+   'dark-granite',
+   'wet-rock',
++  'sage-grey',
+   'light-concrete',
+   'grey-stone',
+   'apricot-red',
++  'coral-flame',
++  'burnt-sienna',
++  'terracotta-clay',
+   'light-cocoa',
++  'clay-ember',
+   'shady-rust',
+   'desert-sand',
+   'light-orange',
++  'honey-amber',
+   'light-mud',
++  'amber-glow',
+   'pumpkin-orange',
+   'orange-peel',
+   'fresh-salad',
++  'wheat-gold',
+   'egg-yellow',
++  'marigold',
+   'autumn-leafs',
++  'citrine-moss',
+   'sunny-grass',
+   'modern-green',
++  'sage-leaf',
+   'tank-green',
++  'olive-grove',
+   'bright-moss',
++  'forest-fern',
+   'wet-moss',
+   'morning-sky',
++  'azure-lagoon',
+   'lagoon-blue',
+   'french-coast',
++  'deep-teal',
+   'coral-green',
+   'turquoise-sea',
+   'summer-sky',
+@@ -43,10 +59,17 @@ export default [
+   'deep-ocean',
+   'sugar-plum',
+   'lavender-fields',
++  'orchid-mist',
++  'violet-bloom',
++  'plum-blossom',
++  'mulberry-wine',
+   'sweet-lilac',
+   'piggy-red',
++  'rose-blush',
++  'watermelon-pink',
+   'pink-tulip',
+   'berry-red',
++  'raspberry-wine',
+   'red-burgundy',
+   'pirate-gold',
+   'silver-glint',
+diff --git a/client/src/constants/LabelGlowColors.js b/client/src/constants/LabelGlowColors.js
+index 7b47289..8ca9cbe 100644
+--- a/client/src/constants/LabelGlowColors.js
++++ b/client/src/constants/LabelGlowColors.js
+@@ -10,29 +10,45 @@
+ // mirrors LabelColors.js/LabelColorGrid.js.
+ export default {
+   'muddy-grey': '#69655a',
++  'taupe-shadow': '#7b756c',
+   'dark-granite': '#8b8680',
+   'wet-rock': '#83949b',
++  'sage-grey': '#94a597',
+   'light-concrete': '#afb0a4',
+   'grey-stone': '#aab2bd',
+   'apricot-red': '#fc736c',
++  'coral-flame': '#f06558',
++  'burnt-sienna': '#df5c49',
++  'terracotta-clay': '#cb543d',
+   'light-cocoa': '#a85540',
++  'clay-ember': '#975645',
+   'shady-rust': '#87564a',
+   'desert-sand': '#fad371',
+   'light-orange': '#fdae5f',
++  'honey-amber': '#e4ab6b',
+   'light-mud': '#c7a57a',
++  'amber-glow': '#d79b51',
+   'pumpkin-orange': '#ed9223',
+   'orange-peel': '#de692f',
+   'fresh-salad': '#ced85e',
++  'wheat-gold': '#e7da42',
+   'egg-yellow': '#f9c423',
++  marigold: '#e2bc2c',
+   'autumn-leafs': '#c9b037',
++  'citrine-moss': '#ccc21a',
+   'sunny-grass': '#beca02',
+   'modern-green': '#77ce87',
++  'sage-leaf': '#7eb975',
+   'tank-green': '#8aa177',
++  'olive-grove': '#8daa65',
+   'bright-moss': '#96b352',
++  'forest-fern': '#649e4d',
+   'wet-moss': '#4a8753',
+   'morning-sky': '#52b9d5',
++  'azure-lagoon': '#22b4d9',
+   'lagoon-blue': '#109dc0',
+   'french-coast': '#00b4b1',
++  'deep-teal': '#188d8e',
+   'coral-green': '#2b6a6c',
+   'turquoise-sea': '#00858a',
+   'summer-sky': '#5d9cec',
+@@ -44,10 +60,17 @@ export default {
+   'deep-ocean': '#004c70',
+   'sugar-plum': '#7e86c7',
+   'lavender-fields': '#b287bd',
++  'orchid-mist': '#ad7bb7',
++  'violet-bloom': '#a86fb1',
++  'plum-blossom': '#a464aa',
++  'mulberry-wine': '#a059a3',
+   'sweet-lilac': '#975298',
+   'piggy-red': '#f97394',
++  'rose-blush': '#f3668b',
++  'watermelon-pink': '#ec5a83',
+   'pink-tulip': '#e34f7c',
+   'berry-red': '#e83855',
++  'raspberry-wine': '#cc4a6e',
+   'red-burgundy': '#ad5f7d',
+   'pirate-gold': '#b47e11',
+   'silver-glint': '#92908d',
+diff --git a/client/src/styles.module.scss b/client/src/styles.module.scss
+index 55e7702..4cf2e57 100644
+--- a/client/src/styles.module.scss
++++ b/client/src/styles.module.scss
+@@ -834,6 +834,193 @@
+     background: radial-gradient(circle at 2.9% 14.3%, rgba(255, 0, 102, 1) 0%, rgba(80, 5, 35, 1) 100.7%) !important;
+   }
+ 
++  // BSY Media: 23 new colors added 2026-09-19 to bring every hue-family column (and the
++  // grey row) up to 7 entries - see constants/LabelColorGrid.js for why, and CLAUDE.md for the
++  // HSL-interpolation method used to compute these hex values (not guessed).
++  .backgroundCoralFlame {
++    background: #f06558 !important;
++  }
++
++  .backgroundCoralFlameSoft {
++    background: #e6c0bc !important;
++  }
++
++  .backgroundBurntSienna {
++    background: #df5c49 !important;
++  }
++
++  .backgroundBurntSiennaSoft {
++    background: #e6c2bc !important;
++  }
++
++  .backgroundTerracottaClay {
++    background: #cb543d !important;
++  }
++
++  .backgroundTerracottaClaySoft {
++    background: #e6c3bc !important;
++  }
++
++  .backgroundClayEmber {
++    background: #975645 !important;
++  }
++
++  .backgroundClayEmberSoft {
++    background: #e2c7c0 !important;
++  }
++
++  .backgroundHoneyAmber {
++    background: #e4ab6b !important;
++  }
++
++  .backgroundHoneyAmberSoft {
++    background: #e6d2bc !important;
++  }
++
++  .backgroundAmberGlow {
++    background: #d79b51 !important;
++  }
++
++  .backgroundAmberGlowSoft {
++    background: #e6d3bc !important;
++  }
++
++  .backgroundWheatGold {
++    background: #e7da42 !important;
++  }
++
++  .backgroundWheatGoldSoft {
++    background: #e6e3bc !important;
++  }
++
++  .backgroundMarigold {
++    background: #e2bc2c !important;
++  }
++
++  .backgroundMarigoldSoft {
++    background: #e6ddbc !important;
++  }
++
++  .backgroundCitrineMoss {
++    background: #ccc21a !important;
++  }
++
++  .backgroundCitrineMossSoft {
++    background: #e6e3bc !important;
++  }
++
++  .backgroundSageLeaf {
++    background: #7eb975 !important;
++  }
++
++  .backgroundSageLeafSoft {
++    background: #c6e0c2 !important;
++  }
++
++  .backgroundOliveGrove {
++    background: #8daa65 !important;
++  }
++
++  .backgroundOliveGroveSoft {
++    background: #d3dec4 !important;
++  }
++
++  .backgroundForestFern {
++    background: #649e4d !important;
++  }
++
++  .backgroundForestFernSoft {
++    background: #cae1c1 !important;
++  }
++
++  .backgroundAzureLagoon {
++    background: #22b4d9 !important;
++  }
++
++  .backgroundAzureLagoonSoft {
++    background: #bcdde6 !important;
++  }
++
++  .backgroundDeepTeal {
++    background: #188d8e !important;
++  }
++
++  .backgroundDeepTealSoft {
++    background: #bce5e6 !important;
++  }
++
++  .backgroundOrchidMist {
++    background: #ad7bb7 !important;
++  }
++
++  .backgroundOrchidMistSoft {
++    background: #dac4df !important;
++  }
++
++  .backgroundVioletBloom {
++    background: #a86fb1 !important;
++  }
++
++  .backgroundVioletBloomSoft {
++    background: #dbc3df !important;
++  }
++
++  .backgroundPlumBlossom {
++    background: #a464aa !important;
++  }
++
++  .backgroundPlumBlossomSoft {
++    background: #dcc4de !important;
++  }
++
++  .backgroundMulberryWine {
++    background: #a059a3 !important;
++  }
++
++  .backgroundMulberryWineSoft {
++    background: #ddc4df !important;
++  }
++
++  .backgroundRoseBlush {
++    background: #f3668b !important;
++  }
++
++  .backgroundRoseBlushSoft {
++    background: #e6bcc7 !important;
++  }
++
++  .backgroundWatermelonPink {
++    background: #ec5a83 !important;
++  }
++
++  .backgroundWatermelonPinkSoft {
++    background: #e6bcc8 !important;
++  }
++
++  .backgroundRaspberryWine {
++    background: #cc4a6e !important;
++  }
++
++  .backgroundRaspberryWineSoft {
++    background: #e6bcc8 !important;
++  }
++
++  .backgroundTaupeShadow {
++    background: #7b756c !important;
++  }
++
++  .backgroundTaupeShadowSoft {
++    background: #d4d2ce !important;
++  }
++
++  .backgroundSageGrey {
++    background: #94a597 !important;
++  }
++
++  .backgroundSageGreySoft {
++    background: #cdd5cf !important;
++  }
++
+ }
+ 
+ // BSY Media: dark versions of the 10 list colors, swapped in whenever the
+@@ -1015,4 +1202,99 @@
+   .backgroundPirateGoldSoft {
+     background: #4f3c17 !important;
+   }
++
++  // BSY Media: dark-mode Soft overrides for the 23 new colors added 2026-09-19 (see the
++  // matching comment in the main color block above).
++  .backgroundCoralFlameSoft {
++    background: #4f1c17 !important;
++  }
++
++  .backgroundBurntSiennaSoft {
++    background: #4f1e17 !important;
++  }
++
++  .backgroundTerracottaClaySoft {
++    background: #4f2017 !important;
++  }
++
++  .backgroundClayEmberSoft {
++    background: #462820 !important;
++  }
++
++  .backgroundHoneyAmberSoft {
++    background: #4f3517 !important;
++  }
++
++  .backgroundAmberGlowSoft {
++    background: #4f3617 !important;
++  }
++
++  .backgroundWheatGoldSoft {
++    background: #4f4b17 !important;
++  }
++
++  .backgroundMarigoldSoft {
++    background: #4f4317 !important;
++  }
++
++  .backgroundCitrineMossSoft {
++    background: #4f4c17 !important;
++  }
++
++  .backgroundSageLeafSoft {
++    background: #274422 !important;
++  }
++
++  .backgroundOliveGroveSoft {
++    background: #354224 !important;
++  }
++
++  .backgroundForestFernSoft {
++    background: #2b4521 !important;
++  }
++
++  .backgroundAzureLagoonSoft {
++    background: #17444f !important;
++  }
++
++  .backgroundDeepTealSoft {
++    background: #174f4f !important;
++  }
++
++  .backgroundOrchidMistSoft {
++    background: #3d2442 !important;
++  }
++
++  .backgroundVioletBloomSoft {
++    background: #3e2442 !important;
++  }
++
++  .backgroundPlumBlossomSoft {
++    background: #3f2442 !important;
++  }
++
++  .backgroundMulberryWineSoft {
++    background: #412442 !important;
++  }
++
++  .backgroundRoseBlushSoft {
++    background: #4f1726 !important;
++  }
++
++  .backgroundWatermelonPinkSoft {
++    background: #4f1727 !important;
++  }
++
++  .backgroundRaspberryWineSoft {
++    background: #4f1726 !important;
++  }
++
++  .backgroundTaupeShadowSoft {
++    background: #363430 !important;
++  }
++
++  .backgroundSageGreySoft {
++    background: #2f3730 !important;
++  }
++
+ }
+diff --git a/server/api/models/Label.js b/server/api/models/Label.js
+index dab2867..881c226 100755
+--- a/server/api/models/Label.js
++++ b/server/api/models/Label.js
+@@ -44,7 +44,7 @@
+  *           example: Bug
+  *         color:
+  *           type: string
+- *           enum: [muddy-grey, dark-granite, wet-rock, light-concrete, grey-stone, apricot-red, light-cocoa, shady-rust, desert-sand, light-orange, light-mud, pumpkin-orange, orange-peel, fresh-salad, egg-yellow, autumn-leafs, sunny-grass, modern-green, tank-green, bright-moss, wet-moss, morning-sky, lagoon-blue, french-coast, coral-green, turquoise-sea, summer-sky, antique-blue, lilac-eyes, gun-metal, navy-blue, midnight-blue, deep-ocean, sugar-plum, lavender-fields, sweet-lilac, piggy-red, pink-tulip, berry-red, red-burgundy, pirate-gold, silver-glint]
++ *           enum: [muddy-grey, taupe-shadow, dark-granite, wet-rock, sage-grey, light-concrete, grey-stone, apricot-red, coral-flame, burnt-sienna, terracotta-clay, light-cocoa, clay-ember, shady-rust, desert-sand, light-orange, honey-amber, light-mud, amber-glow, pumpkin-orange, orange-peel, fresh-salad, wheat-gold, egg-yellow, marigold, autumn-leafs, citrine-moss, sunny-grass, modern-green, sage-leaf, tank-green, olive-grove, bright-moss, forest-fern, wet-moss, morning-sky, azure-lagoon, lagoon-blue, french-coast, deep-teal, coral-green, turquoise-sea, summer-sky, antique-blue, lilac-eyes, gun-metal, navy-blue, midnight-blue, deep-ocean, sugar-plum, lavender-fields, orchid-mist, violet-bloom, plum-blossom, mulberry-wine, sweet-lilac, piggy-red, rose-blush, watermelon-pink, pink-tulip, berry-red, raspberry-wine, red-burgundy, pirate-gold, silver-glint]
+  *           description: Color of the label (one of the enum values, or a custom "#rrggbb" hex string)
+  *           example: berry-red
+  *         createdAt:
+@@ -63,29 +63,45 @@
+ 
+ const COLORS = [
+   'muddy-grey',
++  'taupe-shadow',
+   'dark-granite',
+   'wet-rock',
++  'sage-grey',
+   'light-concrete',
+   'grey-stone',
+   'apricot-red',
++  'coral-flame',
++  'burnt-sienna',
++  'terracotta-clay',
+   'light-cocoa',
++  'clay-ember',
+   'shady-rust',
+   'desert-sand',
+   'light-orange',
++  'honey-amber',
+   'light-mud',
++  'amber-glow',
+   'pumpkin-orange',
+   'orange-peel',
+   'fresh-salad',
++  'wheat-gold',
+   'egg-yellow',
++  'marigold',
+   'autumn-leafs',
++  'citrine-moss',
+   'sunny-grass',
+   'modern-green',
++  'sage-leaf',
+   'tank-green',
++  'olive-grove',
+   'bright-moss',
++  'forest-fern',
+   'wet-moss',
+   'morning-sky',
++  'azure-lagoon',
+   'lagoon-blue',
+   'french-coast',
++  'deep-teal',
+   'coral-green',
+   'turquoise-sea',
+   'summer-sky',
+@@ -97,10 +113,17 @@ const COLORS = [
+   'deep-ocean',
+   'sugar-plum',
+   'lavender-fields',
++  'orchid-mist',
++  'violet-bloom',
++  'plum-blossom',
++  'mulberry-wine',
+   'sweet-lilac',
+   'piggy-red',
++  'rose-blush',
++  'watermelon-pink',
+   'pink-tulip',
+   'berry-red',
++  'raspberry-wine',
+   'red-burgundy',
+   'pirate-gold',
+   'silver-glint',
+diff --git a/server/api/models/List.js b/server/api/models/List.js
+index 694f273..3f54c96 100755
+--- a/server/api/models/List.js
++++ b/server/api/models/List.js
+@@ -51,7 +51,7 @@
+  *           example: To Do
+  *         color:
+  *           type: string
+- *           enum: [muddy-grey, dark-granite, wet-rock, light-concrete, grey-stone, apricot-red, light-cocoa, shady-rust, desert-sand, light-orange, light-mud, pumpkin-orange, orange-peel, fresh-salad, egg-yellow, autumn-leafs, sunny-grass, modern-green, tank-green, bright-moss, wet-moss, morning-sky, lagoon-blue, french-coast, coral-green, turquoise-sea, summer-sky, antique-blue, lilac-eyes, gun-metal, navy-blue, midnight-blue, deep-ocean, sugar-plum, lavender-fields, sweet-lilac, piggy-red, pink-tulip, berry-red, red-burgundy, pirate-gold, silver-glint]
++ *           enum: [muddy-grey, taupe-shadow, dark-granite, wet-rock, sage-grey, light-concrete, grey-stone, apricot-red, coral-flame, burnt-sienna, terracotta-clay, light-cocoa, clay-ember, shady-rust, desert-sand, light-orange, honey-amber, light-mud, amber-glow, pumpkin-orange, orange-peel, fresh-salad, wheat-gold, egg-yellow, marigold, autumn-leafs, citrine-moss, sunny-grass, modern-green, sage-leaf, tank-green, olive-grove, bright-moss, forest-fern, wet-moss, morning-sky, azure-lagoon, lagoon-blue, french-coast, deep-teal, coral-green, turquoise-sea, summer-sky, antique-blue, lilac-eyes, gun-metal, navy-blue, midnight-blue, deep-ocean, sugar-plum, lavender-fields, orchid-mist, violet-bloom, plum-blossom, mulberry-wine, sweet-lilac, piggy-red, rose-blush, watermelon-pink, pink-tulip, berry-red, raspberry-wine, red-burgundy, pirate-gold, silver-glint]
+  *           nullable: true
+  *           description: Color for the list (one of the enum values, or a custom "#rrggbb" hex string)
+  *           example: lagoon-blue
+@@ -110,29 +110,45 @@ const TYPE_STATE_BY_TYPE = {
+ 
+ const COLORS = [
+   'muddy-grey',
++  'taupe-shadow',
+   'dark-granite',
+   'wet-rock',
++  'sage-grey',
+   'light-concrete',
+   'grey-stone',
+   'apricot-red',
++  'coral-flame',
++  'burnt-sienna',
++  'terracotta-clay',
+   'light-cocoa',
++  'clay-ember',
+   'shady-rust',
+   'desert-sand',
+   'light-orange',
++  'honey-amber',
+   'light-mud',
++  'amber-glow',
+   'pumpkin-orange',
+   'orange-peel',
+   'fresh-salad',
++  'wheat-gold',
+   'egg-yellow',
++  'marigold',
+   'autumn-leafs',
++  'citrine-moss',
+   'sunny-grass',
+   'modern-green',
++  'sage-leaf',
+   'tank-green',
++  'olive-grove',
+   'bright-moss',
++  'forest-fern',
+   'wet-moss',
+   'morning-sky',
++  'azure-lagoon',
+   'lagoon-blue',
+   'french-coast',
++  'deep-teal',
+   'coral-green',
+   'turquoise-sea',
+   'summer-sky',
+@@ -144,10 +160,17 @@ const COLORS = [
+   'deep-ocean',
+   'sugar-plum',
+   'lavender-fields',
++  'orchid-mist',
++  'violet-bloom',
++  'plum-blossom',
++  'mulberry-wine',
+   'sweet-lilac',
+   'piggy-red',
++  'rose-blush',
++  'watermelon-pink',
+   'pink-tulip',
+   'berry-red',
++  'raspberry-wine',
+   'red-burgundy',
+   'pirate-gold',
+   'silver-glint',

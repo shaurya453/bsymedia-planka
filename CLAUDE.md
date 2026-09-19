@@ -3824,3 +3824,53 @@ squares with the greyscale strip on top - matching the reference image's overall
 console errors.
 
 Patch: `planka-custom/patches/0076-grid-reference-layout.patch`.
+
+## Eliminate blank cells in short hue columns; expand the palette to 65 colors (2026-09-19)
+
+Follow-up to patch 0076: the client asked why several grid cells looked blank. Two separate causes,
+fixed in sequence:
+
+1. **Layout mechanism**: the grid used explicit CSS Grid placement (`gridColumn`/`gridRow` inline
+   styles) sized to the tallest column (8 rows), so every shorter column reserved invisible, unused
+   grid cells beneath its last real swatch. Switched `LabelColorGrid.js`'s `HUE_COLUMNS`/`GREY_ROW`
+   rendering (`Editor.jsx`/`EditColorStep.jsx`) from a single CSS Grid to nested flex containers
+   (`.colorButtons` > `.greyRow` + `.hueColumns` > per-family `.hueColumn`), where each column's
+   height is exactly its own content - no fixed row-track height to reserve. Caught a real cross-axis
+   stretch bug during verification: flex's default `align-items: stretch` was still forcing every
+   `.hueColumn` to match the tallest sibling's height (measured 316px on every column regardless of
+   its actual item count) - fixed by adding `align-items: flex-start` to `.hueColumns` in both
+   `Editor.module.scss`/`EditColorStep.module.scss`.
+2. **Real content gap, not fixable by CSS alone**: even after the layout fix, the *visible* blank
+   space didn't change, because unfilled grid cells never rendered any background/border to begin
+   with - the real cause was that the 8 hue families and the grey row each had a different number of
+   real colors (3 to 7), so shorter columns always end above the tallest one regardless of layout
+   mechanism. Client explicitly asked to add the missing colors rather than accept the asymmetry or
+   interleave families to fill the space (which would have broken the "one column = one hue family"
+   grouping from patch 0075). Confirmed scope directly: bring every column (and the grey row, for
+   full symmetry) up to 7 entries, matching the tallest existing column (blue).
+   - **23 new colors, computed via HSL interpolation, not guessed**: for each family with fewer than
+     7 colors, the existing colors' hue/saturation/lightness were extracted (Python/colorsys), new
+     lightness values inserted into the family's existing gaps (each gap's new-color count
+     proportional to its L-span, largest-remainder rounding to hit the exact target), and hue/
+     saturation linearly interpolated between each new point's two real neighbors - guaranteeing a
+     smooth, monotonic light-to-dark progression with zero duplicate or out-of-order hex values
+     (verified programmatically: 65 unique names, 65 unique hex values, before touching any file).
+     New names follow the existing two-word nature/material naming convention (e.g. `coral-flame`,
+     `wheat-gold`, `azure-lagoon`, `orchid-mist`, `sage-grey`) - see `LabelColorGrid.js` for the
+     full 8x7 hue matrix + 7-color grey row.
+   - `styles.module.scss` gained the 23 new colors' `.background<Name>` (bold) + `.background<Name>Soft`
+     (light-mode pastel) pairs plus their `:global(#app.dark-mode-cards-enabled)` dark-mode Soft
+     overrides - same fixed formula as every prior color-palette expansion (same hue, saturation
+     capped at 45%/55%, lightness 82%/20%). `LabelColors.js`, `LabelGlowColors.js`, and both server
+     `Label.js`/`List.js` `COLORS` arrays (+ swagger `enum:` comments) all reordered/expanded to the
+     same 65-entry order (order doesn't affect validation, membership-based, but keeps all 4 files
+     in sync). `DEFAULT_LABEL_COLOR` stays `muddy-grey` (untouched, still exists).
+
+Verified in an isolated stack via Puppeteer: reconstructed both pickers' grey row and hue-column
+contents from the rendered DOM and confirmed all 65 colors match the intended layout/order exactly;
+measured every hue column's own rendered height and confirmed it equals exactly its item count's
+worth of swatches+gaps (`40*7 + 6*6 = 316px` for every column now, uniformly, with zero reserved-
+but-unfilled space); screenshotted both pickers and visually confirmed a fully populated, gap-free
+8x7 grid with smooth per-column gradients. Zero new lint errors, zero console errors.
+
+Patch: `planka-custom/patches/0077-compact-hue-columns.patch`.
