@@ -1,0 +1,958 @@
+diff --git a/client/src/components/labels/LabelsStep/Editor.jsx b/client/src/components/labels/LabelsStep/Editor.jsx
+index c4e0fa7..d9dad2a 100755
+--- a/client/src/components/labels/LabelsStep/Editor.jsx
++++ b/client/src/components/labels/LabelsStep/Editor.jsx
+@@ -13,7 +13,7 @@ import { Button, Icon } from 'semantic-ui-react';
+ import { Input } from '../../../lib/custom-ui';
+ 
+ import { useNestedRef } from '../../../hooks';
+-import LABEL_COLORS from '../../../constants/LabelColors';
++import { GRID_ITEMS, SPECIAL_COLORS } from '../../../constants/LabelColorGrid';
+ import LabelGlowColors from '../../../constants/LabelGlowColors';
+ import ColorWheelPicker from '../../common/ColorWheelPicker';
+ 
+@@ -78,34 +78,53 @@ const Editor = React.memo(({ data, onFieldChange }) => {
+           />
+         </>
+       ) : (
+-        <div className={styles.colorButtons}>
+-          {LABEL_COLORS.map((color) => (
++        <>
++          <div className={styles.colorButtons}>
++            {GRID_ITEMS.map(({ color, column, row }) => (
++              <Button
++                key={color}
++                type="button"
++                name="color"
++                value={color}
++                style={{ gridColumn: column, gridRow: row }}
++                className={classNames(
++                  styles.colorButton,
++                  color === data.color && styles.colorButtonActive,
++                  globalStyles[`background${upperFirst(camelCase(color))}`],
++                )}
++                onClick={onFieldChange}
++              />
++            ))}
++          </div>
++          <div className={styles.specialColorButtons}>
++            {SPECIAL_COLORS.map((color) => (
++              <Button
++                key={color}
++                type="button"
++                name="color"
++                value={color}
++                className={classNames(
++                  styles.colorButton,
++                  color === data.color && styles.colorButtonActive,
++                  globalStyles[`background${upperFirst(camelCase(color))}`],
++                )}
++                onClick={onFieldChange}
++              />
++            ))}
+             <Button
+-              key={color}
+               type="button"
+-              name="color"
+-              value={color}
+               className={classNames(
+                 styles.colorButton,
+-                color === data.color && styles.colorButtonActive,
+-                globalStyles[`background${upperFirst(camelCase(color))}`],
++                styles.customColorButton,
++                isCustomColor && styles.colorButtonActive,
+               )}
+-              onClick={onFieldChange}
+-            />
+-          ))}
+-          <Button
+-            type="button"
+-            className={classNames(
+-              styles.colorButton,
+-              styles.customColorButton,
+-              isCustomColor && styles.colorButtonActive,
+-            )}
+-            style={isCustomColor ? { background: data.color } : undefined}
+-            onClick={handleCustomColorClick}
+-          >
+-            {!isCustomColor && <Icon fitted name="paint brush" size="small" />}
+-          </Button>
+-        </div>
++              style={isCustomColor ? { background: data.color } : undefined}
++              onClick={handleCustomColorClick}
++            >
++              {!isCustomColor && <Icon fitted name="paint brush" size="small" />}
++            </Button>
++          </div>
++        </>
+       )}
+     </>
+   );
+diff --git a/client/src/components/labels/LabelsStep/Editor.module.scss b/client/src/components/labels/LabelsStep/Editor.module.scss
+index 9ff21a7..f2374c0 100644
+--- a/client/src/components/labels/LabelsStep/Editor.module.scss
++++ b/client/src/components/labels/LabelsStep/Editor.module.scss
+@@ -9,15 +9,17 @@
+   }
+ 
+   .colorButton {
++    height: 40px;
+     margin: 0;
+     position: relative;
++    width: 40px;
+ 
+     &:hover {
+       opacity: 0.9;
+     }
+   }
+ 
+-  // BSY Media: trailing swatch at the end of the color grid that opens the
++  // BSY Media: trailing swatch (in the special-colors section) that opens the
+   // HSV wheel picker (ColorWheelPicker) instead of picking a fixed named
+   // color - rainbow conic-gradient by default so it reads as "pick any
+   // color"; once a custom color is actually active, an inline style
+@@ -53,19 +55,21 @@
+     transform: rotate(-135deg);
+   }
+ 
+-  // BSY Media: fixed 6-column, fixed-pixel grid (not auto-fill) so this
+-  // renders byte-for-byte identically to the list color editor's swatch grid
+-  // (lists/List/EditColorStep.module.scss) regardless of where each popup
+-  // gets anchored on the page.
++  // BSY Media: hue-family matrix (see constants/LabelColorGrid.js) - columns run left-to-right
++  // across the spectrum, each column's swatches explicitly placed via inline gridColumn/gridRow
++  // (not flow order) since columns have different heights. Fixed, fully explicit track sizes (not
++  // auto-fill) so this renders byte-for-byte identically to the list color editor's swatch grid
++  // (lists/List/EditColorStep.module.scss) regardless of where each popup gets anchored.
+   .colorButtons {
+     box-sizing: content-box;
+     display: grid;
+     gap: 6px;
+-    grid-template-columns: repeat(6, 40px);
++    grid-template-columns: repeat(9, 40px);
++    grid-template-rows: repeat(7, 40px);
+     margin-bottom: 12px;
+     max-height: 60vh;
+     overflow-y: auto;
+-    width: 270px;
++    width: 408px;
+ 
+     @supports (-moz-appearance: none) {
+       scrollbar-color: rgba(0, 0, 0, 0.32) transparent;
+@@ -87,6 +91,16 @@
+     }
+   }
+ 
++  // BSY Media: the two metallic-gradient colors (gold, silver) plus the custom color wheel
++  // trigger, set apart from the hue matrix above since they aren't part of the spectrum.
++  .specialColorButtons {
++    border-top: 1px solid rgba(0, 0, 0, 0.1);
++    display: flex;
++    gap: 6px;
++    margin-bottom: 12px;
++    padding-top: 12px;
++  }
++
+   .field {
+     margin-bottom: 8px;
+   }
+diff --git a/client/src/components/lists/List/EditColorStep.jsx b/client/src/components/lists/List/EditColorStep.jsx
+index beaae3c..b7cf04b 100644
+--- a/client/src/components/lists/List/EditColorStep.jsx
++++ b/client/src/components/lists/List/EditColorStep.jsx
+@@ -15,7 +15,7 @@ import { Popup } from '../../../lib/custom-ui';
+ 
+ import selectors from '../../../selectors';
+ import entryActions from '../../../entry-actions';
+-import LABEL_COLORS from '../../../constants/LabelColors';
++import { GRID_ITEMS, SPECIAL_COLORS } from '../../../constants/LabelColorGrid';
+ import LabelGlowColors from '../../../constants/LabelGlowColors';
+ import ColorWheelPicker from '../../common/ColorWheelPicker';
+ 
+@@ -99,33 +99,51 @@ const EditColorStep = React.memo(({ listId, onBack, onClose }) => {
+             />
+           </>
+         ) : (
+-          <div className={styles.colorButtons}>
+-            {LABEL_COLORS.map((color) => (
++          <>
++            <div className={styles.colorButtons}>
++              {GRID_ITEMS.map(({ color, column, row }) => (
++                <Button
++                  key={color}
++                  type="button"
++                  value={color}
++                  style={{ gridColumn: column, gridRow: row }}
++                  className={classNames(
++                    styles.colorButton,
++                    color === defaultValue && styles.colorButtonActive,
++                    globalStyles[`background${upperFirst(camelCase(color))}`],
++                  )}
++                  onClick={handleSelectClick}
++                />
++              ))}
++            </div>
++            <div className={styles.specialColorButtons}>
++              {SPECIAL_COLORS.map((color) => (
++                <Button
++                  key={color}
++                  type="button"
++                  value={color}
++                  className={classNames(
++                    styles.colorButton,
++                    color === defaultValue && styles.colorButtonActive,
++                    globalStyles[`background${upperFirst(camelCase(color))}`],
++                  )}
++                  onClick={handleSelectClick}
++                />
++              ))}
+               <Button
+-                key={color}
+                 type="button"
+-                value={color}
+                 className={classNames(
+                   styles.colorButton,
+-                  color === defaultValue && styles.colorButtonActive,
+-                  globalStyles[`background${upperFirst(camelCase(color))}`],
++                  styles.customColorButton,
++                  isCustomColor && styles.colorButtonActive,
+                 )}
+-                onClick={handleSelectClick}
+-              />
+-            ))}
+-            <Button
+-              type="button"
+-              className={classNames(
+-                styles.colorButton,
+-                styles.customColorButton,
+-                isCustomColor && styles.colorButtonActive,
+-              )}
+-              style={isCustomColor ? { background: defaultValue } : undefined}
+-              onClick={handleCustomColorClick}
+-            >
+-              {!isCustomColor && <Icon fitted name="paint brush" size="small" />}
+-            </Button>
+-          </div>
++                style={isCustomColor ? { background: defaultValue } : undefined}
++                onClick={handleCustomColorClick}
++              >
++                {!isCustomColor && <Icon fitted name="paint brush" size="small" />}
++              </Button>
++            </div>
++          </>
+         )}
+         {defaultValue && (
+           <Button
+diff --git a/client/src/components/lists/List/EditColorStep.module.scss b/client/src/components/lists/List/EditColorStep.module.scss
+index 888b4e4..8bad269 100644
+--- a/client/src/components/lists/List/EditColorStep.module.scss
++++ b/client/src/components/lists/List/EditColorStep.module.scss
+@@ -25,8 +25,10 @@
+   }
+ 
+   .colorButton {
++    height: 40px;
+     margin: 0;
+     position: relative;
++    width: 40px;
+ 
+     &:hover {
+       opacity: 0.9;
+@@ -46,20 +48,21 @@
+     transform: rotate(-135deg);
+   }
+ 
+-  // BSY Media: fixed 6-column, fixed-pixel grid (not auto-fill) so this
+-  // renders byte-for-byte identically to the label editor's swatch grid
+-  // (labels/LabelsStep/Editor.module.scss) regardless of where each popup
+-  // gets anchored on the page - an auto-fill/auto-width grid was computing a
+-  // different column count here than in the label editor's popup.
++  // BSY Media: hue-family matrix (see constants/LabelColorGrid.js) - columns run left-to-right
++  // across the spectrum, each column's swatches explicitly placed via inline gridColumn/gridRow
++  // (not flow order) since columns have different heights. Fixed, fully explicit track sizes (not
++  // auto-fill) so this renders byte-for-byte identically to the label editor's swatch grid
++  // (labels/LabelsStep/Editor.module.scss) regardless of where each popup gets anchored.
+   .colorButtons {
+     box-sizing: content-box;
+     display: grid;
+     gap: 6px;
+-    grid-template-columns: repeat(6, 40px);
++    grid-template-columns: repeat(9, 40px);
++    grid-template-rows: repeat(7, 40px);
+     margin-bottom: 12px;
+     max-height: 60vh;
+     overflow-y: auto;
+-    width: 270px;
++    width: 408px;
+ 
+     @supports (-moz-appearance: none) {
+       scrollbar-color: rgba(0, 0, 0, 0.32) transparent;
+@@ -81,6 +84,16 @@
+     }
+   }
+ 
++  // BSY Media: the two metallic-gradient colors (gold, silver) plus the custom color wheel
++  // trigger, set apart from the hue matrix above since they aren't part of the spectrum.
++  .specialColorButtons {
++    border-top: 1px solid rgba(0, 0, 0, 0.1);
++    display: flex;
++    gap: 6px;
++    margin-bottom: 12px;
++    padding-top: 12px;
++  }
++
+   // BSY Media: trailing swatch that opens the HSV wheel picker
+   // (ColorWheelPicker) instead of a fixed named color - see the identical
+   // rule in labels/LabelsStep/Editor.module.scss for why this defaults to a
+diff --git a/client/src/components/lists/List/List.jsx b/client/src/components/lists/List/List.jsx
+index 1998cb9..58b4555 100755
+--- a/client/src/components/lists/List/List.jsx
++++ b/client/src/components/lists/List/List.jsx
+@@ -176,24 +176,31 @@ const List = React.memo(({ id, index }) => {
+       return {
+         wrapperClassName: undefined,
+         wrapperStyle: undefined,
+-        iconClassName: undefined,
+-        iconStyle: undefined,
+         headerTextStyle: undefined,
++        addCardTextStyle: undefined,
+       };
+     }
+ 
++    const contrastColor = getContrastTextColor(
++      LabelGlowColors[list.color]
++        ? ListSoftColors[list.color][cardsDarkModeEnabled ? 'dark' : 'light']
++        : list.color,
++    );
++
++    // the add-card button's own fixed text/icon colors (`.addCardButton`'s `color`/`fill` in
++    // List.module.scss) need the same per-instance contrast treatment as the header text, since
++    // its background is the same list color - `fill` is set alongside `color` so the inline SVG
++    // plus-icon (which has no `fill` of its own, so it inherits from its ancestor) follows suit.
++    const addCardTextStyle = { color: contrastColor, fill: contrastColor };
++
+     if (LabelGlowColors[list.color]) {
+       const pascalName = upperFirst(camelCase(list.color));
+-      const softHex = ListSoftColors[list.color][cardsDarkModeEnabled ? 'dark' : 'light'];
+ 
+       return {
+         wrapperClassName: globalStyles[`background${pascalName}Soft`],
+         wrapperStyle: undefined,
+-        iconClassName: globalStyles[`color${pascalName}`],
+-        iconStyle: undefined,
+-        headerTextStyle: {
+-          color: getContrastTextColor(softHex),
+-        },
++        headerTextStyle: { color: contrastColor },
++        addCardTextStyle,
+       };
+     }
+ 
+@@ -202,13 +209,8 @@ const List = React.memo(({ id, index }) => {
+       wrapperStyle: {
+         backgroundColor: list.color,
+       },
+-      iconClassName: undefined,
+-      iconStyle: {
+-        color: list.color,
+-      },
+-      headerTextStyle: {
+-        color: getContrastTextColor(list.color),
+-      },
++      headerTextStyle: { color: contrastColor },
++      addCardTextStyle,
+     };
+   }, [list.color, cardsDarkModeEnabled]);
+ 
+@@ -283,13 +285,6 @@ const List = React.memo(({ id, index }) => {
+                 <EditName listId={id} onClose={handleEditNameClose} />
+               ) : (
+                 <div className={styles.headerName} style={list.color && colorProps.headerTextStyle}>
+-                  {list.color && (
+-                    <Icon
+-                      name="circle"
+-                      className={classNames(styles.headerNameColor, colorProps.iconClassName)}
+-                      style={colorProps.iconStyle}
+-                    />
+-                  )}
+                   {list.name}
+                 </div>
+               )}
+@@ -336,7 +331,7 @@ const List = React.memo(({ id, index }) => {
+                   type="button"
+                   disabled={!list.isPersisted}
+                   className={classNames(styles.addCardButton, colorProps.wrapperClassName)}
+-                  style={colorProps.wrapperStyle}
++                  style={{ ...colorProps.wrapperStyle, ...colorProps.addCardTextStyle }}
+                   onClick={handleAddCardClick}
+                 >
+                   <PlusMathIcon className={styles.addCardButtonIcon} />
+diff --git a/client/src/components/lists/List/List.module.scss b/client/src/components/lists/List/List.module.scss
+index a6b07ee..b1732ef 100644
+--- a/client/src/components/lists/List/List.module.scss
++++ b/client/src/components/lists/List/List.module.scss
+@@ -171,11 +171,6 @@
+     word-break: break-word;
+   }
+ 
+-  .headerNameColor {
+-    line-height: 1;
+-    margin-right: 6px;
+-  }
+-
+   .innerWrapper {
+     margin-right: 8px;
+     width: 272px;
+diff --git a/client/src/constants/LabelColorGrid.js b/client/src/constants/LabelColorGrid.js
+new file mode 100644
+index 0000000..818dfab
+--- /dev/null
++++ b/client/src/constants/LabelColorGrid.js
+@@ -0,0 +1,49 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++// BSY Media: swatch-picker layout for the 42-color palette, computed (not guessed) from each
++// color's real HSL values. Columns run left-to-right across the visible spectrum (red -> orange
++// -> yellow -> green -> teal -> blue -> purple -> pink), with a trailing achromatic column; within
++// each column, colors are sorted lightest (top) to darkest (bottom) - i.e. tints above, shades
++// below. `pirate-gold` and `silver-glint` are rendered as metallic gradients rather than flat
++// colors, so they're kept out of this matrix entirely and shown in their own "special" section
++// instead, alongside the custom color wheel (see Editor.jsx / EditColorStep.jsx).
++const HUE_COLUMNS = [
++  ['apricot-red', 'light-cocoa', 'shady-rust'],
++  ['desert-sand', 'light-orange', 'light-mud', 'pumpkin-orange', 'orange-peel'],
++  ['fresh-salad', 'egg-yellow', 'autumn-leafs', 'sunny-grass'],
++  ['modern-green', 'tank-green', 'bright-moss', 'wet-moss'],
++  ['morning-sky', 'lagoon-blue', 'french-coast', 'coral-green', 'turquoise-sea'],
++  [
++    'summer-sky',
++    'antique-blue',
++    'lilac-eyes',
++    'gun-metal',
++    'navy-blue',
++    'midnight-blue',
++    'deep-ocean',
++  ],
++  ['sugar-plum', 'lavender-fields', 'sweet-lilac'],
++  ['piggy-red', 'pink-tulip', 'berry-red', 'red-burgundy'],
++  ['grey-stone', 'light-concrete', 'wet-rock', 'dark-granite', 'muddy-grey'],
++];
++
++export const SPECIAL_COLORS = ['pirate-gold', 'silver-glint'];
++
++export const GRID_COLUMN_COUNT = HUE_COLUMNS.length;
++export const GRID_ROW_COUNT = Math.max(...HUE_COLUMNS.map((column) => column.length));
++
++// flattened for rendering: one entry per swatch with its explicit 1-indexed grid coordinates,
++// since columns have different heights and CSS Grid's auto-placement can't express "start a new
++// column early" on its own.
++export const GRID_ITEMS = HUE_COLUMNS.flatMap((column, columnIndex) =>
++  column.map((color, rowIndex) => ({
++    color,
++    column: columnIndex + 1,
++    row: rowIndex + 1,
++  })),
++);
++
++export default HUE_COLUMNS;
+diff --git a/client/src/constants/LabelColors.js b/client/src/constants/LabelColors.js
+index a744386..7ac8c3f 100644
+--- a/client/src/constants/LabelColors.js
++++ b/client/src/constants/LabelColors.js
+@@ -3,49 +3,52 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
++// BSY Media: order mirrors the swatch-grid column layout in LabelColorGrid.js (read one hue
++// column top-to-bottom, then move to the next column left-to-right), with the two special
++// metallic-gradient colors trailing - see that file for how the grid is actually laid out.
+ export default [
+   'apricot-red',
+-  'shady-rust',
+   'light-cocoa',
+-  'orange-peel',
++  'shady-rust',
++  'desert-sand',
+   'light-orange',
+-  'pumpkin-orange',
+   'light-mud',
+-  'pirate-gold',
+-  'desert-sand',
++  'pumpkin-orange',
++  'orange-peel',
++  'fresh-salad',
+   'egg-yellow',
+   'autumn-leafs',
+   'sunny-grass',
+-  'fresh-salad',
+-  'bright-moss',
++  'modern-green',
+   'tank-green',
++  'bright-moss',
+   'wet-moss',
+-  'modern-green',
++  'morning-sky',
++  'lagoon-blue',
+   'french-coast',
+   'coral-green',
+   'turquoise-sea',
+-  'lagoon-blue',
+-  'morning-sky',
+-  'navy-blue',
+-  'deep-ocean',
+-  'gun-metal',
+-  'midnight-blue',
+-  'antique-blue',
+   'summer-sky',
++  'antique-blue',
+   'lilac-eyes',
++  'gun-metal',
++  'navy-blue',
++  'midnight-blue',
++  'deep-ocean',
+   'sugar-plum',
+   'lavender-fields',
+   'sweet-lilac',
+-  'red-burgundy',
+-  'pink-tulip',
+   'piggy-red',
++  'pink-tulip',
+   'berry-red',
+-  'muddy-grey',
+-  'dark-granite',
++  'red-burgundy',
++  'grey-stone',
++  'light-concrete',
+   'wet-rock',
++  'dark-granite',
++  'muddy-grey',
++  'pirate-gold',
+   'silver-glint',
+-  'light-concrete',
+-  'grey-stone',
+ ];
+ 
+ export const DEFAULT_LABEL_COLOR = 'muddy-grey';
+diff --git a/client/src/constants/LabelGlowColors.js b/client/src/constants/LabelGlowColors.js
+index 81fd569..8a56fcd 100644
+--- a/client/src/constants/LabelGlowColors.js
++++ b/client/src/constants/LabelGlowColors.js
+@@ -6,48 +6,49 @@
+ // BSY Media: solid hex values for the card-edge label glow, extracted from
+ // the .background<Name> rules in styles.module.scss. box-shadow requires a
+ // solid color, so silver-glint and pirate-gold (defined there as gradients)
+-// use a representative solid color from their gradient instead.
++// use a representative solid color from their gradient instead. Order
++// mirrors LabelColors.js/LabelColorGrid.js.
+ export default {
+   'apricot-red': '#fc736c',
+-  'shady-rust': '#87564a',
+   'light-cocoa': '#a85540',
+-  'orange-peel': '#de692f',
++  'shady-rust': '#87564a',
++  'desert-sand': '#fad371',
+   'light-orange': '#fdae5f',
+-  'pumpkin-orange': '#ed9223',
+   'light-mud': '#c7a57a',
+-  'pirate-gold': '#b47e11',
+-  'desert-sand': '#fad371',
++  'pumpkin-orange': '#ed9223',
++  'orange-peel': '#de692f',
++  'fresh-salad': '#ced85e',
+   'egg-yellow': '#f9c423',
+   'autumn-leafs': '#c9b037',
+   'sunny-grass': '#beca02',
+-  'fresh-salad': '#ced85e',
+-  'bright-moss': '#96b352',
++  'modern-green': '#77ce87',
+   'tank-green': '#8aa177',
++  'bright-moss': '#96b352',
+   'wet-moss': '#4a8753',
+-  'modern-green': '#77ce87',
++  'morning-sky': '#52b9d5',
++  'lagoon-blue': '#109dc0',
+   'french-coast': '#00b4b1',
+   'coral-green': '#2b6a6c',
+   'turquoise-sea': '#00858a',
+-  'lagoon-blue': '#109dc0',
+-  'morning-sky': '#52b9d5',
+-  'navy-blue': '#1d7299',
+-  'deep-ocean': '#004c70',
+-  'gun-metal': '#4f6573',
+-  'midnight-blue': '#0a63a0',
+-  'antique-blue': '#6c99bb',
+   'summer-sky': '#5d9cec',
++  'antique-blue': '#6c99bb',
+   'lilac-eyes': '#406cbd',
++  'gun-metal': '#4f6573',
++  'navy-blue': '#1d7299',
++  'midnight-blue': '#0a63a0',
++  'deep-ocean': '#004c70',
+   'sugar-plum': '#7e86c7',
+   'lavender-fields': '#b287bd',
+   'sweet-lilac': '#975298',
+-  'red-burgundy': '#ad5f7d',
+-  'pink-tulip': '#e34f7c',
+   'piggy-red': '#f97394',
++  'pink-tulip': '#e34f7c',
+   'berry-red': '#e83855',
+-  'muddy-grey': '#69655a',
+-  'dark-granite': '#8b8680',
++  'red-burgundy': '#ad5f7d',
++  'grey-stone': '#aab2bd',
++  'light-concrete': '#afb0a4',
+   'wet-rock': '#83949b',
++  'dark-granite': '#8b8680',
++  'muddy-grey': '#69655a',
++  'pirate-gold': '#b47e11',
+   'silver-glint': '#92908d',
+-  'light-concrete': '#afb0a4',
+-  'grey-stone': '#aab2bd',
+ };
+diff --git a/client/src/styles.module.scss b/client/src/styles.module.scss
+index a6e87da..55e7702 100644
+--- a/client/src/styles.module.scss
++++ b/client/src/styles.module.scss
+@@ -834,175 +834,6 @@
+     background: radial-gradient(circle at 2.9% 14.3%, rgba(255, 0, 102, 1) 0%, rgba(80, 5, 35, 1) 100.7%) !important;
+   }
+ 
+-  /* Colors */
+-
+-  .colorBerryRed {
+-    color: #e83855 !important;
+-  }
+-
+-  .colorPumpkinOrange {
+-    color: #ed9223 !important;
+-  }
+-
+-  .colorLagoonBlue {
+-    color: #109dc0 !important;
+-  }
+-
+-  .colorPinkTulip {
+-    color: #e34f7c !important;
+-  }
+-
+-  .colorLightMud {
+-    color: #c7a57a !important;
+-  }
+-
+-  .colorOrangePeel {
+-    color: #de692f !important;
+-  }
+-
+-  .colorBrightMoss {
+-    color: #96b352 !important;
+-  }
+-
+-  .colorAntiqueBlue {
+-    color: #6c99bb !important;
+-  }
+-
+-  .colorDarkGranite {
+-    color: #8b8680 !important;
+-  }
+-
+-  .colorTurquoiseSea {
+-    color: #00858a !important;
+-  }
+-
+-  .colorMuddyGrey {
+-    color: #69655a !important;
+-  }
+-
+-  .colorAutumnLeafs {
+-    color: #c9b037 !important;
+-  }
+-
+-  .colorMorningSky {
+-    color: #52b9d5 !important;
+-  }
+-
+-  .colorEggYellow {
+-    color: #f9c423 !important;
+-  }
+-
+-  .colorDesertSand {
+-    color: #fad371 !important;
+-  }
+-
+-  .colorFreshSalad {
+-    color: #ced85e !important;
+-  }
+-
+-  .colorMidnightBlue {
+-    color: #0a63a0 !important;
+-  }
+-
+-  .colorLightOrange {
+-    color: #fdae5f !important;
+-  }
+-
+-  .colorLightConcrete {
+-    color: #afb0a4 !important;
+-  }
+-
+-  .colorSunnyGrass {
+-    color: #beca02 !important;
+-  }
+-
+-  .colorNavyBlue {
+-    color: #1d7299 !important;
+-  }
+-
+-  .colorLilacEyes {
+-    color: #406cbd !important;
+-  }
+-
+-  .colorApricotRed {
+-    color: #fc736c !important;
+-  }
+-
+-  .colorSilverGlint {
+-    color: #92908d !important;
+-  }
+-
+-  .colorDeepOcean {
+-    color: #004c70 !important;
+-  }
+-
+-  .colorSummerSky {
+-    color: #5d9cec !important;
+-  }
+-
+-  .colorLightCocoa {
+-    color: #a85540 !important;
+-  }
+-
+-  .colorGreyStone {
+-    color: #aab2bd !important;
+-  }
+-
+-  .colorTankGreen {
+-    color: #8aa177 !important;
+-  }
+-
+-  .colorCoralGreen {
+-    color: #2b6a6c !important;
+-  }
+-
+-  .colorSugarPlum {
+-    color: #7e86c7 !important;
+-  }
+-
+-  .colorShadyRust {
+-    color: #87564a !important;
+-  }
+-
+-  .colorWetRock {
+-    color: #83949b !important;
+-  }
+-
+-  .colorWetMoss {
+-    color: #4a8753 !important;
+-  }
+-
+-  .colorLavenderFields {
+-    color: #b287bd !important;
+-  }
+-
+-  .colorPiggyRed {
+-    color: #f97394 !important;
+-  }
+-
+-  .colorGunMetal {
+-    color: #4f6573 !important;
+-  }
+-
+-  .colorModernGreen {
+-    color: #77ce87 !important;
+-  }
+-
+-  .colorFrenchCoast {
+-    color: #00b4b1 !important;
+-  }
+-
+-  .colorSweetLilac {
+-    color: #975298 !important;
+-  }
+-
+-  .colorRedBurgundy {
+-    color: #ad5f7d !important;
+-  }
+-
+-  .colorPirateGold {
+-    color: #b47e11 !important;
+-  }
+ }
+ 
+ // BSY Media: dark versions of the 10 list colors, swapped in whenever the
+diff --git a/server/api/models/Label.js b/server/api/models/Label.js
+index f924d98..ae8ca24 100755
+--- a/server/api/models/Label.js
++++ b/server/api/models/Label.js
+@@ -44,7 +44,7 @@
+  *           example: Bug
+  *         color:
+  *           type: string
+- *           enum: [apricot-red, shady-rust, light-cocoa, orange-peel, light-orange, pumpkin-orange, light-mud, pirate-gold, desert-sand, egg-yellow, autumn-leafs, sunny-grass, fresh-salad, bright-moss, tank-green, wet-moss, modern-green, french-coast, coral-green, turquoise-sea, lagoon-blue, morning-sky, navy-blue, deep-ocean, gun-metal, midnight-blue, antique-blue, summer-sky, lilac-eyes, sugar-plum, lavender-fields, sweet-lilac, red-burgundy, pink-tulip, piggy-red, berry-red, muddy-grey, dark-granite, wet-rock, silver-glint, light-concrete, grey-stone]
++ *           enum: [apricot-red, light-cocoa, shady-rust, desert-sand, light-orange, light-mud, pumpkin-orange, orange-peel, fresh-salad, egg-yellow, autumn-leafs, sunny-grass, modern-green, tank-green, bright-moss, wet-moss, morning-sky, lagoon-blue, french-coast, coral-green, turquoise-sea, summer-sky, antique-blue, lilac-eyes, gun-metal, navy-blue, midnight-blue, deep-ocean, sugar-plum, lavender-fields, sweet-lilac, piggy-red, pink-tulip, berry-red, red-burgundy, grey-stone, light-concrete, wet-rock, dark-granite, muddy-grey, pirate-gold, silver-glint]
+  *           description: Color of the label (one of the enum values, or a custom "#rrggbb" hex string)
+  *           example: berry-red
+  *         createdAt:
+@@ -63,47 +63,47 @@
+ 
+ const COLORS = [
+   'apricot-red',
+-  'shady-rust',
+   'light-cocoa',
+-  'orange-peel',
++  'shady-rust',
++  'desert-sand',
+   'light-orange',
+-  'pumpkin-orange',
+   'light-mud',
+-  'pirate-gold',
+-  'desert-sand',
++  'pumpkin-orange',
++  'orange-peel',
++  'fresh-salad',
+   'egg-yellow',
+   'autumn-leafs',
+   'sunny-grass',
+-  'fresh-salad',
+-  'bright-moss',
++  'modern-green',
+   'tank-green',
++  'bright-moss',
+   'wet-moss',
+-  'modern-green',
++  'morning-sky',
++  'lagoon-blue',
+   'french-coast',
+   'coral-green',
+   'turquoise-sea',
+-  'lagoon-blue',
+-  'morning-sky',
+-  'navy-blue',
+-  'deep-ocean',
+-  'gun-metal',
+-  'midnight-blue',
+-  'antique-blue',
+   'summer-sky',
++  'antique-blue',
+   'lilac-eyes',
++  'gun-metal',
++  'navy-blue',
++  'midnight-blue',
++  'deep-ocean',
+   'sugar-plum',
+   'lavender-fields',
+   'sweet-lilac',
+-  'red-burgundy',
+-  'pink-tulip',
+   'piggy-red',
++  'pink-tulip',
+   'berry-red',
+-  'muddy-grey',
+-  'dark-granite',
++  'red-burgundy',
++  'grey-stone',
++  'light-concrete',
+   'wet-rock',
++  'dark-granite',
++  'muddy-grey',
++  'pirate-gold',
+   'silver-glint',
+-  'light-concrete',
+-  'grey-stone',
+ ];
+ 
+ const isColor = (value) => COLORS.includes(value) || /^#[0-9a-f]{6}$/i.test(value);
+diff --git a/server/api/models/List.js b/server/api/models/List.js
+index 7f63098..9292cfd 100755
+--- a/server/api/models/List.js
++++ b/server/api/models/List.js
+@@ -51,7 +51,7 @@
+  *           example: To Do
+  *         color:
+  *           type: string
+- *           enum: [apricot-red, shady-rust, light-cocoa, orange-peel, light-orange, pumpkin-orange, light-mud, pirate-gold, desert-sand, egg-yellow, autumn-leafs, sunny-grass, fresh-salad, bright-moss, tank-green, wet-moss, modern-green, french-coast, coral-green, turquoise-sea, lagoon-blue, morning-sky, navy-blue, deep-ocean, gun-metal, midnight-blue, antique-blue, summer-sky, lilac-eyes, sugar-plum, lavender-fields, sweet-lilac, red-burgundy, pink-tulip, piggy-red, berry-red, muddy-grey, dark-granite, wet-rock, silver-glint, light-concrete, grey-stone]
++ *           enum: [apricot-red, light-cocoa, shady-rust, desert-sand, light-orange, light-mud, pumpkin-orange, orange-peel, fresh-salad, egg-yellow, autumn-leafs, sunny-grass, modern-green, tank-green, bright-moss, wet-moss, morning-sky, lagoon-blue, french-coast, coral-green, turquoise-sea, summer-sky, antique-blue, lilac-eyes, gun-metal, navy-blue, midnight-blue, deep-ocean, sugar-plum, lavender-fields, sweet-lilac, piggy-red, pink-tulip, berry-red, red-burgundy, grey-stone, light-concrete, wet-rock, dark-granite, muddy-grey, pirate-gold, silver-glint]
+  *           nullable: true
+  *           description: Color for the list (one of the enum values, or a custom "#rrggbb" hex string)
+  *           example: lagoon-blue
+@@ -110,47 +110,47 @@ const TYPE_STATE_BY_TYPE = {
+ 
+ const COLORS = [
+   'apricot-red',
+-  'shady-rust',
+   'light-cocoa',
+-  'orange-peel',
++  'shady-rust',
++  'desert-sand',
+   'light-orange',
+-  'pumpkin-orange',
+   'light-mud',
+-  'pirate-gold',
+-  'desert-sand',
++  'pumpkin-orange',
++  'orange-peel',
++  'fresh-salad',
+   'egg-yellow',
+   'autumn-leafs',
+   'sunny-grass',
+-  'fresh-salad',
+-  'bright-moss',
++  'modern-green',
+   'tank-green',
++  'bright-moss',
+   'wet-moss',
+-  'modern-green',
++  'morning-sky',
++  'lagoon-blue',
+   'french-coast',
+   'coral-green',
+   'turquoise-sea',
+-  'lagoon-blue',
+-  'morning-sky',
+-  'navy-blue',
+-  'deep-ocean',
+-  'gun-metal',
+-  'midnight-blue',
+-  'antique-blue',
+   'summer-sky',
++  'antique-blue',
+   'lilac-eyes',
++  'gun-metal',
++  'navy-blue',
++  'midnight-blue',
++  'deep-ocean',
+   'sugar-plum',
+   'lavender-fields',
+   'sweet-lilac',
+-  'red-burgundy',
+-  'pink-tulip',
+   'piggy-red',
++  'pink-tulip',
+   'berry-red',
+-  'muddy-grey',
+-  'dark-granite',
++  'red-burgundy',
++  'grey-stone',
++  'light-concrete',
+   'wet-rock',
++  'dark-granite',
++  'muddy-grey',
++  'pirate-gold',
+   'silver-glint',
+-  'light-concrete',
+-  'grey-stone',
+ ];
+ 
+ const isColor = (value) => COLORS.includes(value) || /^#[0-9a-f]{6}$/i.test(value);

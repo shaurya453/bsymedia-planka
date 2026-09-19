@@ -3731,3 +3731,47 @@ columns) between the list picker and the label picker; confirmed a brand-new lab
 is still `muddy-grey`, unchanged; zero new lint errors; zero console errors.
 
 Patch: `planka-custom/patches/0074-color-grid-reorg.patch`.
+
+## Remove list-title color dot, contrast the add-card button, restructure color pickers into a hue-family matrix (2026-09-19)
+
+Three requests in one pass:
+
+- **Removed the colored dot before each list's title.** It was `List.jsx`'s `<Icon name="circle"
+  .../>` next to `list.name`, styled via `colorProps.iconClassName`/`iconStyle`. Deleted the icon
+  and both now-dead `colorProps` fields, plus the orphaned `.headerNameColor` CSS rule
+  (`List.module.scss`) and all 42 now-unused `.color<Name>` text-color CSS rules
+  (`styles.module.scss`) that existed solely to feed that dot - grep-confirmed nothing else in the
+  codebase referenced them.
+- **Contrast-styled the "+ Add card"/"Add another card" button.** Its icon (an inline SVG,
+  `plus-math-icon.svg`) and text previously used `List.module.scss`'s fixed `color: #6b808c; fill:
+  #6b808c`, which doesn't adapt to a colored list background. `colorProps` now computes one
+  `contrastColor` hex per list-color branch (named-soft vs. custom-hex, same logic already used for
+  the header text) and exposes it as `addCardTextStyle: { color, fill }`, applied inline to the
+  button. `fill` is set explicitly because the SVG's `<path>` has no fill of its own - it inherits
+  the computed value from its ancestor, so setting `fill` on the button cascades down to the icon.
+- **Restructured the 42-color palette from a flat hue-sorted list into a hue-family matrix.**
+  Computed (not guessed) via the same HSL data as patches 0073/0074: bucketed the 40
+  non-metallic colors into 8 hue-family columns by hue angle (red, orange, yellow, green, teal,
+  blue, purple, pink - boundaries chosen from the actual gaps in the data) plus a 9th trailing
+  achromatic (grey) column, then sorted each column lightest-to-darkest top-to-bottom (tints above,
+  shades below). `pirate-gold` and `silver-glint` render as metallic gradients, not flat colors, so
+  they're excluded from the matrix and shown in a separate "special" section together with the
+  custom color wheel trigger. New `constants/LabelColorGrid.js` holds this layout (`HUE_COLUMNS`,
+  `SPECIAL_COLORS`, and a flattened `GRID_ITEMS` list of `{ color, column, row }` used to place each
+  swatch via inline `gridColumn`/`gridRow` styles - CSS Grid auto-placement can't express "columns
+  of different heights" on its own, so placement is explicit rather than flow-based).
+  `LabelsStep/Editor.jsx` and `lists/List/EditColorStep.jsx` both render `GRID_ITEMS` into a
+  `repeat(9, 40px)` / `repeat(7, 40px)` grid, then `SPECIAL_COLORS` + the custom-wheel button into a
+  separate flex row below a divider. `LabelColors.js`/`LabelGlowColors.js` and both server
+  `Label.js`/`List.js` `COLORS` arrays were reordered to the same column-major reading order for
+  consistency (order doesn't affect validation, which is membership-based).
+
+Verified in an isolated stack via Puppeteer: confirmed zero `circle` icons remain in any list
+header; set a list to a near-black custom hex and confirmed the header text, the add-card button's
+text color, and its SVG icon's computed `fill` are all identical light greys (matching, legible);
+extracted each swatch's rendered `gridColumn`/`gridRow` and reconstructed the column contents,
+confirming they match the computed hue-family layout exactly, and confirmed the special section
+contains exactly gold, silver, and the custom-wheel button, separate from the matrix; zero new lint
+errors; zero console errors.
+
+Patch: `planka-custom/patches/0075-color-matrix-and-dot-removal.patch`.
