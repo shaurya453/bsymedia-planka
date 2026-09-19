@@ -1,0 +1,466 @@
+diff --git a/client/src/components/common/ColorWheelPicker/ColorWheelPicker.jsx b/client/src/components/common/ColorWheelPicker/ColorWheelPicker.jsx
+index aa42449..028205f 100644
+--- a/client/src/components/common/ColorWheelPicker/ColorWheelPicker.jsx
++++ b/client/src/components/common/ColorWheelPicker/ColorWheelPicker.jsx
+@@ -179,6 +179,10 @@ const ColorWheelPicker = React.memo(({ value, onChange, size }) => {
+   const isDraggingRef = useRef(false);
+   const dragModeRef = useRef(null); // 'hue' | 'sv'
+ 
++  // Mirrors the latest `hsv` state so it can be read synchronously (e.g. from the pointerup
++  // handler) without waiting for a re-render.
++  const hsvRef = useRef(hsv);
++
+   const outerRadius = size / 2 - RING_OUTER_MARGIN;
+   const innerRadius = outerRadius - RING_WIDTH;
+   const triangleRadius = innerRadius - 2;
+@@ -203,8 +207,11 @@ const ColorWheelPicker = React.memo(({ value, onChange, size }) => {
+       return;
+     }
+ 
++    const nextHsv = hexToHsv(normalizedValue);
++
+     lastEmittedHexRef.current = normalizedValue;
+-    setHsv(hexToHsv(normalizedValue));
++    hsvRef.current = nextHsv;
++    setHsv(nextHsv);
+     setHexInput(normalizedValue);
+   }, [value]);
+ 
+@@ -278,7 +285,7 @@ const ColorWheelPicker = React.memo(({ value, onChange, size }) => {
+         const hue = angleFromCenter(dx, dy);
+         setHsv((prevHsv) => {
+           const nextHsv = { ...prevHsv, h: hue };
+-          emitChange(nextHsv);
++          hsvRef.current = nextHsv;
+           return nextHsv;
+         });
+       } else if (dragModeRef.current === 'sv') {
+@@ -292,12 +299,12 @@ const ColorWheelPicker = React.memo(({ value, onChange, size }) => {
+           const { s, v } = barycentricToSv(clamped);
+ 
+           const nextHsv = { ...prevHsv, s, v };
+-          emitChange(nextHsv);
++          hsvRef.current = nextHsv;
+           return nextHsv;
+         });
+       }
+     },
+-    [size, triangleRadius, emitChange],
++    [size, triangleRadius],
+   );
+ 
+   const stopDragRef = useRef(null);
+@@ -349,6 +356,8 @@ const ColorWheelPicker = React.memo(({ value, onChange, size }) => {
+         window.removeEventListener('pointerup', onUp);
+         window.removeEventListener('pointercancel', onUp);
+         stopDragRef.current = null;
++
++        emitChange(hsvRef.current);
+       };
+ 
+       stopDragRef.current = onUp;
+@@ -357,7 +366,7 @@ const ColorWheelPicker = React.memo(({ value, onChange, size }) => {
+       window.addEventListener('pointerup', onUp);
+       window.addEventListener('pointercancel', onUp);
+     },
+-    [size, innerRadius, outerRadius, handlePointerMove],
++    [size, innerRadius, outerRadius, handlePointerMove, emitChange],
+   );
+ 
+   useEffect(
+diff --git a/client/src/components/labels/LabelsStep/AddStep.jsx b/client/src/components/labels/LabelsStep/AddStep.jsx
+index 2a4934d..c98f8b7 100755
+--- a/client/src/components/labels/LabelsStep/AddStep.jsx
++++ b/client/src/components/labels/LabelsStep/AddStep.jsx
+@@ -12,7 +12,7 @@ import { Popup } from '../../../lib/custom-ui';
+ 
+ import entryActions from '../../../entry-actions';
+ import { useForm } from '../../../hooks';
+-import LABEL_COLORS from '../../../constants/LabelColors';
++import { DEFAULT_LABEL_COLOR } from '../../../constants/LabelColors';
+ import Editor from './Editor';
+ 
+ const AddStep = React.memo(({ cardId, defaultData, onBack }) => {
+@@ -21,7 +21,7 @@ const AddStep = React.memo(({ cardId, defaultData, onBack }) => {
+ 
+   const [data, handleFieldChange] = useForm(() => ({
+     name: '',
+-    color: LABEL_COLORS[0],
++    color: DEFAULT_LABEL_COLOR,
+     ...defaultData,
+   }));
+ 
+diff --git a/client/src/components/labels/LabelsStep/EditStep.jsx b/client/src/components/labels/LabelsStep/EditStep.jsx
+index 3abaf36..af0e7ab 100755
+--- a/client/src/components/labels/LabelsStep/EditStep.jsx
++++ b/client/src/components/labels/LabelsStep/EditStep.jsx
+@@ -14,7 +14,7 @@ import { Popup } from '../../../lib/custom-ui';
+ import selectors from '../../../selectors';
+ import entryActions from '../../../entry-actions';
+ import { useForm, useSteps } from '../../../hooks';
+-import LABEL_COLORS from '../../../constants/LabelColors';
++import { DEFAULT_LABEL_COLOR } from '../../../constants/LabelColors';
+ import Editor from './Editor';
+ import ConfirmationStep from '../../common/ConfirmationStep';
+ 
+@@ -41,7 +41,7 @@ const EditStep = React.memo(({ labelId, onBack }) => {
+   );
+ 
+   const [data, handleFieldChange] = useForm(() => ({
+-    color: LABEL_COLORS[0],
++    color: DEFAULT_LABEL_COLOR,
+     ...defaultData,
+     name: defaultData.name || '',
+   }));
+diff --git a/client/src/constants/LabelColors.js b/client/src/constants/LabelColors.js
+index 27b0c01..be96d44 100644
+--- a/client/src/constants/LabelColors.js
++++ b/client/src/constants/LabelColors.js
+@@ -4,46 +4,48 @@
+  */
+ 
+ export default [
+-  'muddy-grey',
+-  'autumn-leafs',
+-  'morning-sky',
+-  'antique-blue',
+-  'egg-yellow',
+-  'desert-sand',
+-  'dark-granite',
+-  'fresh-salad',
+-  'lagoon-blue',
+-  'midnight-blue',
++  'apricot-red',
++  'shady-rust',
++  'light-cocoa',
++  'orange-peel',
+   'light-orange',
+   'pumpkin-orange',
+-  'light-concrete',
++  'light-mud',
++  'pirate-gold',
++  'desert-sand',
++  'egg-yellow',
++  'autumn-leafs',
+   'sunny-grass',
+-  'navy-blue',
+-  'lilac-eyes',
+-  'apricot-red',
+-  'orange-peel',
+-  'silver-glint',
++  'fresh-salad',
+   'bright-moss',
++  'tank-green',
++  'wet-moss',
++  'modern-green',
++  'french-coast',
++  'coral-green',
++  'turquoise-sea',
++  'lagoon-blue',
++  'morning-sky',
++  'navy-blue',
+   'deep-ocean',
++  'gun-metal',
++  'midnight-blue',
++  'antique-blue',
+   'summer-sky',
+-  'berry-red',
+-  'light-cocoa',
+   'grey-stone',
+-  'tank-green',
+-  'coral-green',
++  'lilac-eyes',
+   'sugar-plum',
+-  'pink-tulip',
+-  'shady-rust',
+-  'wet-rock',
+-  'wet-moss',
+-  'turquoise-sea',
+   'lavender-fields',
+-  'piggy-red',
+-  'light-mud',
+-  'gun-metal',
+-  'modern-green',
+-  'french-coast',
+   'sweet-lilac',
+   'red-burgundy',
+-  'pirate-gold',
++  'pink-tulip',
++  'piggy-red',
++  'berry-red',
++  'muddy-grey',
++  'dark-granite',
++  'wet-rock',
++  'silver-glint',
++  'light-concrete',
+ ];
++
++export const DEFAULT_LABEL_COLOR = 'muddy-grey';
+diff --git a/client/src/constants/LabelGlowColors.js b/client/src/constants/LabelGlowColors.js
+index aa7f96e..aa56b14 100644
+--- a/client/src/constants/LabelGlowColors.js
++++ b/client/src/constants/LabelGlowColors.js
+@@ -8,46 +8,46 @@
+ // solid color, so silver-glint and pirate-gold (defined there as gradients)
+ // use a representative solid color from their gradient instead.
+ export default {
+-  'muddy-grey': '#69655a',
+-  'autumn-leafs': '#c9b037',
+-  'morning-sky': '#52b9d5',
+-  'antique-blue': '#6c99bb',
+-  'egg-yellow': '#f9c423',
+-  'desert-sand': '#fad371',
+-  'dark-granite': '#8b8680',
+-  'fresh-salad': '#ced85e',
+-  'lagoon-blue': '#109dc0',
+-  'midnight-blue': '#0a63a0',
++  'apricot-red': '#fc736c',
++  'shady-rust': '#87564a',
++  'light-cocoa': '#a85540',
++  'orange-peel': '#de692f',
+   'light-orange': '#fdae5f',
+   'pumpkin-orange': '#ed9223',
+-  'light-concrete': '#afb0a4',
++  'light-mud': '#c7a57a',
++  'pirate-gold': '#b47e11',
++  'desert-sand': '#fad371',
++  'egg-yellow': '#f9c423',
++  'autumn-leafs': '#c9b037',
+   'sunny-grass': '#beca02',
+-  'navy-blue': '#1d7299',
+-  'lilac-eyes': '#406cbd',
+-  'apricot-red': '#fc736c',
+-  'orange-peel': '#de692f',
+-  'silver-glint': '#92908d',
++  'fresh-salad': '#ced85e',
+   'bright-moss': '#96b352',
++  'tank-green': '#8aa177',
++  'wet-moss': '#4a8753',
++  'modern-green': '#77ce87',
++  'french-coast': '#00b4b1',
++  'coral-green': '#2b6a6c',
++  'turquoise-sea': '#00858a',
++  'lagoon-blue': '#109dc0',
++  'morning-sky': '#52b9d5',
++  'navy-blue': '#1d7299',
+   'deep-ocean': '#004c70',
++  'gun-metal': '#4f6573',
++  'midnight-blue': '#0a63a0',
++  'antique-blue': '#6c99bb',
+   'summer-sky': '#5d9cec',
+-  'berry-red': '#e83855',
+-  'light-cocoa': '#a85540',
+   'grey-stone': '#aab2bd',
+-  'tank-green': '#8aa177',
+-  'coral-green': '#2b6a6c',
++  'lilac-eyes': '#406cbd',
+   'sugar-plum': '#7e86c7',
+-  'pink-tulip': '#e34f7c',
+-  'shady-rust': '#87564a',
+-  'wet-rock': '#83949b',
+-  'wet-moss': '#4a8753',
+-  'turquoise-sea': '#00858a',
+   'lavender-fields': '#b287bd',
+-  'piggy-red': '#f97394',
+-  'light-mud': '#c7a57a',
+-  'gun-metal': '#4f6573',
+-  'modern-green': '#77ce87',
+-  'french-coast': '#00b4b1',
+   'sweet-lilac': '#975298',
+   'red-burgundy': '#ad5f7d',
+-  'pirate-gold': '#b47e11',
++  'pink-tulip': '#e34f7c',
++  'piggy-red': '#f97394',
++  'berry-red': '#e83855',
++  'muddy-grey': '#69655a',
++  'dark-granite': '#8b8680',
++  'wet-rock': '#83949b',
++  'silver-glint': '#92908d',
++  'light-concrete': '#afb0a4',
+ };
+diff --git a/server/api/models/Label.js b/server/api/models/Label.js
+index d701374..c31deae 100755
+--- a/server/api/models/Label.js
++++ b/server/api/models/Label.js
+@@ -44,7 +44,7 @@
+  *           example: Bug
+  *         color:
+  *           type: string
+- *           enum: [muddy-grey, autumn-leafs, morning-sky, antique-blue, egg-yellow, desert-sand, dark-granite, fresh-salad, lagoon-blue, midnight-blue, light-orange, pumpkin-orange, light-concrete, sunny-grass, navy-blue, lilac-eyes, apricot-red, orange-peel, silver-glint, bright-moss, deep-ocean, summer-sky, berry-red, light-cocoa, grey-stone, tank-green, coral-green, sugar-plum, pink-tulip, shady-rust, wet-rock, wet-moss, turquoise-sea, lavender-fields, piggy-red, light-mud, gun-metal, modern-green, french-coast, sweet-lilac, red-burgundy, pirate-gold]
++ *           enum: [apricot-red, shady-rust, light-cocoa, orange-peel, light-orange, pumpkin-orange, light-mud, pirate-gold, desert-sand, egg-yellow, autumn-leafs, sunny-grass, fresh-salad, bright-moss, tank-green, wet-moss, modern-green, french-coast, coral-green, turquoise-sea, lagoon-blue, morning-sky, navy-blue, deep-ocean, gun-metal, midnight-blue, antique-blue, summer-sky, grey-stone, lilac-eyes, sugar-plum, lavender-fields, sweet-lilac, red-burgundy, pink-tulip, piggy-red, berry-red, muddy-grey, dark-granite, wet-rock, silver-glint, light-concrete]
+  *           description: Color of the label (one of the enum values, or a custom "#rrggbb" hex string)
+  *           example: berry-red
+  *         createdAt:
+@@ -62,48 +62,48 @@
+  */
+ 
+ const COLORS = [
+-  'muddy-grey',
+-  'autumn-leafs',
+-  'morning-sky',
+-  'antique-blue',
+-  'egg-yellow',
+-  'desert-sand',
+-  'dark-granite',
+-  'fresh-salad',
+-  'lagoon-blue',
+-  'midnight-blue',
++  'apricot-red',
++  'shady-rust',
++  'light-cocoa',
++  'orange-peel',
+   'light-orange',
+   'pumpkin-orange',
+-  'light-concrete',
++  'light-mud',
++  'pirate-gold',
++  'desert-sand',
++  'egg-yellow',
++  'autumn-leafs',
+   'sunny-grass',
+-  'navy-blue',
+-  'lilac-eyes',
+-  'apricot-red',
+-  'orange-peel',
+-  'silver-glint',
++  'fresh-salad',
+   'bright-moss',
++  'tank-green',
++  'wet-moss',
++  'modern-green',
++  'french-coast',
++  'coral-green',
++  'turquoise-sea',
++  'lagoon-blue',
++  'morning-sky',
++  'navy-blue',
+   'deep-ocean',
++  'gun-metal',
++  'midnight-blue',
++  'antique-blue',
+   'summer-sky',
+-  'berry-red',
+-  'light-cocoa',
+   'grey-stone',
+-  'tank-green',
+-  'coral-green',
++  'lilac-eyes',
+   'sugar-plum',
+-  'pink-tulip',
+-  'shady-rust',
+-  'wet-rock',
+-  'wet-moss',
+-  'turquoise-sea',
+   'lavender-fields',
+-  'piggy-red',
+-  'light-mud',
+-  'gun-metal',
+-  'modern-green',
+-  'french-coast',
+   'sweet-lilac',
+   'red-burgundy',
+-  'pirate-gold',
++  'pink-tulip',
++  'piggy-red',
++  'berry-red',
++  'muddy-grey',
++  'dark-granite',
++  'wet-rock',
++  'silver-glint',
++  'light-concrete',
+ ];
+ 
+ const isColor = (value) => COLORS.includes(value) || /^#[0-9a-f]{6}$/i.test(value);
+diff --git a/server/api/models/List.js b/server/api/models/List.js
+index 3d860a7..f07c393 100755
+--- a/server/api/models/List.js
++++ b/server/api/models/List.js
+@@ -51,7 +51,7 @@
+  *           example: To Do
+  *         color:
+  *           type: string
+- *           enum: [muddy-grey, autumn-leafs, morning-sky, antique-blue, egg-yellow, desert-sand, dark-granite, fresh-salad, lagoon-blue, midnight-blue, light-orange, pumpkin-orange, light-concrete, sunny-grass, navy-blue, lilac-eyes, apricot-red, orange-peel, silver-glint, bright-moss, deep-ocean, summer-sky, berry-red, light-cocoa, grey-stone, tank-green, coral-green, sugar-plum, pink-tulip, shady-rust, wet-rock, wet-moss, turquoise-sea, lavender-fields, piggy-red, light-mud, gun-metal, modern-green, french-coast, sweet-lilac, red-burgundy, pirate-gold]
++ *           enum: [apricot-red, shady-rust, light-cocoa, orange-peel, light-orange, pumpkin-orange, light-mud, pirate-gold, desert-sand, egg-yellow, autumn-leafs, sunny-grass, fresh-salad, bright-moss, tank-green, wet-moss, modern-green, french-coast, coral-green, turquoise-sea, lagoon-blue, morning-sky, navy-blue, deep-ocean, gun-metal, midnight-blue, antique-blue, summer-sky, grey-stone, lilac-eyes, sugar-plum, lavender-fields, sweet-lilac, red-burgundy, pink-tulip, piggy-red, berry-red, muddy-grey, dark-granite, wet-rock, silver-glint, light-concrete]
+  *           nullable: true
+  *           description: Color for the list (one of the enum values, or a custom "#rrggbb" hex string)
+  *           example: lagoon-blue
+@@ -109,48 +109,48 @@ const TYPE_STATE_BY_TYPE = {
+ };
+ 
+ const COLORS = [
+-  'muddy-grey',
+-  'autumn-leafs',
+-  'morning-sky',
+-  'antique-blue',
+-  'egg-yellow',
+-  'desert-sand',
+-  'dark-granite',
+-  'fresh-salad',
+-  'lagoon-blue',
+-  'midnight-blue',
++  'apricot-red',
++  'shady-rust',
++  'light-cocoa',
++  'orange-peel',
+   'light-orange',
+   'pumpkin-orange',
+-  'light-concrete',
++  'light-mud',
++  'pirate-gold',
++  'desert-sand',
++  'egg-yellow',
++  'autumn-leafs',
+   'sunny-grass',
+-  'navy-blue',
+-  'lilac-eyes',
+-  'apricot-red',
+-  'orange-peel',
+-  'silver-glint',
++  'fresh-salad',
+   'bright-moss',
++  'tank-green',
++  'wet-moss',
++  'modern-green',
++  'french-coast',
++  'coral-green',
++  'turquoise-sea',
++  'lagoon-blue',
++  'morning-sky',
++  'navy-blue',
+   'deep-ocean',
++  'gun-metal',
++  'midnight-blue',
++  'antique-blue',
+   'summer-sky',
+-  'berry-red',
+-  'light-cocoa',
+   'grey-stone',
+-  'tank-green',
+-  'coral-green',
++  'lilac-eyes',
+   'sugar-plum',
+-  'pink-tulip',
+-  'shady-rust',
+-  'wet-rock',
+-  'wet-moss',
+-  'turquoise-sea',
+   'lavender-fields',
+-  'piggy-red',
+-  'light-mud',
+-  'gun-metal',
+-  'modern-green',
+-  'french-coast',
+   'sweet-lilac',
+   'red-burgundy',
+-  'pirate-gold',
++  'pink-tulip',
++  'piggy-red',
++  'berry-red',
++  'muddy-grey',
++  'dark-granite',
++  'wet-rock',
++  'silver-glint',
++  'light-concrete',
+ ];
+ 
+ const isColor = (value) => COLORS.includes(value) || /^#[0-9a-f]{6}$/i.test(value);

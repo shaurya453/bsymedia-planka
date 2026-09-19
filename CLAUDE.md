@@ -3640,3 +3640,54 @@ button) - confirmed via the API the label's color persisted, and confirmed the c
 grey fallback. Zero console errors throughout.
 
 Patch: `planka-custom/patches/0072-delete-confirm-colors-title-select.patch`.
+
+## Fix color-wheel race condition, reorder color palette into a rainbow (2026-09-19)
+
+Two bugs reported right after patch 0072 shipped, both fixed via 2 parallel background agents in
+isolated git worktrees (zero file overlap):
+
+- **The color wheel's dot glitched and kept moving/changing color on its own after a drag.** Root
+  cause (confirmed via code trace): `ColorWheelPicker.jsx`'s `handlePointerMove` called `onChange`
+  on every single `pointermove` event during a drag - potentially dozens of times per gesture. For
+  the list-color picker, that `onChange` is wired straight to a real Redux action
+  (`entryActions.updateList`) that fires an actual server PATCH over the app's WebSocket transport
+  (`socket.patch()` in `client/src/api/lists.js` - not plain HTTP, which is why counting this in
+  verification needed CDP `Network.webSocketFrameSent` events, not `page.on('request')`). A drag
+  fired dozens of overlapping PATCHes that resolved asynchronously out of order; each resolution
+  updated `list.color` in Redux, which fed back into the wheel via its `value` prop, and the
+  component's own re-sync effect (only guarded against *currently* dragging, not against *stale*
+  responses) kept recomputing the dot's position from whichever late response had just landed -
+  for a good while after the user had already let go. The hex↔HSV round-trip math itself was
+  verified lossless; this was a pure request-race/feedback-loop bug.
+  - **Fix** (entirely inside `ColorWheelPicker.jsx`, zero changes needed at either call site -
+    `EditColorStep.jsx`/`Editor.jsx` just forward whatever `onChange` they're given): `hsvRef` was
+    added to mirror the latest `hsv` state synchronously; `handlePointerMove` now only updates
+    `hsv`/`hsvRef` (still instant, still drives the live canvas repaint during the drag - none of
+    that changed), and the single `emitChange(hsvRef.current)` call happens once, in the shared
+    `pointerup`/`pointercancel` handler, after listener cleanup. This mirrors an established pattern
+    already used elsewhere in this codebase for the same class of problem - `lists/List/EditName.jsx`
+    and `cards/CardModal/NameField.jsx` both keep local state on every keystroke but only dispatch
+    the server-persisting action in `handleBlur`. Verified via CDP WebSocket-frame monitoring: two
+    separate drag gestures (one on the hue ring, one in the sv-triangle) produced exactly one PATCH
+    frame each, and zero further frames in the 2+ seconds after each drag ended - no drift, no
+    jitter, stable final persisted color both times.
+- **Color order was "haywire".** The 42-color palette was in its original upstream-authored order
+  (scattered reds/blues/greens/greys), not any perceptual order. Computed the actual fix (not
+  guessed) by converting every color's real hex value to HSL, separating true low-saturation
+  neutrals (saturation < 12%) from chromatic colors, sorting the chromatic group by hue (ties by
+  saturation desc, then lightness), and appending the neutral group sorted by lightness. Applied
+  this exact order to all four files that list these 42 identifiers in sync with each other
+  (`constants/LabelColors.js`, `constants/LabelGlowColors.js`, and both server
+  `models/Label.js`/`models/List.js` `COLORS` arrays - order doesn't affect validation, which is
+  purely membership-based, but keeping all four in the same order avoids future drift). Caught and
+  fixed one side effect before it could silently change unrelated behavior:
+  `labels/LabelsStep/AddStep.jsx` and `EditStep.jsx` both used `LABEL_COLORS[0]` as the default
+  color for a brand-new label - reordering the array would have silently swapped that default from
+  `muddy-grey` to `apricot-red`. Decoupled it via a new named export
+  `DEFAULT_LABEL_COLOR = 'muddy-grey'` from `LabelColors.js`, used by both files instead of indexing
+  position 0. Verified via Puppeteer: extracted the rendered `background<Name>` class order from
+  both the list color picker's and the label editor's swatch grids and confirmed both match the
+  computed order exactly (42/42), and confirmed a brand-new label's swatch grid still shows
+  `muddy-grey` pre-selected as the default, unchanged.
+
+Patch: `planka-custom/patches/0073-color-wheel-fix-and-palette-order.patch`.
