@@ -1,0 +1,201 @@
+diff --git a/client/src/components/labels/LabelsStep/Editor.module.scss b/client/src/components/labels/LabelsStep/Editor.module.scss
+index 5cb2181..9ff21a7 100644
+--- a/client/src/components/labels/LabelsStep/Editor.module.scss
++++ b/client/src/components/labels/LabelsStep/Editor.module.scss
+@@ -53,13 +53,19 @@
+     transform: rotate(-135deg);
+   }
+ 
++  // BSY Media: fixed 6-column, fixed-pixel grid (not auto-fill) so this
++  // renders byte-for-byte identically to the list color editor's swatch grid
++  // (lists/List/EditColorStep.module.scss) regardless of where each popup
++  // gets anchored on the page.
+   .colorButtons {
++    box-sizing: content-box;
+     display: grid;
+     gap: 6px;
+-    grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
++    grid-template-columns: repeat(6, 40px);
+     margin-bottom: 12px;
+     max-height: 60vh;
+     overflow-y: auto;
++    width: 270px;
+ 
+     @supports (-moz-appearance: none) {
+       scrollbar-color: rgba(0, 0, 0, 0.32) transparent;
+diff --git a/client/src/components/lists/List/EditColorStep.module.scss b/client/src/components/lists/List/EditColorStep.module.scss
+index 6ab3270..888b4e4 100644
+--- a/client/src/components/lists/List/EditColorStep.module.scss
++++ b/client/src/components/lists/List/EditColorStep.module.scss
+@@ -25,12 +25,8 @@
+   }
+ 
+   .colorButton {
+-    float: left;
+-    height: 40px;
+-    margin: 4px;
+-    padding: 0;
++    margin: 0;
+     position: relative;
+-    width: 49.6px;
+ 
+     &:hover {
+       opacity: 0.9;
+@@ -38,27 +34,50 @@
+   }
+ 
+   .colorButtonActive:before {
+-    bottom: 3px;
+     color: #ffffff;
+     content: "Г";
+-    font-size: 18px;
+-    line-height: 36px;
++    font-size: 16px;
++    line-height: 32px;
+     position: absolute;
+-    right: 6px;
++    right: calc(50% - 5px);
+     text-align: center;
+     text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.2);
+-    top: 0;
++    top: calc(50% - 17px);
+     transform: rotate(-135deg);
+-    width: 36px;
+   }
+ 
++  // BSY Media: fixed 6-column, fixed-pixel grid (not auto-fill) so this
++  // renders byte-for-byte identically to the label editor's swatch grid
++  // (labels/LabelsStep/Editor.module.scss) regardless of where each popup
++  // gets anchored on the page - an auto-fill/auto-width grid was computing a
++  // different column count here than in the label editor's popup.
+   .colorButtons {
+-    margin: -4px;
++    box-sizing: content-box;
++    display: grid;
++    gap: 6px;
++    grid-template-columns: repeat(6, 40px);
++    margin-bottom: 12px;
++    max-height: 60vh;
++    overflow-y: auto;
++    width: 270px;
+ 
+-    &:after {
+-      clear: both;
+-      content: "";
+-      display: table;
++    @supports (-moz-appearance: none) {
++      scrollbar-color: rgba(0, 0, 0, 0.32) transparent;
++      scrollbar-width: thin;
++    }
++
++    &::-webkit-scrollbar {
++      width: 9px;
++    }
++
++    &::-webkit-scrollbar-track {
++      background: transparent;
++    }
++
++    &::-webkit-scrollbar-thumb {
++      background-clip: padding-box;
++      border-left: 0.25em transparent solid;
++      border-radius: 3px;
+     }
+   }
+ 
+diff --git a/client/src/constants/LabelColors.js b/client/src/constants/LabelColors.js
+index be96d44..a744386 100644
+--- a/client/src/constants/LabelColors.js
++++ b/client/src/constants/LabelColors.js
+@@ -32,7 +32,6 @@ export default [
+   'midnight-blue',
+   'antique-blue',
+   'summer-sky',
+-  'grey-stone',
+   'lilac-eyes',
+   'sugar-plum',
+   'lavender-fields',
+@@ -46,6 +45,7 @@ export default [
+   'wet-rock',
+   'silver-glint',
+   'light-concrete',
++  'grey-stone',
+ ];
+ 
+ export const DEFAULT_LABEL_COLOR = 'muddy-grey';
+diff --git a/client/src/constants/LabelGlowColors.js b/client/src/constants/LabelGlowColors.js
+index aa56b14..81fd569 100644
+--- a/client/src/constants/LabelGlowColors.js
++++ b/client/src/constants/LabelGlowColors.js
+@@ -36,7 +36,6 @@ export default {
+   'midnight-blue': '#0a63a0',
+   'antique-blue': '#6c99bb',
+   'summer-sky': '#5d9cec',
+-  'grey-stone': '#aab2bd',
+   'lilac-eyes': '#406cbd',
+   'sugar-plum': '#7e86c7',
+   'lavender-fields': '#b287bd',
+@@ -50,4 +49,5 @@ export default {
+   'wet-rock': '#83949b',
+   'silver-glint': '#92908d',
+   'light-concrete': '#afb0a4',
++  'grey-stone': '#aab2bd',
+ };
+diff --git a/server/api/models/Label.js b/server/api/models/Label.js
+index c31deae..f924d98 100755
+--- a/server/api/models/Label.js
++++ b/server/api/models/Label.js
+@@ -44,7 +44,7 @@
+  *           example: Bug
+  *         color:
+  *           type: string
+- *           enum: [apricot-red, shady-rust, light-cocoa, orange-peel, light-orange, pumpkin-orange, light-mud, pirate-gold, desert-sand, egg-yellow, autumn-leafs, sunny-grass, fresh-salad, bright-moss, tank-green, wet-moss, modern-green, french-coast, coral-green, turquoise-sea, lagoon-blue, morning-sky, navy-blue, deep-ocean, gun-metal, midnight-blue, antique-blue, summer-sky, grey-stone, lilac-eyes, sugar-plum, lavender-fields, sweet-lilac, red-burgundy, pink-tulip, piggy-red, berry-red, muddy-grey, dark-granite, wet-rock, silver-glint, light-concrete]
++ *           enum: [apricot-red, shady-rust, light-cocoa, orange-peel, light-orange, pumpkin-orange, light-mud, pirate-gold, desert-sand, egg-yellow, autumn-leafs, sunny-grass, fresh-salad, bright-moss, tank-green, wet-moss, modern-green, french-coast, coral-green, turquoise-sea, lagoon-blue, morning-sky, navy-blue, deep-ocean, gun-metal, midnight-blue, antique-blue, summer-sky, lilac-eyes, sugar-plum, lavender-fields, sweet-lilac, red-burgundy, pink-tulip, piggy-red, berry-red, muddy-grey, dark-granite, wet-rock, silver-glint, light-concrete, grey-stone]
+  *           description: Color of the label (one of the enum values, or a custom "#rrggbb" hex string)
+  *           example: berry-red
+  *         createdAt:
+@@ -90,7 +90,6 @@ const COLORS = [
+   'midnight-blue',
+   'antique-blue',
+   'summer-sky',
+-  'grey-stone',
+   'lilac-eyes',
+   'sugar-plum',
+   'lavender-fields',
+@@ -104,6 +103,7 @@ const COLORS = [
+   'wet-rock',
+   'silver-glint',
+   'light-concrete',
++  'grey-stone',
+ ];
+ 
+ const isColor = (value) => COLORS.includes(value) || /^#[0-9a-f]{6}$/i.test(value);
+diff --git a/server/api/models/List.js b/server/api/models/List.js
+index f07c393..7f63098 100755
+--- a/server/api/models/List.js
++++ b/server/api/models/List.js
+@@ -51,7 +51,7 @@
+  *           example: To Do
+  *         color:
+  *           type: string
+- *           enum: [apricot-red, shady-rust, light-cocoa, orange-peel, light-orange, pumpkin-orange, light-mud, pirate-gold, desert-sand, egg-yellow, autumn-leafs, sunny-grass, fresh-salad, bright-moss, tank-green, wet-moss, modern-green, french-coast, coral-green, turquoise-sea, lagoon-blue, morning-sky, navy-blue, deep-ocean, gun-metal, midnight-blue, antique-blue, summer-sky, grey-stone, lilac-eyes, sugar-plum, lavender-fields, sweet-lilac, red-burgundy, pink-tulip, piggy-red, berry-red, muddy-grey, dark-granite, wet-rock, silver-glint, light-concrete]
++ *           enum: [apricot-red, shady-rust, light-cocoa, orange-peel, light-orange, pumpkin-orange, light-mud, pirate-gold, desert-sand, egg-yellow, autumn-leafs, sunny-grass, fresh-salad, bright-moss, tank-green, wet-moss, modern-green, french-coast, coral-green, turquoise-sea, lagoon-blue, morning-sky, navy-blue, deep-ocean, gun-metal, midnight-blue, antique-blue, summer-sky, lilac-eyes, sugar-plum, lavender-fields, sweet-lilac, red-burgundy, pink-tulip, piggy-red, berry-red, muddy-grey, dark-granite, wet-rock, silver-glint, light-concrete, grey-stone]
+  *           nullable: true
+  *           description: Color for the list (one of the enum values, or a custom "#rrggbb" hex string)
+  *           example: lagoon-blue
+@@ -137,7 +137,6 @@ const COLORS = [
+   'midnight-blue',
+   'antique-blue',
+   'summer-sky',
+-  'grey-stone',
+   'lilac-eyes',
+   'sugar-plum',
+   'lavender-fields',
+@@ -151,6 +150,7 @@ const COLORS = [
+   'wet-rock',
+   'silver-glint',
+   'light-concrete',
++  'grey-stone',
+ ];
+ 
+ const isColor = (value) => COLORS.includes(value) || /^#[0-9a-f]{6}$/i.test(value);

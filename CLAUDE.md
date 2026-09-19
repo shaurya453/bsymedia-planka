@@ -3691,3 +3691,43 @@ isolated git worktrees (zero file overlap):
   `muddy-grey` pre-selected as the default, unchanged.
 
 Patch: `planka-custom/patches/0073-color-wheel-fix-and-palette-order.patch`.
+
+## Reorganize label/list color grids: fix stray grey outlier, unify swatch grid layout (2026-09-19)
+
+Follow-up polish request right after patch 0073's rainbow reorder shipped: the user asked to
+visually clean up the label color grid, then make the list color grid use the identical layout.
+
+- **One color was still a visible outlier in the "rainbow".** Patch 0073's hue-sort classified any
+  color with saturation < 12% as a neutral/grey (grouped at the tail, sorted by lightness) and
+  sorted everything else by hue. `grey-stone` (`#aab2bd`) has saturation 12.6% - just barely above
+  that cutoff - so it got sorted by hue (215°, "blue") instead, landing it between `antique-blue`/
+  `summer-sky` and `lilac-eyes`: a visibly pale, washed-out swatch sitting in the middle of a run of
+  vivid blues. Recomputed with the same HSL data but confirmed (not guessed) that moving just this
+  one color into the neutral group is the correct, principled fix - re-running the classification
+  with a 13% cutoff buckets `grey-stone` with the other greys, and its lightness (70.4, the
+  lightest of the six) places it last in that group, after `light-concrete` - no other color is
+  close enough to that boundary to be affected. Applied this one-item reorder to all four files
+  that must stay in sync (`constants/LabelColors.js`, `constants/LabelGlowColors.js`, both server
+  `models/Label.js`/`models/List.js` `COLORS` arrays).
+- **The label and list color grids used two different CSS layout systems.** The label editor
+  (`labels/LabelsStep/Editor.module.scss`) used a CSS Grid with `auto-fill` column sizing; the list
+  editor (`lists/List/EditColorStep.module.scss`) used a legacy `float: left` layout with a
+  hardcoded `49.6px` swatch width. Both were rendered inside differently-anchored Semantic UI
+  popups, and `auto-fill`'s column count depends on the available width of its (shrink-to-fit)
+  container - which differed between the two popups' anchor points, so one rendered 6 columns and
+  the other 5, making the "same" 42+1-color grid look inconsistent between the two pickers even
+  after the color order itself was unified. Fixed by replacing both stylesheets' `.colorButtons`/
+  `.colorButton`/`.colorButtonActive` rules with one identical, fully explicit definition -
+  `grid-template-columns: repeat(6, 40px)` plus an explicit `width: 270px` on the container - so
+  neither grid depends on ambient container width anymore; both editors now render byte-for-byte
+  identical geometry (6 columns, 40px swatches, 270px total width) regardless of where their popup
+  is anchored on the page.
+
+Verified via Puppeteer: extracted the rendered `background<Name>` class order from both pickers and
+confirmed both match the corrected 42-color order exactly (with `grey-stone` now trailing, not
+mid-blue); measured each grid's rendered column count and swatch width via
+`getBoundingClientRect()` and confirmed they're now identical (270px container, 40px swatches, 6
+columns) between the list picker and the label picker; confirmed a brand-new label's default color
+is still `muddy-grey`, unchanged; zero new lint errors; zero console errors.
+
+Patch: `planka-custom/patches/0074-color-grid-reorg.patch`.
