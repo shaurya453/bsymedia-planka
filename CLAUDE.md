@@ -3935,3 +3935,41 @@ for the full pass. Cleaned up the temp project afterward; confirmed the producti
 back to exactly the 8 real projects.
 
 Patch: `planka-custom/patches/0079-fix-list-soft-colors-crash.patch`.
+
+## List color picker swatches previewed the wrong shade (2026-09-20)
+
+Report: picking a list color chip "applies a shade of the selected color, something that isn't
+really the same color." Confirmed: `lists/List/EditColorStep.jsx`'s swatch buttons rendered the
+*bold/vivid* `background<Name>` CSS class, but `List.jsx` has always applied the pastel
+`background<Name>Soft` variant to the actual list header - a longstanding mismatch (present since
+list colors first got their own picker, not something the 65-color palette work introduced).
+Confirmed this is list-only: `LabelChip.jsx` already renders labels using the same vivid class as
+their own swatch, so labels were never affected - the user's own suspicion, confirmed correct.
+
+Asked the client directly which fix they wanted, since the two options produce meaningfully
+different results: make lists render the full vivid color (a real visual redesign, every list
+header becomes much more saturated), or make the swatches preview the same pastel shade lists
+already render (matches today's established look, zero visual change to existing boards). Client
+chose the latter.
+
+Fix (`planka-custom/patches/0080-list-color-swatch-preview.patch`): `EditColorStep.jsx`'s three
+swatch-rendering `.map()` calls (grey row, hue columns, special colors) now apply
+`background<Name>Soft` instead of `background<Name>` - swatches are WYSIWYG with the applied list
+background. Caught and fixed a legibility regression this introduces before shipping: the active-
+swatch checkmark (`EditColorStep.module.scss`'s `.colorButtonActive:before`) was a plain white
+glyph with a faint 1px black shadow, tuned for the old vivid/mid-tone swatches - against the much
+paler pastel backgrounds (and the still-dark `dark-mode-cards-enabled` pastel variants) that
+contrast was no longer reliable both ways. Fixed with a stronger multi-directional black
+`text-shadow` (4x `0 0 2px #000000` + the original 1px offset shadow), producing a dark halo/outline
+around the white glyph that stays legible against both the pale light-mode and dark dark-mode
+pastel shades.
+
+Verified in an isolated stack first (fresh Postgres + the new image, this deployment's established
+pre-deploy pattern): confirmed via `getComputedStyle` that a swatch's own rendered background color
+now matches the list header's actual applied background color byte-for-byte (`rgb(230, 192, 188)`
+both, for `coral-flame`), and confirmed the active checkmark's new outline shadow is present.
+Deployed to production and re-verified the identical color-match check live (same result), plus
+zero console errors. Temp project cleaned up automatically by the verification script; confirmed
+production is back to exactly the 8 real projects afterward.
+
+Patch: `planka-custom/patches/0080-list-color-swatch-preview.patch`.

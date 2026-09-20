@@ -1,0 +1,61 @@
+diff --git a/client/src/components/lists/List/EditColorStep.jsx b/client/src/components/lists/List/EditColorStep.jsx
+index 6fc6d4b..ec74e2f 100644
+--- a/client/src/components/lists/List/EditColorStep.jsx
++++ b/client/src/components/lists/List/EditColorStep.jsx
+@@ -110,7 +110,7 @@ const EditColorStep = React.memo(({ listId, onBack, onClose }) => {
+                     className={classNames(
+                       styles.colorButton,
+                       color === defaultValue && styles.colorButtonActive,
+-                      globalStyles[`background${upperFirst(camelCase(color))}`],
++                      globalStyles[`background${upperFirst(camelCase(color))}Soft`],
+                     )}
+                     onClick={handleSelectClick}
+                   />
+@@ -127,7 +127,7 @@ const EditColorStep = React.memo(({ listId, onBack, onClose }) => {
+                         className={classNames(
+                           styles.colorButton,
+                           color === defaultValue && styles.colorButtonActive,
+-                          globalStyles[`background${upperFirst(camelCase(color))}`],
++                          globalStyles[`background${upperFirst(camelCase(color))}Soft`],
+                         )}
+                         onClick={handleSelectClick}
+                       />
+@@ -145,7 +145,7 @@ const EditColorStep = React.memo(({ listId, onBack, onClose }) => {
+                   className={classNames(
+                     styles.colorButton,
+                     color === defaultValue && styles.colorButtonActive,
+-                    globalStyles[`background${upperFirst(camelCase(color))}`],
++                    globalStyles[`background${upperFirst(camelCase(color))}Soft`],
+                   )}
+                   onClick={handleSelectClick}
+                 />
+diff --git a/client/src/components/lists/List/EditColorStep.module.scss b/client/src/components/lists/List/EditColorStep.module.scss
+index 61ba81c..1654d3e 100644
+--- a/client/src/components/lists/List/EditColorStep.module.scss
++++ b/client/src/components/lists/List/EditColorStep.module.scss
+@@ -41,6 +41,11 @@
+     }
+   }
+ 
++  // BSY Media: these swatches now render the same pale "Soft" background the list header
++  // actually uses (see EditColorStep.jsx), so a plain white glyph with a faint shadow is
++  // no longer reliably visible - the outline-style multi-direction shadow below keeps the
++  // checkmark legible against both the pale light-mode and dark dark-mode-cards-enabled
++  // variants of every color, not just the mid-tone vivid swatches this was designed for.
+   .colorButtonActive:before {
+     color: #ffffff;
+     content: "Г";
+@@ -49,7 +54,12 @@
+     position: absolute;
+     right: calc(50% - 5px);
+     text-align: center;
+-    text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.2);
++    text-shadow:
++      0 0 2px #000000,
++      0 0 2px #000000,
++      0 0 2px #000000,
++      0 0 2px #000000,
++      1px 1px 0 rgba(0, 0, 0, 0.2);
+     top: calc(50% - 17px);
+     transform: rotate(-135deg);
+   }
