@@ -1,0 +1,485 @@
+diff --git a/client/src/components/lists/List/EditColorStep.jsx b/client/src/components/lists/List/EditColorStep.jsx
+index ec74e2f..6fc6d4b 100644
+--- a/client/src/components/lists/List/EditColorStep.jsx
++++ b/client/src/components/lists/List/EditColorStep.jsx
+@@ -110,7 +110,7 @@ const EditColorStep = React.memo(({ listId, onBack, onClose }) => {
+                     className={classNames(
+                       styles.colorButton,
+                       color === defaultValue && styles.colorButtonActive,
+-                      globalStyles[`background${upperFirst(camelCase(color))}Soft`],
++                      globalStyles[`background${upperFirst(camelCase(color))}`],
+                     )}
+                     onClick={handleSelectClick}
+                   />
+@@ -127,7 +127,7 @@ const EditColorStep = React.memo(({ listId, onBack, onClose }) => {
+                         className={classNames(
+                           styles.colorButton,
+                           color === defaultValue && styles.colorButtonActive,
+-                          globalStyles[`background${upperFirst(camelCase(color))}Soft`],
++                          globalStyles[`background${upperFirst(camelCase(color))}`],
+                         )}
+                         onClick={handleSelectClick}
+                       />
+@@ -145,7 +145,7 @@ const EditColorStep = React.memo(({ listId, onBack, onClose }) => {
+                   className={classNames(
+                     styles.colorButton,
+                     color === defaultValue && styles.colorButtonActive,
+-                    globalStyles[`background${upperFirst(camelCase(color))}Soft`],
++                    globalStyles[`background${upperFirst(camelCase(color))}`],
+                   )}
+                   onClick={handleSelectClick}
+                 />
+diff --git a/client/src/components/lists/List/EditColorStep.module.scss b/client/src/components/lists/List/EditColorStep.module.scss
+index 1654d3e..61ba81c 100644
+--- a/client/src/components/lists/List/EditColorStep.module.scss
++++ b/client/src/components/lists/List/EditColorStep.module.scss
+@@ -41,11 +41,6 @@
+     }
+   }
+ 
+-  // BSY Media: these swatches now render the same pale "Soft" background the list header
+-  // actually uses (see EditColorStep.jsx), so a plain white glyph with a faint shadow is
+-  // no longer reliably visible - the outline-style multi-direction shadow below keeps the
+-  // checkmark legible against both the pale light-mode and dark dark-mode-cards-enabled
+-  // variants of every color, not just the mid-tone vivid swatches this was designed for.
+   .colorButtonActive:before {
+     color: #ffffff;
+     content: "Г";
+@@ -54,12 +49,7 @@
+     position: absolute;
+     right: calc(50% - 5px);
+     text-align: center;
+-    text-shadow:
+-      0 0 2px #000000,
+-      0 0 2px #000000,
+-      0 0 2px #000000,
+-      0 0 2px #000000,
+-      1px 1px 0 rgba(0, 0, 0, 0.2);
++    text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.2);
+     top: calc(50% - 17px);
+     transform: rotate(-135deg);
+   }
+diff --git a/client/src/components/lists/List/List.jsx b/client/src/components/lists/List/List.jsx
+index 58b4555..f44422c 100755
+--- a/client/src/components/lists/List/List.jsx
++++ b/client/src/components/lists/List/List.jsx
+@@ -22,7 +22,6 @@ import DroppableTypes from '../../../constants/DroppableTypes';
+ import { BoardMembershipRoles, ListTypes } from '../../../constants/Enums';
+ import { ListTypeIcons } from '../../../constants/Icons';
+ import LabelGlowColors from '../../../constants/LabelGlowColors';
+-import ListSoftColors from '../../../constants/ListSoftColors';
+ import getContrastTextColor from '../../../utils/get-contrast-text-color';
+ import EditName from './EditName';
+ import ActionsStep from './ActionsStep';
+@@ -54,10 +53,6 @@ const List = React.memo(({ id, index }) => {
+   const clipboard = useSelector(selectors.selectClipboard);
+   const isFavoritesActive = useSelector(selectors.selectIsFavoritesActiveForCurrentUser);
+ 
+-  const cardsDarkModeEnabled = useSelector(
+-    (state) => selectors.selectCurrentProject(state).cardsDarkModeEnabled,
+-  );
+-
+   const list = useSelector((state) => selectListById(state, id));
+   const cardIds = useSelector((state) => selectFilteredCardIdsByListId(state, id));
+ 
+@@ -181,11 +176,7 @@ const List = React.memo(({ id, index }) => {
+       };
+     }
+ 
+-    const contrastColor = getContrastTextColor(
+-      LabelGlowColors[list.color]
+-        ? ListSoftColors[list.color][cardsDarkModeEnabled ? 'dark' : 'light']
+-        : list.color,
+-    );
++    const contrastColor = getContrastTextColor(LabelGlowColors[list.color] || list.color);
+ 
+     // the add-card button's own fixed text/icon colors (`.addCardButton`'s `color`/`fill` in
+     // List.module.scss) need the same per-instance contrast treatment as the header text, since
+@@ -197,7 +188,7 @@ const List = React.memo(({ id, index }) => {
+       const pascalName = upperFirst(camelCase(list.color));
+ 
+       return {
+-        wrapperClassName: globalStyles[`background${pascalName}Soft`],
++        wrapperClassName: globalStyles[`background${pascalName}`],
+         wrapperStyle: undefined,
+         headerTextStyle: { color: contrastColor },
+         addCardTextStyle,
+@@ -212,7 +203,7 @@ const List = React.memo(({ id, index }) => {
+       headerTextStyle: { color: contrastColor },
+       addCardTextStyle,
+     };
+-  }, [list.color, cardsDarkModeEnabled]);
++  }, [list.color]);
+ 
+   const ActionsPopup = usePopup(ActionsStep);
+   const ArchiveCardsPopup = usePopup(ArchiveCardsStep);
+diff --git a/client/src/constants/ListSoftColors.js b/client/src/constants/ListSoftColors.js
+deleted file mode 100644
+index 40d0d4c..0000000
+--- a/client/src/constants/ListSoftColors.js
++++ /dev/null
+@@ -1,80 +0,0 @@
+-/*!
+- * Copyright (c) 2024 PLANKA Software GmbH
+- * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+- */
+-
+-// BSY Media: light- and dark-mode "Soft" background hex values for all 42
+-// list colors, mirroring the .background<Name>Soft rules in
+-// styles.module.scss (light mode) and its :global(#app.dark-mode-cards-enabled)
+-// override block (dark mode). Kept here, alongside the CSS, so List.jsx can
+-// look up the actual rendered background hex for a named color and feed it
+-// into getContrastTextColor() without re-parsing CSS at runtime.
+-export default {
+-  'berry-red': { light: '#f6c6cf', dark: '#580e1c' },
+-  'pumpkin-orange': { light: '#f6d2a8', dark: '#5c360a' },
+-  'lagoon-blue': { light: '#bfe3ee', dark: '#154351' },
+-  'pink-tulip': { light: '#f2c1d3', dark: '#54122a' },
+-  'light-mud': { light: '#e6d4bc', dark: '#4a361c' },
+-  'orange-peel': { light: '#f2c6ae', dark: '#58280e' },
+-  'bright-moss': { light: '#d7e4b6', dark: '#3d4a1c' },
+-  'antique-blue': { light: '#c7dcee', dark: '#18354e' },
+-  'dark-granite': { light: '#d8d6d3', dark: '#3b3935' },
+-  'turquoise-sea': { light: '#b7e1e3', dark: '#1d4749' },
+-  'muddy-grey': { light: '#d5d3ce', dark: '#37352f' },
+-  'autumn-leafs': { light: '#e6dfbc', dark: '#4f4517' },
+-  'morning-sky': { light: '#bcdde6', dark: '#17434f' },
+-  'egg-yellow': { light: '#e6dcbc', dark: '#4f4117' },
+-  'desert-sand': { light: '#e6dabc', dark: '#4f3f17' },
+-  'fresh-salad': { light: '#e2e6bc', dark: '#4a4f17' },
+-  'midnight-blue': { light: '#bcd5e6', dark: '#17384f' },
+-  'light-orange': { light: '#e6d1bc', dark: '#4f3317' },
+-  'light-concrete': { light: '#d4d4ce', dark: '#36372f' },
+-  'sunny-grass': { light: '#e3e6bc', dark: '#4c4f17' },
+-  'navy-blue': { light: '#bcd9e6', dark: '#173d4f' },
+-  'lilac-eyes': { light: '#bccbe6', dark: '#1a2c4c' },
+-  'apricot-red': { light: '#e6bebc', dark: '#4f1a17' },
+-  'silver-glint': { light: '#d2d1d0', dark: '#343332' },
+-  'deep-ocean': { light: '#bcd8e6', dark: '#173d4f' },
+-  'summer-sky': { light: '#bccfe6', dark: '#17304f' },
+-  'light-cocoa': { light: '#e6c5bd', dark: '#4a251c' },
+-  'grey-stone': { light: '#cbd0d7', dark: '#2d3239' },
+-  'tank-green': { light: '#d0d9c9', dark: '#323c2a' },
+-  'coral-green': { light: '#bde4e5', dark: '#1d4849' },
+-  'sugar-plum': { light: '#bfc3e3', dark: '#1f2347' },
+-  'shady-rust': { light: '#dec9c4', dark: '#422a24' },
+-  'wet-rock': { light: '#ccd3d6', dark: '#2e3538' },
+-  'wet-moss': { light: '#c4dec8', dark: '#244229' },
+-  'lavender-fields': { light: '#d9c4de', dark: '#3c2442' },
+-  'piggy-red': { light: '#e6bcc7', dark: '#4f1725' },
+-  'gun-metal': { light: '#c9d3da', dark: '#2a353c' },
+-  'modern-green': { light: '#bce6c4', dark: '#1b4b24' },
+-  'french-coast': { light: '#bce6e5', dark: '#174f4e' },
+-  'sweet-lilac': { light: '#dec3df', dark: '#422442' },
+-  'red-burgundy': { light: '#e0c2ce', dark: '#43232f' },
+-  'pirate-gold': { light: '#e6d8bc', dark: '#4f3c17' },
+-  // BSY Media: the 23 colors added 2026-09-19 (patch 0077) - mirrors the
+-  // .background<Name>Soft rules added to styles.module.scss at the same time.
+-  'coral-flame': { light: '#e6c0bc', dark: '#4f1c17' },
+-  'burnt-sienna': { light: '#e6c2bc', dark: '#4f1e17' },
+-  'terracotta-clay': { light: '#e6c3bc', dark: '#4f2017' },
+-  'clay-ember': { light: '#e2c7c0', dark: '#462820' },
+-  'honey-amber': { light: '#e6d2bc', dark: '#4f3517' },
+-  'amber-glow': { light: '#e6d3bc', dark: '#4f3617' },
+-  'wheat-gold': { light: '#e6e3bc', dark: '#4f4b17' },
+-  'marigold': { light: '#e6ddbc', dark: '#4f4317' },
+-  'citrine-moss': { light: '#e6e3bc', dark: '#4f4c17' },
+-  'sage-leaf': { light: '#c6e0c2', dark: '#274422' },
+-  'olive-grove': { light: '#d3dec4', dark: '#354224' },
+-  'forest-fern': { light: '#cae1c1', dark: '#2b4521' },
+-  'azure-lagoon': { light: '#bcdde6', dark: '#17444f' },
+-  'deep-teal': { light: '#bce5e6', dark: '#174f4f' },
+-  'orchid-mist': { light: '#dac4df', dark: '#3d2442' },
+-  'violet-bloom': { light: '#dbc3df', dark: '#3e2442' },
+-  'plum-blossom': { light: '#dcc4de', dark: '#3f2442' },
+-  'mulberry-wine': { light: '#ddc4df', dark: '#412442' },
+-  'rose-blush': { light: '#e6bcc7', dark: '#4f1726' },
+-  'watermelon-pink': { light: '#e6bcc8', dark: '#4f1727' },
+-  'raspberry-wine': { light: '#e6bcc8', dark: '#4f1726' },
+-  'taupe-shadow': { light: '#d4d2ce', dark: '#363430' },
+-  'sage-grey': { light: '#cdd5cf', dark: '#2f3730' },
+-};
+diff --git a/client/src/styles.module.scss b/client/src/styles.module.scss
+index 4cf2e57..facf079 100644
+--- a/client/src/styles.module.scss
++++ b/client/src/styles.module.scss
+@@ -1022,279 +1022,3 @@
+   }
+ 
+ }
+-
+-// BSY Media: dark versions of the 10 list colors, swapped in whenever the
+-// project's "Dark mode for cards & columns" toggle is on (see
+-// ProjectBackground.jsx, which toggles this same #app.dark-mode-cards-enabled
+-// body class used throughout the other card/list dark-mode overrides). Only
+-// the "Soft" variants need this - those are the only ones applied as a list's
+-// own background (List.jsx), and in light mode they're pastel-light, which
+-// leaves the light-grey list header/card text (List.module.scss's dark-mode
+-// .headerName: #b6c2cf) almost unreadable against them. Each color below
+-// keeps the same hue as its light "Soft" counterpart, just much darker, so
+-// the list is still recognizably tinted while staying legible. Light mode is
+-// untouched - the original pastel "Soft" classes above still apply there.
+-:global(#app.dark-mode-cards-enabled) {
+-  .backgroundBerryRedSoft {
+-    background: #580e1c !important;
+-  }
+-
+-  .backgroundPumpkinOrangeSoft {
+-    background: #5c360a !important;
+-  }
+-
+-  .backgroundLagoonBlueSoft {
+-    background: #154351 !important;
+-  }
+-
+-  .backgroundPinkTulipSoft {
+-    background: #54122a !important;
+-  }
+-
+-  .backgroundLightMudSoft {
+-    background: #4a361c !important;
+-  }
+-
+-  .backgroundOrangePeelSoft {
+-    background: #58280e !important;
+-  }
+-
+-  .backgroundBrightMossSoft {
+-    background: #3d4a1c !important;
+-  }
+-
+-  .backgroundAntiqueBlueSoft {
+-    background: #18354e !important;
+-  }
+-
+-  .backgroundDarkGraniteSoft {
+-    background: #3b3935 !important;
+-  }
+-
+-  .backgroundTurquoiseSeaSoft {
+-    background: #1d4749 !important;
+-  }
+-
+-  .backgroundMuddyGreySoft {
+-    background: #37352f !important;
+-  }
+-
+-  .backgroundAutumnLeafsSoft {
+-    background: #4f4517 !important;
+-  }
+-
+-  .backgroundMorningSkySoft {
+-    background: #17434f !important;
+-  }
+-
+-  .backgroundEggYellowSoft {
+-    background: #4f4117 !important;
+-  }
+-
+-  .backgroundDesertSandSoft {
+-    background: #4f3f17 !important;
+-  }
+-
+-  .backgroundFreshSaladSoft {
+-    background: #4a4f17 !important;
+-  }
+-
+-  .backgroundMidnightBlueSoft {
+-    background: #17384f !important;
+-  }
+-
+-  .backgroundLightOrangeSoft {
+-    background: #4f3317 !important;
+-  }
+-
+-  .backgroundLightConcreteSoft {
+-    background: #36372f !important;
+-  }
+-
+-  .backgroundSunnyGrassSoft {
+-    background: #4c4f17 !important;
+-  }
+-
+-  .backgroundNavyBlueSoft {
+-    background: #173d4f !important;
+-  }
+-
+-  .backgroundLilacEyesSoft {
+-    background: #1a2c4c !important;
+-  }
+-
+-  .backgroundApricotRedSoft {
+-    background: #4f1a17 !important;
+-  }
+-
+-  .backgroundSilverGlintSoft {
+-    background: #343332 !important;
+-  }
+-
+-  .backgroundDeepOceanSoft {
+-    background: #173d4f !important;
+-  }
+-
+-  .backgroundSummerSkySoft {
+-    background: #17304f !important;
+-  }
+-
+-  .backgroundLightCocoaSoft {
+-    background: #4a251c !important;
+-  }
+-
+-  .backgroundGreyStoneSoft {
+-    background: #2d3239 !important;
+-  }
+-
+-  .backgroundTankGreenSoft {
+-    background: #323c2a !important;
+-  }
+-
+-  .backgroundCoralGreenSoft {
+-    background: #1d4849 !important;
+-  }
+-
+-  .backgroundSugarPlumSoft {
+-    background: #1f2347 !important;
+-  }
+-
+-  .backgroundShadyRustSoft {
+-    background: #422a24 !important;
+-  }
+-
+-  .backgroundWetRockSoft {
+-    background: #2e3538 !important;
+-  }
+-
+-  .backgroundWetMossSoft {
+-    background: #244229 !important;
+-  }
+-
+-  .backgroundLavenderFieldsSoft {
+-    background: #3c2442 !important;
+-  }
+-
+-  .backgroundPiggyRedSoft {
+-    background: #4f1725 !important;
+-  }
+-
+-  .backgroundGunMetalSoft {
+-    background: #2a353c !important;
+-  }
+-
+-  .backgroundModernGreenSoft {
+-    background: #1b4b24 !important;
+-  }
+-
+-  .backgroundFrenchCoastSoft {
+-    background: #174f4e !important;
+-  }
+-
+-  .backgroundSweetLilacSoft {
+-    background: #422442 !important;
+-  }
+-
+-  .backgroundRedBurgundySoft {
+-    background: #43232f !important;
+-  }
+-
+-  .backgroundPirateGoldSoft {
+-    background: #4f3c17 !important;
+-  }
+-
+-  // BSY Media: dark-mode Soft overrides for the 23 new colors added 2026-09-19 (see the
+-  // matching comment in the main color block above).
+-  .backgroundCoralFlameSoft {
+-    background: #4f1c17 !important;
+-  }
+-
+-  .backgroundBurntSiennaSoft {
+-    background: #4f1e17 !important;
+-  }
+-
+-  .backgroundTerracottaClaySoft {
+-    background: #4f2017 !important;
+-  }
+-
+-  .backgroundClayEmberSoft {
+-    background: #462820 !important;
+-  }
+-
+-  .backgroundHoneyAmberSoft {
+-    background: #4f3517 !important;
+-  }
+-
+-  .backgroundAmberGlowSoft {
+-    background: #4f3617 !important;
+-  }
+-
+-  .backgroundWheatGoldSoft {
+-    background: #4f4b17 !important;
+-  }
+-
+-  .backgroundMarigoldSoft {
+-    background: #4f4317 !important;
+-  }
+-
+-  .backgroundCitrineMossSoft {
+-    background: #4f4c17 !important;
+-  }
+-
+-  .backgroundSageLeafSoft {
+-    background: #274422 !important;
+-  }
+-
+-  .backgroundOliveGroveSoft {
+-    background: #354224 !important;
+-  }
+-
+-  .backgroundForestFernSoft {
+-    background: #2b4521 !important;
+-  }
+-
+-  .backgroundAzureLagoonSoft {
+-    background: #17444f !important;
+-  }
+-
+-  .backgroundDeepTealSoft {
+-    background: #174f4f !important;
+-  }
+-
+-  .backgroundOrchidMistSoft {
+-    background: #3d2442 !important;
+-  }
+-
+-  .backgroundVioletBloomSoft {
+-    background: #3e2442 !important;
+-  }
+-
+-  .backgroundPlumBlossomSoft {
+-    background: #3f2442 !important;
+-  }
+-
+-  .backgroundMulberryWineSoft {
+-    background: #412442 !important;
+-  }
+-
+-  .backgroundRoseBlushSoft {
+-    background: #4f1726 !important;
+-  }
+-
+-  .backgroundWatermelonPinkSoft {
+-    background: #4f1727 !important;
+-  }
+-
+-  .backgroundRaspberryWineSoft {
+-    background: #4f1726 !important;
+-  }
+-
+-  .backgroundTaupeShadowSoft {
+-    background: #363430 !important;
+-  }
+-
+-  .backgroundSageGreySoft {
+-    background: #2f3730 !important;
+-  }
+-
+-}

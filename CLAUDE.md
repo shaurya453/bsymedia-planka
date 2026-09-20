@@ -3973,3 +3973,59 @@ zero console errors. Temp project cleaned up automatically by the verification s
 production is back to exactly the 8 real projects afterward.
 
 Patch: `planka-custom/patches/0080-list-color-swatch-preview.patch`.
+
+## Reverted the swatch-preview fix above - lists now render the exact vivid swatch color instead (2026-09-20)
+
+Client feedback on patch 0080, same day: "this looks horrible" - reverted the picker change and
+asked for the opposite direction instead: make the applied list color match the vivid swatch
+color exactly, not the other way around. Also asked to double-check labels do the same.
+
+- **Picker fully reverted**: `EditColorStep.jsx`'s three swatch `.map()` calls and
+  `EditColorStep.module.scss`'s checkmark shadow are back to byte-identical with pre-0080 (verified
+  via `git diff` against the pre-0080 commit showing zero remaining differences in those two
+  files) - swatches show the bold/vivid color again, exactly as they did before patch 0080.
+- **Lists now render the vivid color, not the pastel one**: `List.jsx`'s `colorProps` now applies
+  `background<Name>` (the same bold class the swatch itself uses) instead of `background<Name>Soft`
+  for both the list header wrapper and the "Add card" button - list backgrounds are now the exact
+  same color as their swatch, with zero softening. The header-text contrast calculation switched
+  from reading `ListSoftColors[list.color]` (a lookup table of the pastel hex values) to reading
+  `LabelGlowColors[list.color]` directly (the existing vivid-hex table already used by labels'
+  own glow feature) - same `getContrastTextColor()` helper, just fed the bold hex now instead of the
+  pastel one, so the header/add-card text still stays legible against any of the 65 colors.
+- **Dead code removed as a direct consequence, not a separate cleanup pass**: `ListSoftColors.js`
+  (now referenced by nothing) deleted outright, and the `cardsDarkModeEnabled`-driven dark-mode
+  override block in `styles.module.scss` (patch 0065, ~276 lines) - which existed solely to darken
+  the `Soft` classes `List.jsx` no longer applies - deleted too, since it's provably fully dead
+  (grepped for any other reference to `Soft` background classes in every `.jsx` file - none found
+  outside these two now-removed usages). Left the light-mode `.background<Name>Soft` CSS rules
+  themselves in place (interleaved with the still-used bold `.background<Name>` rules throughout
+  the main "Backgrounds" section) - harmless unused bytes in the compiled CSS, not worth the extra
+  surgical risk of picking them out of a live section one-by-one for zero behavioral gain.
+- **Labels double-checked, confirmed already correct, zero changes made**: `LabelChip.jsx` already
+  renders labels via the same vivid `background<Name>` class as their own swatch - it was never
+  affected by the 0080/0081 back-and-forth, since labels never had a "soft" concept to begin with.
+
+**Real bug caught and fixed mid-verification, not shipped blind**: the first patch generated for
+this (diffed against the commit *before* patch 0080 ever existed) came out with **zero hunks** for
+`EditColorStep.jsx`/`.module.scss`, since the net change between "before 0080" and "after this
+revert" is exactly zero for those two files. That's correct for a plain diff, but wrong for this
+codebase's patch-stacking model - patches apply cumulatively on top of each other (0080 is still
+in the patch set, applied first), so a patch with no hunks for a file leaves whatever the *previous*
+patch (0080) already did to it untouched, rather than reverting it. Caught via the isolated-stack
+Puppeteer check itself: the applied list background correctly showed the new vivid color, but the
+picker's own swatch still showed the old pastel one - a live, measurable mismatch, not just a code
+read. Fixed by regenerating the patch as a diff from *after 0080's own commit* to the final state
+instead of from before it existed - which produces real hunks that genuinely undo 0080's exact
+lines on top of an already-0080-patched checkout. Also re-learned the existing "always
+`--no-cache`" lesson from this file's own concurrent-session note further up (a plain
+`docker compose build` had served a stale cached layer on the first attempt too, compounding the
+confusion until both issues were isolated and fixed independently).
+
+Verified in an isolated stack (fresh Postgres + the new image) before touching production: a
+`coral-flame` list's applied header background and its own swatch's rendered background now match
+byte-for-byte (`rgb(240, 101, 88)` both), screenshotted across 5 different colors showing bold,
+saturated list headers with legible contrast text on each. Deployed to production and re-verified
+the identical match live, plus zero console errors. Temp project cleaned up automatically;
+confirmed production is back to exactly the 8 real projects afterward.
+
+Patch: `planka-custom/patches/0081-list-colors-match-vivid-swatch.patch`.
