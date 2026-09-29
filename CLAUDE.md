@@ -4029,3 +4029,101 @@ the identical match live, plus zero console errors. Temp project cleaned up auto
 confirmed production is back to exactly the 8 real projects afterward.
 
 Patch: `planka-custom/patches/0081-list-colors-match-vivid-swatch.patch`.
+
+## Bulk card selection (Ctrl/Shift-click) with archive-as-delete + a real "Empty Archive" (2026-09-29)
+
+Client wanted a way to delete many cards at once instead of one at a time, and specifically asked
+for a file-manager-style Ctrl/Cmd-click (toggle) + Shift-click (range) multi-select, with a
+"Delete" action that moves the selection to the board's archive rather than a hard delete - and
+the archive itself needed a way to be permanently cleaned up on demand, since "store forever
+unless cleaned up by a delete button there" was the explicit requirement.
+
+**Most of the plumbing already existed.** PLANKA already has a hidden, one-per-board system list
+of type `archive` (and `trash`), a single-card "move to archive" action
+(`entryActions.moveCardToArchive`), a single-list bulk-archive action
+(`entryActions.moveListCardsToArchiveList`, used by the existing "Archive cards" list-action), a
+board "context" concept for browsing the Archive/Trash system lists in the same Kanban UI, and an
+existing "Empty Trash" button backed by a generic `POST /api/lists/:id/clear` endpoint - which the
+server hard-restricted to `List.Types.TRASH` with a literal `// TODO: allow for other types?`
+comment already anticipating this exact extension. So the real net-new work was: (1) a way to
+select more than one card at once, (2) a floating bar to bulk-archive the selection by looping the
+*existing* per-card archive action, and (3) extending the *existing* Empty Trash mechanism to also
+work on the Archive list.
+
+### Selection state and click handling
+
+New client-only, non-persisted state in `client/src/reducers/core.js`
+(`selectedCardIds`/`lastSelectedCardId`), following the exact same shape as the pre-existing
+`isGanttViewActive` flag - reset to empty on every board switch, plumbed through the standard
+4-layer chain (`EntryActionTypes` → `entry-actions/core.js` → saga watcher/service pass-through →
+plain `actions/core.js` creator → the reducer) this codebase already uses for every simple
+client-only toggle.
+
+`client/src/components/cards/Card/Card.jsx`'s `handleClick` now branches on the click event's
+modifier keys, only when `board.context === BoardContexts.BOARD && !isInline` (v1 scope, confirmed
+with the client - Grid/List views and the Archive/Trash browsing contexts don't get selection for
+now, though Grid/List share the same underlying `Card` component so wiring them in later is cheap):
+- No modifier: unchanged, navigates to open the card.
+- Ctrl/Cmd-click: toggles this card in the selection, sets it as the new "anchor"
+  (`lastSelectedCardId`).
+- Shift-click: if the anchor is in the *same list* as the clicked card (confirmed by checking
+  whether the anchor's id appears in that list's own ordered card-id array, reusing the existing
+  `makeSelectFilteredCardIdsByListId` selector - no new list-ordering logic needed), selects the
+  inclusive range between them. If the anchor is unset or in a *different* list, falls back to a
+  plain toggle-add rather than guessing at a cross-column "range" (confirmed with the client - a
+  Kanban board has no single visual order across parallel list columns the way a flat file list
+  does). The anchor deliberately does not move on a range-select, so repeated Shift-clicks keep
+  extending/shrinking from the same starting point.
+
+Selected cards get a `.wrapperSelected` outline ring (`Card.module.scss`) - `outline`, not
+`box-shadow`, so it composes independently of the label-glow feature's own inline `box-shadow`
+(both can show on the same card at once).
+
+### Floating "N selected" bar and bulk archive
+
+New `client/src/components/boards/Board/SelectionActionsBar/`, mounted from `Board.jsx` alongside
+the existing `Content`/modal slots, self-gating on `board.context === BoardContexts.BOARD &&
+selectedCardIds.length > 0`. Shows the count, a Cancel button (clears selection), and a Delete
+button that opens the existing `ConfirmationStep` component (reused, not reimplemented) with
+dynamic count copy - required extending `ConfirmationStep` with one new optional `contentValues`
+prop (passed through to `t(content, contentValues)`, `undefined` for every pre-existing caller, so
+this is fully backward-compatible) since none of this app's confirmation dialogs previously needed
+runtime interpolation.
+
+Confirming loops the existing `entryActions.moveCardToArchive(id)` over every selected id -
+deliberately not a new bulk API endpoint, since selections here are user-driven and small, and
+looping the existing single-card action means other viewers watching the board see each card move
+in real time exactly as they would for a manual one-by-one archive (same socket-broadcast path,
+unchanged).
+
+### Empty Archive
+
+Mirrors the existing Empty Trash feature end-to-end, since the server already had a TODO inviting
+this: `server/api/controllers/lists/clear.js` now accepts `List.Types.ARCHIVE` alongside `TRASH`
+(the underlying `sails.helpers.lists.clearOne` helper was already fully generic over list type -
+no other server change needed). Client mirrors `clearTrashListInCurrentBoard` exactly (new
+`clearArchiveListInCurrentBoard` entry action/saga pair, reusing the already-existing
+`selectors.selectArchiveListIdForCurrentBoard`) and adds a matching "Empty Archive" menu item
+(`BoardActions/RightSide/ActionsStep.jsx`, `withArchiveEmptier` gated on `board.context ===
+BoardContexts.ARCHIVE` the same way `withTrashEmptier` gates on Trash). No `EmptyArchiveToast` was
+added (unlike Trash's own success toast) - not required for v1, easy to add later if a real-time
+UX gap turns out to matter.
+
+### Verified
+
+Full isolated-stack Puppeteer pass (23/23 checks): Ctrl-click toggle across 2 lists (3 selected,
+then 2 after a deselect), Shift-click range-select within one list, Shift-click across lists
+correctly falling back to a single toggle-add rather than a bogus cross-column range, Delete
+showing a confirmation with the correct dynamic count, selected cards correctly moving to (and
+later showing up when browsing) the Archive context, Empty Archive permanently purging them,
+zero console errors. Explicit regression checks confirmed unaffected: plain click still opens a
+card with no modifier, the per-card "Archive" action from a card's own actions menu still works,
+the pre-existing list-level "Archive cards" bulk action (only shown on `closed`-type lists) still
+works, and the pre-existing "Empty Trash" button still works. Deployed to production and smoke-
+tested live via the real API (archived two real throwaway cards, confirmed they landed in the
+board's real archive list, ran Empty Archive, confirmed both were permanently gone) before cleaning
+up the temporary smoke-test project - confirmed production is back to exactly the 10 real
+projects (9 pre-existing + the "Showcase: Product Launch" project from an earlier session)
+afterward.
+
+Patch: `planka-custom/patches/0082-bulk-card-selection-and-delete.patch`.

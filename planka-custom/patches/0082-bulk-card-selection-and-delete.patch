@@ -1,0 +1,915 @@
+diff --git a/client/src/actions/core.js b/client/src/actions/core.js
+index 677c895..ce5b902 100644
+--- a/client/src/actions/core.js
++++ b/client/src/actions/core.js
+@@ -88,6 +88,25 @@ const toggleGanttView = (isActive) => ({
+   },
+ });
+ 
++const toggleCardSelection = (id) => ({
++  type: ActionTypes.CARD_SELECTION_TOGGLE,
++  payload: {
++    id,
++  },
++});
++
++const setCardSelectionRange = (ids) => ({
++  type: ActionTypes.CARD_SELECTION_RANGE_SET,
++  payload: {
++    ids,
++  },
++});
++
++const clearCardSelection = () => ({
++  type: ActionTypes.CARD_SELECTION_CLEAR,
++  payload: {},
++});
++
+ const updateHomeView = (value) => ({
+   type: ActionTypes.HOME_VIEW_UPDATE,
+   payload: {
+@@ -110,6 +129,9 @@ export default {
+   toggleFavorites,
+   toggleEditMode,
+   toggleGanttView,
++  toggleCardSelection,
++  setCardSelectionRange,
++  clearCardSelection,
+   updateHomeView,
+   logout,
+ };
+diff --git a/client/src/components/boards/Board/Board.jsx b/client/src/components/boards/Board/Board.jsx
+index 7a0cbe5..c5f799e 100644
+--- a/client/src/components/boards/Board/Board.jsx
++++ b/client/src/components/boards/Board/Board.jsx
+@@ -13,6 +13,7 @@ import KanbanContent from './KanbanContent';
+ import FiniteContent from './FiniteContent';
+ import EndlessContent from './EndlessContent';
+ import ShortcutsProvider from './ShortcutsProvider';
++import SelectionActionsBar from './SelectionActionsBar';
+ import CardModal from '../../cards/CardModal';
+ import BoardActivitiesModal from '../../activities/BoardActivitiesModal';
+ import ShareModal from '../../board-memberships/ShareModal';
+@@ -75,6 +76,7 @@ const Board = React.memo(() => {
+       <ShortcutsProvider>
+         <Content />
+       </ShortcutsProvider>
++      <SelectionActionsBar />
+       {modalNode}
+     </>
+   );
+diff --git a/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.jsx b/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.jsx
+new file mode 100644
+index 0000000..ff647f9
+--- /dev/null
++++ b/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.jsx
+@@ -0,0 +1,80 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import React, { useCallback } from 'react';
++import { useDispatch, useSelector } from 'react-redux';
++import { useTranslation } from 'react-i18next';
++import { Button } from 'semantic-ui-react';
++import { usePopup } from '../../../../lib/popup';
++
++import selectors from '../../../../selectors';
++import entryActions from '../../../../entry-actions';
++import { BoardContexts } from '../../../../constants/Enums';
++import ConfirmationStep from '../../../common/ConfirmationStep';
++
++import styles from './SelectionActionsBar.module.scss';
++
++// BSY Media: bulk card selection - a floating bar that appears whenever one
++// or more cards are Ctrl/Shift-selected on the plain Kanban view (see
++// Card.jsx's handleClick and the "selectedCardIds" state in reducers/core.js
++// for how a selection gets built up). "Delete" here means archive - cards
++// move to the board's existing hidden Archive system list rather than being
++// permanently removed, matching the single-card "Archive" action already
++// available from a card's own actions menu.
++const SelectionActionsBar = React.memo(() => {
++  const board = useSelector(selectors.selectCurrentBoard);
++  const selectedCardIds = useSelector(selectors.selectSelectedCardIds);
++
++  const dispatch = useDispatch();
++  const [t] = useTranslation();
++
++  const handleCancelClick = useCallback(() => {
++    dispatch(entryActions.clearCardSelection());
++  }, [dispatch]);
++
++  const handleDeleteConfirm = useCallback(() => {
++    selectedCardIds.forEach((cardId) => {
++      dispatch(entryActions.moveCardToArchive(cardId));
++    });
++
++    dispatch(entryActions.clearCardSelection());
++  }, [selectedCardIds, dispatch]);
++
++  const DeleteConfirmationPopup = usePopup(ConfirmationStep);
++
++  if (board.context !== BoardContexts.BOARD || selectedCardIds.length === 0) {
++    return null;
++  }
++
++  return (
++    <div className={styles.wrapper}>
++      <span className={styles.count}>
++        {t('common.cardsSelectedCount', {
++          count: selectedCardIds.length,
++        })}
++      </span>
++      <Button
++        basic
++        inverted
++        size="small"
++        content={t('action.cancel')}
++        onClick={handleCancelClick}
++      />
++      <DeleteConfirmationPopup
++        title="common.archiveCards"
++        content="common.areYouSureYouWantToArchiveSelectedCards"
++        contentValues={{
++          count: selectedCardIds.length,
++        }}
++        buttonContent="action.archiveCards"
++        onConfirm={handleDeleteConfirm}
++      >
++        <Button negative size="small" content={t('action.delete')} />
++      </DeleteConfirmationPopup>
++    </div>
++  );
++});
++
++export default SelectionActionsBar;
+diff --git a/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.module.scss b/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.module.scss
+new file mode 100644
+index 0000000..84c874c
+--- /dev/null
++++ b/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.module.scss
+@@ -0,0 +1,31 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++.wrapper {
++  align-items: center;
++  background: #17394d;
++  border-radius: 6px;
++  bottom: 24px;
++  box-shadow: 0 4px 16px rgba(9, 30, 66, 0.32);
++  color: #fff;
++  display: flex;
++  gap: 12px;
++  left: 50%;
++  padding: 10px 16px;
++  position: fixed;
++  transform: translateX(-50%);
++  z-index: 10;
++}
++
++.count {
++  font-weight: bold;
++  white-space: nowrap;
++}
++
++:global(#app.dark-mode-cards-enabled) {
++  .wrapper {
++    background: #242528;
++  }
++}
+diff --git a/client/src/components/boards/Board/SelectionActionsBar/index.js b/client/src/components/boards/Board/SelectionActionsBar/index.js
+new file mode 100644
+index 0000000..74ac82f
+--- /dev/null
++++ b/client/src/components/boards/Board/SelectionActionsBar/index.js
+@@ -0,0 +1,8 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++import SelectionActionsBar from './SelectionActionsBar';
++
++export default SelectionActionsBar;
+diff --git a/client/src/components/boards/BoardActions/RightSide/ActionsStep.jsx b/client/src/components/boards/BoardActions/RightSide/ActionsStep.jsx
+index 1df2f1b..0092ec7 100755
+--- a/client/src/components/boards/BoardActions/RightSide/ActionsStep.jsx
++++ b/client/src/components/boards/BoardActions/RightSide/ActionsStep.jsx
+@@ -23,29 +23,36 @@ import styles from './ActionsStep.module.scss';
+ const StepTypes = {
+   CUSTOM_FIELD_GROUPS: 'CUSTOM_FIELD_GROUPS',
+   EMPTY_TRASH: 'EMPTY_TRASH',
++  EMPTY_ARCHIVE: 'EMPTY_ARCHIVE',
+ };
+ 
+ const ActionsStep = React.memo(({ onClose }) => {
+   const board = useSelector(selectors.selectCurrentBoard);
+ 
+-  const { withSubscribe, withCustomFieldGroups, withTrashEmptier } = useSelector((state) => {
+-    const isManager = selectors.selectIsCurrentUserManagerForCurrentProject(state);
+-    const boardMembership = selectors.selectCurrentUserMembershipForCurrentBoard(state);
+-
+-    let isMember = false;
+-    let isEditor = false;
+-
+-    if (boardMembership) {
+-      isMember = true;
+-      isEditor = boardMembership.role === BoardMembershipRoles.EDITOR;
+-    }
+-
+-    return {
+-      withSubscribe: isMember, // TODO: rename?
+-      withCustomFieldGroups: isEditor,
+-      withTrashEmptier: board.context === BoardContexts.TRASH && (isManager || isEditor),
+-    };
+-  }, shallowEqual);
++  const { withSubscribe, withCustomFieldGroups, withTrashEmptier, withArchiveEmptier } =
++    useSelector((state) => {
++      const isManager = selectors.selectIsCurrentUserManagerForCurrentProject(state);
++      const boardMembership = selectors.selectCurrentUserMembershipForCurrentBoard(state);
++
++      let isMember = false;
++      let isEditor = false;
++
++      if (boardMembership) {
++        isMember = true;
++        isEditor = boardMembership.role === BoardMembershipRoles.EDITOR;
++      }
++
++      return {
++        withSubscribe: isMember, // TODO: rename?
++        withCustomFieldGroups: isEditor,
++        withTrashEmptier: board.context === BoardContexts.TRASH && (isManager || isEditor),
++        // BSY Media: mirrors withTrashEmptier - lets a manager/editor
++        // permanently purge the Archive system list the same way Trash
++        // already could, since the archive is meant to be cleanable on
++        // demand rather than an unbounded, permanent hold.
++        withArchiveEmptier: board.context === BoardContexts.ARCHIVE && (isManager || isEditor),
++      };
++    }, shallowEqual);
+ 
+   const dispatch = useDispatch();
+   const [t] = useTranslation();
+@@ -89,6 +96,11 @@ const ActionsStep = React.memo(({ onClose }) => {
+     onClose();
+   }, [onClose, dispatch]);
+ 
++  const handleEmptyArchiveConfirm = useCallback(() => {
++    dispatch(entryActions.clearArchiveListInCurrentBoard());
++    onClose();
++  }, [onClose, dispatch]);
++
+   const handleCustomFieldsClick = useCallback(() => {
+     openStep(StepTypes.CUSTOM_FIELD_GROUPS);
+   }, [openStep]);
+@@ -97,6 +109,10 @@ const ActionsStep = React.memo(({ onClose }) => {
+     openStep(StepTypes.EMPTY_TRASH);
+   }, [openStep]);
+ 
++  const handleEmptyArchiveClick = useCallback(() => {
++    openStep(StepTypes.EMPTY_ARCHIVE);
++  }, [openStep]);
++
+   if (step) {
+     switch (step.type) {
+       case StepTypes.CUSTOM_FIELD_GROUPS:
+@@ -111,6 +127,16 @@ const ActionsStep = React.memo(({ onClose }) => {
+             onBack={handleBack}
+           />
+         );
++      case StepTypes.EMPTY_ARCHIVE:
++        return (
++          <ConfirmationStep
++            title="common.emptyArchive"
++            content="common.areYouSureYouWantToEmptyArchive"
++            buttonContent="action.emptyArchive"
++            onConfirm={handleEmptyArchiveConfirm}
++            onBack={handleBack}
++          />
++        );
+       default:
+     }
+   }
+@@ -174,6 +200,17 @@ const ActionsStep = React.memo(({ onClose }) => {
+               </Menu.Item>
+             </>
+           )}
++          {withArchiveEmptier && (
++            <>
++              <hr className={styles.divider} />
++              <Menu.Item className={styles.menuItem} onClick={handleEmptyArchiveClick}>
++                <Icon name="archive" className={styles.menuItemIcon} />
++                {t('action.emptyArchive', {
++                  context: 'title',
++                })}
++              </Menu.Item>
++            </>
++          )}
+           <>
+             <hr className={styles.divider} />
+             {[BoardContexts.BOARD, BoardContexts.ARCHIVE, BoardContexts.TRASH].map((context) => (
+diff --git a/client/src/components/cards/Card/Card.jsx b/client/src/components/cards/Card/Card.jsx
+index a310a26..e744817 100755
+--- a/client/src/components/cards/Card/Card.jsx
++++ b/client/src/components/cards/Card/Card.jsx
+@@ -12,10 +12,11 @@ import { push } from '../../../lib/redux-router';
+ import { closePopup, usePopup } from '../../../lib/popup';
+ 
+ import selectors from '../../../selectors';
++import entryActions from '../../../entry-actions';
+ import { BoardShortcutsContext } from '../../../contexts';
+ import Paths from '../../../constants/Paths';
+ import ClipboardTypes from '../../../constants/ClipboardTypes';
+-import { BoardMembershipRoles, CardTypes } from '../../../constants/Enums';
++import { BoardContexts, BoardMembershipRoles, CardTypes } from '../../../constants/Enums';
+ import LabelGlowColors from '../../../constants/LabelGlowColors';
+ import ProjectContent from './ProjectContent';
+ import StoryContent from './StoryContent';
+@@ -29,9 +30,26 @@ const Card = React.memo(({ id, isInline }) => {
+   const selectCardById = useMemo(() => selectors.makeSelectCardById(), []);
+   const selectIsCardWithIdRecent = useMemo(() => selectors.makeSelectIsCardWithIdRecent(), []);
+   const selectLabelColorsByCardId = useMemo(() => selectors.makeSelectLabelColorsByCardId(), []);
++  const selectIsCardSelected = useMemo(() => selectors.makeSelectIsCardSelected(), []);
++  const selectFilteredCardIdsByListId = useMemo(
++    () => selectors.makeSelectFilteredCardIdsByListId(),
++    [],
++  );
+ 
+   const card = useSelector((state) => selectCardById(state, id));
+ 
++  // BSY Media: bulk card selection (Ctrl/Cmd-click toggle, Shift-click
++  // range-within-a-list) is only meaningful on the plain Kanban view of a
++  // board - browsing the Archive/Trash context or a dense inline row has no
++  // selection UI to act on it, so selecting is disabled there entirely
++  // rather than silently doing nothing.
++  const isSelectable = useSelector(
++    (state) => !isInline && selectors.selectCurrentBoard(state).context === BoardContexts.BOARD,
++  );
++  const isSelected = useSelector((state) => isSelectable && selectIsCardSelected(state, id));
++  const lastSelectedCardId = useSelector(selectors.selectLastSelectedCardId);
++  const cardIdsInList = useSelector((state) => selectFilteredCardIdsByListId(state, card.listId));
++
+   const isHighlightedAsRecent = useSelector((state) => {
+     const { turnOffRecentCardHighlighting } = selectors.selectCurrentUser(state);
+ 
+@@ -100,13 +118,39 @@ const Card = React.memo(({ id, isInline }) => {
+ 
+   const actionsPopupRef = useRef(null);
+ 
+-  const handleClick = useCallback(() => {
+-    if (document.activeElement) {
+-      document.activeElement.blur();
+-    }
+-
+-    dispatch(push(Paths.CARDS.replace(':id', id)));
+-  }, [id, dispatch]);
++  const handleClick = useCallback(
++    (event) => {
++      if (isSelectable && event.shiftKey) {
++        const lastIndex = lastSelectedCardId ? cardIdsInList.indexOf(lastSelectedCardId) : -1;
++
++        if (lastIndex === -1) {
++          // No anchor yet, or the anchor isn't in this list - fall back to
++          // a plain toggle rather than guessing at a cross-list "range".
++          dispatch(entryActions.toggleCardSelection(id));
++        } else {
++          const currentIndex = cardIdsInList.indexOf(id);
++          const [start, end] =
++            lastIndex < currentIndex ? [lastIndex, currentIndex] : [currentIndex, lastIndex];
++
++          dispatch(entryActions.setCardSelectionRange(cardIdsInList.slice(start, end + 1)));
++        }
++
++        return;
++      }
++
++      if (isSelectable && (event.ctrlKey || event.metaKey)) {
++        dispatch(entryActions.toggleCardSelection(id));
++        return;
++      }
++
++      if (document.activeElement) {
++        document.activeElement.blur();
++      }
++
++      dispatch(push(Paths.CARDS.replace(':id', id)));
++    },
++    [id, dispatch, isSelectable, lastSelectedCardId, cardIdsInList],
++  );
+ 
+   const handleMouseEnter = useCallback(() => {
+     handleCardMouseEnter(
+@@ -168,7 +212,12 @@ const Card = React.memo(({ id, isInline }) => {
+ 
+   return (
+     <div
+-      className={classNames(styles.wrapper, isHighlightedAsRecent && styles.wrapperRecent, 'card')}
++      className={classNames(
++        styles.wrapper,
++        isHighlightedAsRecent && styles.wrapperRecent,
++        isSelected && styles.wrapperSelected,
++        'card',
++      )}
+       style={labelGlowStyle}
+     >
+       {card.isPersisted ? (
+diff --git a/client/src/components/cards/Card/Card.module.scss b/client/src/components/cards/Card/Card.module.scss
+index 1ffc3e7..47622b7 100644
+--- a/client/src/components/cards/Card/Card.module.scss
++++ b/client/src/components/cards/Card/Card.module.scss
+@@ -65,6 +65,15 @@
+     }
+   }
+ 
++  // BSY Media: bulk-selection ring for Ctrl/Shift-click multi-select. Uses
++  // outline rather than box-shadow so it composes independently of the
++  // label-glow box-shadow set as an inline style above (see Card.jsx) -
++  // both can be visible on the same card at once.
++  .wrapperSelected {
++    outline: 2px solid #338aff;
++    outline-offset: 2px;
++  }
++
+   .wrapperRecent:not(:hover) {
+     overflow: hidden;
+ 
+diff --git a/client/src/components/common/ConfirmationStep/ConfirmationStep.jsx b/client/src/components/common/ConfirmationStep/ConfirmationStep.jsx
+index b228fc0..faacbdf 100644
+--- a/client/src/components/common/ConfirmationStep/ConfirmationStep.jsx
++++ b/client/src/components/common/ConfirmationStep/ConfirmationStep.jsx
+@@ -22,6 +22,7 @@ const ConfirmationStep = React.memo(
+   ({
+     title,
+     content,
++    contentValues,
+     buttonType,
+     buttonContent,
+     typeValue,
+@@ -77,7 +78,7 @@ const ConfirmationStep = React.memo(
+           })}
+         </Popup.Header>
+         <Popup.Content>
+-          <div className={styles.content}>{t(content)}</div>
++          <div className={styles.content}>{t(content, contentValues)}</div>
+           {typeContent && <div className={styles.content}>{t(typeContent)}</div>}
+           <Form onSubmit={handleSubmit}>
+             {typeValue && (
+@@ -109,6 +110,8 @@ const ConfirmationStep = React.memo(
+ ConfirmationStep.propTypes = {
+   title: PropTypes.string.isRequired,
+   content: PropTypes.string.isRequired,
++  // eslint-disable-next-line react/forbid-prop-types
++  contentValues: PropTypes.object,
+   buttonType: PropTypes.oneOf(Object.values(ButtonTypes)),
+   buttonContent: PropTypes.string.isRequired,
+   typeValue: PropTypes.string,
+@@ -120,6 +123,7 @@ ConfirmationStep.propTypes = {
+ 
+ ConfirmationStep.defaultProps = {
+   buttonType: ButtonTypes.NEGATIVE,
++  contentValues: undefined,
+   typeValue: undefined,
+   typeContent: undefined,
+   onBack: undefined,
+diff --git a/client/src/constants/ActionTypes.js b/client/src/constants/ActionTypes.js
+index afa5f1f..6077ff1 100644
+--- a/client/src/constants/ActionTypes.js
++++ b/client/src/constants/ActionTypes.js
+@@ -48,6 +48,9 @@ export default {
+   FAVORITES_TOGGLE: 'FAVORITES_TOGGLE',
+   EDIT_MODE_TOGGLE: 'EDIT_MODE_TOGGLE',
+   GANTT_VIEW_TOGGLE: 'GANTT_VIEW_TOGGLE',
++  CARD_SELECTION_TOGGLE: 'CARD_SELECTION_TOGGLE',
++  CARD_SELECTION_RANGE_SET: 'CARD_SELECTION_RANGE_SET',
++  CARD_SELECTION_CLEAR: 'CARD_SELECTION_CLEAR',
+   HOME_VIEW_UPDATE: 'HOME_VIEW_UPDATE',
+   LOGOUT: 'LOGOUT',
+   LOGOUT__ACCESS_TOKEN_REVOKE: 'LOGOUT__ACCESS_TOKEN_REVOKE',
+diff --git a/client/src/constants/EntryActionTypes.js b/client/src/constants/EntryActionTypes.js
+index 21a034d..cb8b865 100755
+--- a/client/src/constants/EntryActionTypes.js
++++ b/client/src/constants/EntryActionTypes.js
+@@ -31,6 +31,9 @@ export default {
+   FAVORITES_TOGGLE: `${PREFIX}/FAVORITES_TOGGLE`,
+   EDIT_MODE_TOGGLE: `${PREFIX}/EDIT_MODE_TOGGLE`,
+   GANTT_VIEW_TOGGLE: `${PREFIX}/GANTT_VIEW_TOGGLE`,
++  CARD_SELECTION_TOGGLE: `${PREFIX}/CARD_SELECTION_TOGGLE`,
++  CARD_SELECTION_RANGE_SET: `${PREFIX}/CARD_SELECTION_RANGE_SET`,
++  CARD_SELECTION_CLEAR: `${PREFIX}/CARD_SELECTION_CLEAR`,
+   HOME_VIEW_UPDATE: `${PREFIX}/HOME_VIEW_UPDATE`,
+   LOGOUT: `${PREFIX}/LOGOUT`,
+ 
+@@ -186,6 +189,7 @@ export default {
+   LIST_SORT: `${PREFIX}/LIST_SORT`,
+   LIST_CARDS_TO_ARCHIVE_LIST_MOVE: `${PREFIX}/LIST_CARDS_TO_ARCHIVE_LIST_MOVE`,
+   TRASH_LIST_IN_CURRENT_BOARD_CLEAR: `${PREFIX}/TRASH_LIST_IN_CURRENT_BOARD_CLEAR`,
++  ARCHIVE_LIST_IN_CURRENT_BOARD_CLEAR: `${PREFIX}/ARCHIVE_LIST_IN_CURRENT_BOARD_CLEAR`,
+   LIST_CLEAR_HANDLE: `${PREFIX}/LIST_CLEAR_HANDLE`,
+   LIST_ARCHIVE: `${PREFIX}/LIST_ARCHIVE`,
+   LIST_RESTORE: `${PREFIX}/LIST_RESTORE`,
+diff --git a/client/src/entry-actions/core.js b/client/src/entry-actions/core.js
+index 77e7859..e53be03 100644
+--- a/client/src/entry-actions/core.js
++++ b/client/src/entry-actions/core.js
+@@ -26,6 +26,25 @@ const toggleGanttView = (isActive) => ({
+   },
+ });
+ 
++const toggleCardSelection = (id) => ({
++  type: EntryActionTypes.CARD_SELECTION_TOGGLE,
++  payload: {
++    id,
++  },
++});
++
++const setCardSelectionRange = (ids) => ({
++  type: EntryActionTypes.CARD_SELECTION_RANGE_SET,
++  payload: {
++    ids,
++  },
++});
++
++const clearCardSelection = () => ({
++  type: EntryActionTypes.CARD_SELECTION_CLEAR,
++  payload: {},
++});
++
+ const updateHomeView = (value) => ({
+   type: EntryActionTypes.HOME_VIEW_UPDATE,
+   payload: {
+@@ -44,6 +63,9 @@ export default {
+   toggleFavorites,
+   toggleEditMode,
+   toggleGanttView,
++  toggleCardSelection,
++  setCardSelectionRange,
++  clearCardSelection,
+   updateHomeView,
+   logout,
+ };
+diff --git a/client/src/entry-actions/lists.js b/client/src/entry-actions/lists.js
+index b16fe77..7fd56aa 100755
+--- a/client/src/entry-actions/lists.js
++++ b/client/src/entry-actions/lists.js
+@@ -73,6 +73,11 @@ const clearTrashListInCurrentBoard = () => ({
+   payload: {},
+ });
+ 
++const clearArchiveListInCurrentBoard = () => ({
++  type: EntryActionTypes.ARCHIVE_LIST_IN_CURRENT_BOARD_CLEAR,
++  payload: {},
++});
++
+ const handleListClear = (list) => ({
+   type: EntryActionTypes.LIST_CLEAR_HANDLE,
+   payload: {
+@@ -119,6 +124,7 @@ export default {
+   sortList,
+   moveListCardsToArchiveList,
+   clearTrashListInCurrentBoard,
++  clearArchiveListInCurrentBoard,
+   handleListClear,
+   archiveList,
+   restoreList,
+diff --git a/client/src/locales/en-GB/core.js b/client/src/locales/en-GB/core.js
+index 4adc5af..98fbe9e 100644
+--- a/client/src/locales/en-GB/core.js
++++ b/client/src/locales/en-GB/core.js
+@@ -48,6 +48,8 @@ export default {
+       archiveCards_title: 'Archive Cards',
+       areYouSureYouWantToActivateThisUser: 'Are you sure you want to activate this user?',
+       areYouSureYouWantToArchiveCards: 'Are you sure you want to archive cards?',
++      areYouSureYouWantToArchiveSelectedCards:
++        'Are you sure you want to archive {{count}} card(s)? They will be moved to the archive and can be restored from there.',
+       areYouSureYouWantToArchiveThisCard: 'Are you sure you want to archive this card?',
+       areYouSureYouWantToAssignThisProjectManagerAsOwner:
+         'Are you sure you want to assign this project manager as owner?',
+@@ -75,6 +77,8 @@ export default {
+       areYouSureYouWantToDeleteThisTaskList: 'Are you sure you want to delete this task list?',
+       areYouSureYouWantToDeleteThisUser: 'Are you sure you want to delete this user?',
+       areYouSureYouWantToDeleteThisWebhook: 'Are you sure you want to delete this webhook?',
++      areYouSureYouWantToEmptyArchive:
++        'Are you sure you want to empty the archive? This permanently deletes every archived card.',
+       areYouSureYouWantToEmptyTrash: 'Are you sure you want to empty the trash?',
+       areYouSureYouWantToLeaveBoard: 'Are you sure you want to leave the board?',
+       areYouSureYouWantToLeaveProject: 'Are you sure you want to leave the project?',
+@@ -122,6 +126,7 @@ export default {
+       cardsOnThisListAreCompleteAndReadyToBeArchived:
+         'Cards on this list are complete and ready to be archived.',
+       cardsOnThisListAreReadyToBeWorkedOn: 'Cards on this list are ready to be worked on.',
++      cardsSelectedCount: '{{count}} card(s) selected',
+       clickHereOrRefreshPageToUpdate: '<0>Click here</0> or refresh the page to update.',
+       clientHostnameInEhlo: 'Client hostname in EHLO',
+       closed: 'Closed',
+@@ -201,6 +206,7 @@ export default {
+       editor: 'Editor',
+       editors: 'Editors',
+       email: 'E-mail',
++      emptyArchive_title: 'Empty Archive',
+       emptyTrash_title: 'Empty Trash',
+       enterCardTitle: 'Enter card title...',
+       enterDescription: 'Enter description...',
+@@ -464,6 +470,8 @@ export default {
+       editTitle_title: 'Edit Title',
+       editType_title: 'Edit Type',
+       editUsername_title: 'Edit Username',
++      emptyArchive: 'Empty archive',
++      emptyArchive_title: 'Empty Archive',
+       emptyTrash: 'Empty trash',
+       emptyTrash_title: 'Empty Trash',
+       import: 'Import',
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index b99fb12..0918d08 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -49,6 +49,8 @@ export default {
+       archivedLists_title: 'Archived Lists',
+       areYouSureYouWantToActivateThisUser: 'Are you sure you want to activate this user?',
+       areYouSureYouWantToArchiveCards: 'Are you sure you want to archive cards?',
++      areYouSureYouWantToArchiveSelectedCards:
++        'Are you sure you want to archive {{count}} card(s)? They will be moved to the archive and can be restored from there.',
+       areYouSureYouWantToArchiveThisCard: 'Are you sure you want to archive this card?',
+       areYouSureYouWantToArchiveThisList:
+         'Are you sure you want to archive this list? Cards inside are not affected and remain accessible.',
+@@ -78,6 +80,8 @@ export default {
+       areYouSureYouWantToDeleteThisTaskList: 'Are you sure you want to delete this task list?',
+       areYouSureYouWantToDeleteThisUser: 'Are you sure you want to delete this user?',
+       areYouSureYouWantToDeleteThisWebhook: 'Are you sure you want to delete this webhook?',
++      areYouSureYouWantToEmptyArchive:
++        'Are you sure you want to empty the archive? This permanently deletes every archived card.',
+       areYouSureYouWantToEmptyTrash: 'Are you sure you want to empty the trash?',
+       areYouSureYouWantToLeaveBoard: 'Are you sure you want to leave the board?',
+       areYouSureYouWantToLeaveProject: 'Are you sure you want to leave the project?',
+@@ -127,6 +131,7 @@ export default {
+       cardsOnThisListAreCompleteAndReadyToBeArchived:
+         'Cards on this list are complete and ready to be archived.',
+       cardsOnThisListAreReadyToBeWorkedOn: 'Cards on this list are ready to be worked on.',
++      cardsSelectedCount: '{{count}} card(s) selected',
+       checklists: 'Checklists',
+       clickHereOrRefreshPageToUpdate: '<0>Click here</0> or refresh the page to update.',
+       clientHostnameInEhlo: 'Client hostname in EHLO',
+@@ -208,6 +213,7 @@ export default {
+       editor: 'Editor',
+       editors: 'Editors',
+       email: 'E-mail',
++      emptyArchive_title: 'Empty Archive',
+       emptyTrash_title: 'Empty Trash',
+       enableDarkModeForCardsAndColumns: 'Dark mode for cards & columns',
+       enterCardTitle: 'Enter card title...',
+@@ -536,6 +542,8 @@ export default {
+       editTitle_title: 'Edit Title',
+       editType_title: 'Edit Type',
+       editUsername_title: 'Edit Username',
++      emptyArchive: 'Empty archive',
++      emptyArchive_title: 'Empty Archive',
+       emptyTrash: 'Empty trash',
+       emptyTrash_title: 'Empty Trash',
+       gantt: 'Gantt',
+diff --git a/client/src/reducers/core.js b/client/src/reducers/core.js
+index e95dfc5..f443ae7 100755
+--- a/client/src/reducers/core.js
++++ b/client/src/reducers/core.js
+@@ -22,6 +22,14 @@ const initialState = {
+   // switch (see LOCATION_CHANGE_HANDLE below) - whether the board area is
+   // currently showing the inline Gantt view instead of the Kanban list.
+   isGanttViewActive: false,
++  // BSY Media: client-only, non-persisted selection for bulk card actions
++  // (Ctrl/Cmd-click toggle, Shift-click range-within-a-list) - resets to
++  // empty on every board switch, same as isGanttViewActive below. The
++  // Archive/Trash browsing contexts never let you start a selection in the
++  // first place (gated in Card.jsx), so a stale selection can't leak in
++  // from a context switch without a board switch.
++  selectedCardIds: [],
++  lastSelectedCardId: null,
+   modal: null,
+   clipboard: null,
+   config: null,
+@@ -60,6 +68,8 @@ export default (state = initialState, { type, payload }) => {
+ 
+       if (nextState.boardId !== state.boardId) {
+         nextState.isGanttViewActive = false;
++        nextState.selectedCardIds = [];
++        nextState.lastSelectedCardId = null;
+       }
+ 
+       if (payload.currentCardId) {
+@@ -123,6 +133,38 @@ export default (state = initialState, { type, payload }) => {
+         ...state,
+         isGanttViewActive: payload.isActive,
+       };
++    case ActionTypes.CARD_SELECTION_TOGGLE: {
++      const isSelected = state.selectedCardIds.includes(payload.id);
++
++      return {
++        ...state,
++        selectedCardIds: isSelected
++          ? state.selectedCardIds.filter((id) => id !== payload.id)
++          : [...state.selectedCardIds, payload.id],
++        lastSelectedCardId: isSelected ? state.lastSelectedCardId : payload.id,
++      };
++    }
++    case ActionTypes.CARD_SELECTION_RANGE_SET: {
++      const nextSelectedCardIds = new Set(state.selectedCardIds);
++
++      payload.ids.forEach((id) => {
++        nextSelectedCardIds.add(id);
++      });
++
++      // Anchor (lastSelectedCardId) deliberately stays put on a range
++      // select, so repeated Shift-clicks keep extending/shrinking the range
++      // from the same starting point instead of the anchor jumping around.
++      return {
++        ...state,
++        selectedCardIds: [...nextSelectedCardIds],
++      };
++    }
++    case ActionTypes.CARD_SELECTION_CLEAR:
++      return {
++        ...state,
++        selectedCardIds: [],
++        lastSelectedCardId: null,
++      };
+     case ActionTypes.HOME_VIEW_UPDATE:
+       return {
+         ...state,
+diff --git a/client/src/sagas/core/services/core.js b/client/src/sagas/core/services/core.js
+index 86260f8..581bac8 100644
+--- a/client/src/sagas/core/services/core.js
++++ b/client/src/sagas/core/services/core.js
+@@ -105,6 +105,18 @@ export function* toggleGanttView(isActive) {
+   yield put(actions.toggleGanttView(isActive));
+ }
+ 
++export function* toggleCardSelection(id) {
++  yield put(actions.toggleCardSelection(id));
++}
++
++export function* setCardSelectionRange(ids) {
++  yield put(actions.setCardSelectionRange(ids));
++}
++
++export function* clearCardSelection() {
++  yield put(actions.clearCardSelection());
++}
++
+ export function* updateHomeView(value) {
+   yield put(actions.updateHomeView(value));
+ 
+@@ -141,6 +153,9 @@ export default {
+   toggleFavorites,
+   toggleEditMode,
+   toggleGanttView,
++  toggleCardSelection,
++  setCardSelectionRange,
++  clearCardSelection,
+   updateHomeView,
+   logout,
+ };
+diff --git a/client/src/sagas/core/services/lists.js b/client/src/sagas/core/services/lists.js
+index 49284a7..dc57a54 100644
+--- a/client/src/sagas/core/services/lists.js
++++ b/client/src/sagas/core/services/lists.js
+@@ -231,6 +231,26 @@ export function* clearTrashListInCurrentBoard() {
+   yield put(actions.clearList.success(list));
+ }
+ 
++// BSY Media: mirrors clearTrashListInCurrentBoard above, but for the
++// board's Archive system list - see server/api/controllers/lists/clear.js,
++// which now accepts either TRASH or ARCHIVE type lists for this endpoint.
++// No toast on success (unlike Empty Trash) - not required for v1.
++export function* clearArchiveListInCurrentBoard() {
++  const archiveListId = yield select(selectors.selectArchiveListIdForCurrentBoard);
++
++  yield put(actions.clearList(archiveListId));
++
++  let list;
++  try {
++    ({ item: list } = yield call(request, api.clearList, archiveListId));
++  } catch (error) {
++    yield put(actions.clearList.failure(archiveListId, error));
++    return;
++  }
++
++  yield put(actions.clearList.success(list));
++}
++
+ export function* handleListClear(list) {
+   yield put(actions.handleListClear(list));
+ }
+@@ -315,6 +335,7 @@ export default {
+   sortList,
+   moveListCardsToArchiveList,
+   clearTrashListInCurrentBoard,
++  clearArchiveListInCurrentBoard,
+   handleListClear,
+   archiveList,
+   restoreList,
+diff --git a/client/src/sagas/core/watchers/core.js b/client/src/sagas/core/watchers/core.js
+index c39f4f0..2482572 100644
+--- a/client/src/sagas/core/watchers/core.js
++++ b/client/src/sagas/core/watchers/core.js
+@@ -19,6 +19,13 @@ export default function* coreWatchers() {
+     takeEvery(EntryActionTypes.GANTT_VIEW_TOGGLE, ({ payload: { isActive } }) =>
+       services.toggleGanttView(isActive),
+     ),
++    takeEvery(EntryActionTypes.CARD_SELECTION_TOGGLE, ({ payload: { id } }) =>
++      services.toggleCardSelection(id),
++    ),
++    takeEvery(EntryActionTypes.CARD_SELECTION_RANGE_SET, ({ payload: { ids } }) =>
++      services.setCardSelectionRange(ids),
++    ),
++    takeEvery(EntryActionTypes.CARD_SELECTION_CLEAR, () => services.clearCardSelection()),
+     takeEvery(EntryActionTypes.HOME_VIEW_UPDATE, ({ payload: { value } }) =>
+       services.updateHomeView(value),
+     ),
+diff --git a/client/src/sagas/core/watchers/lists.js b/client/src/sagas/core/watchers/lists.js
+index c742e27..84ca20c 100644
+--- a/client/src/sagas/core/watchers/lists.js
++++ b/client/src/sagas/core/watchers/lists.js
+@@ -37,6 +37,9 @@ export default function* listsWatchers() {
+     takeEvery(EntryActionTypes.TRASH_LIST_IN_CURRENT_BOARD_CLEAR, () =>
+       services.clearTrashListInCurrentBoard(),
+     ),
++    takeEvery(EntryActionTypes.ARCHIVE_LIST_IN_CURRENT_BOARD_CLEAR, () =>
++      services.clearArchiveListInCurrentBoard(),
++    ),
+     takeEvery(EntryActionTypes.LIST_CLEAR_HANDLE, ({ payload: { list } }) =>
+       services.handleListClear(list),
+     ),
+diff --git a/client/src/selectors/core.js b/client/src/selectors/core.js
+index e17b64e..29118a7 100644
+--- a/client/src/selectors/core.js
++++ b/client/src/selectors/core.js
+@@ -3,6 +3,8 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
++import { createSelector } from 'reselect';
++
+ export const selectIsContentFetching = ({ core: { isContentFetching } }) => isContentFetching;
+ 
+ export const selectIsLogouting = ({ core: { isLogouting } }) => isLogouting;
+@@ -13,6 +15,17 @@ export const selectIsEditModeEnabled = ({ core: { isEditModeEnabled } }) => isEd
+ 
+ export const selectIsGanttViewActive = ({ core: { isGanttViewActive } }) => isGanttViewActive;
+ 
++export const selectSelectedCardIds = ({ core: { selectedCardIds } }) => selectedCardIds;
++
++export const selectLastSelectedCardId = ({ core: { lastSelectedCardId } }) => lastSelectedCardId;
++
++export const makeSelectIsCardSelected = () =>
++  createSelector(
++    selectSelectedCardIds,
++    (_, id) => id,
++    (selectedCardIds, id) => selectedCardIds.includes(id),
++  );
++
+ export const selectClipboard = ({ core: { clipboard } }) => clipboard;
+ 
+ export const selectConfig = ({ core: { config } }) => config;
+@@ -36,6 +49,9 @@ export default {
+   selectIsFavoritesEnabled,
+   selectIsEditModeEnabled,
+   selectIsGanttViewActive,
++  selectSelectedCardIds,
++  selectLastSelectedCardId,
++  makeSelectIsCardSelected,
+   selectClipboard,
+   selectConfig,
+   selectRecentCardId,
+diff --git a/server/api/controllers/lists/clear.js b/server/api/controllers/lists/clear.js
+index 52525ac..b390d1d 100644
+--- a/server/api/controllers/lists/clear.js
++++ b/server/api/controllers/lists/clear.js
+@@ -8,7 +8,7 @@
+  * /lists/{id}/clear:
+  *   post:
+  *     summary: Clear list
+- *     description: Deletes all cards from a list. Only works with trash-type lists. Requires project manager or board editor permissions.
++ *     description: Deletes all cards from a list. Only works with trash- or archive-type lists. Requires project manager or board editor permissions.
+  *     tags:
+  *       - Lists
+  *     operationId: clearList
+@@ -16,7 +16,7 @@
+  *       - name: id
+  *         in: path
+  *         required: true
+- *         description: ID of the list to clear (must be a trash-type list)
++ *         description: ID of the list to clear (must be a trash- or archive-type list)
+  *         schema:
+  *           type: string
+  *           example: "1357158568008091264"
+@@ -88,8 +88,7 @@ module.exports = {
+       throw boardMembership ? Errors.NOT_ENOUGH_RIGHTS : Errors.LIST_NOT_FOUND;
+     }
+ 
+-    // TODO: allow for other types?
+-    if (list.type !== List.Types.TRASH) {
++    if (list.type !== List.Types.TRASH && list.type !== List.Types.ARCHIVE) {
+       throw Errors.NOT_ENOUGH_RIGHTS;
+     }
+ 
