@@ -1,0 +1,307 @@
+diff --git a/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.jsx b/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.jsx
+index bbf564a..4739e31 100644
+--- a/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.jsx
++++ b/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.jsx
+@@ -19,10 +19,12 @@ import styles from './SelectionActionsBar.module.scss';
+ // BSY Media: bulk card selection - a floating bar that appears whenever one
+ // or more cards are Ctrl/Shift-selected on the plain Kanban view (see
+ // Card.jsx's handleClick and the "selectedCardIds" state in reducers/core.js
+-// for how a selection gets built up). "Delete" here means archive - cards
+-// move to the board's existing hidden Archive system list rather than being
+-// permanently removed, matching the single-card "Archive" action already
+-// available from a card's own actions menu.
++// for how a selection gets built up). "Delete" here means move to Trash -
++// matching the single-card "Delete" action's own existing behavior
++// (CardActionsStep.jsx's handleDeleteConfirm: moveCardToTrash unless already
++// in Trash, in which case it's a real permanent delete). Archive is a
++// separate, unrelated "keep forever" action, still only reachable via a
++// card's own actions menu or a list's "Archive cards" action.
+ const SelectionActionsBar = React.memo(() => {
+   const board = useSelector(selectors.selectCurrentBoard);
+   const selectedCardIds = useSelector(selectors.selectSelectedCardIds);
+@@ -36,7 +38,7 @@ const SelectionActionsBar = React.memo(() => {
+ 
+   const handleDeleteConfirm = useCallback(() => {
+     selectedCardIds.forEach((cardId) => {
+-      dispatch(entryActions.moveCardToArchive(cardId));
++      dispatch(entryActions.moveCardToTrash(cardId));
+     });
+ 
+     dispatch(entryActions.clearCardSelection());
+@@ -86,12 +88,12 @@ const SelectionActionsBar = React.memo(() => {
+         onClick={handleCancelClick}
+       />
+       <DeleteConfirmationPopup
+-        title="common.archiveCards"
+-        content="common.areYouSureYouWantToArchiveSelectedCards"
++        title="common.deleteCard"
++        content="common.areYouSureYouWantToDeleteSelectedCards"
+         contentValues={{
+           count: selectedCardIds.length,
+         }}
+-        buttonContent="action.archiveCards"
++        buttonContent="action.deleteCard"
+         onConfirm={handleDeleteConfirm}
+       >
+         <Button negative size="small" content={t('action.delete')} />
+diff --git a/client/src/components/cards/Card/Card.module.scss b/client/src/components/cards/Card/Card.module.scss
+index 47622b7..3193865 100644
+--- a/client/src/components/cards/Card/Card.module.scss
++++ b/client/src/components/cards/Card/Card.module.scss
+@@ -31,6 +31,7 @@
+ 
+   .content {
+     cursor: pointer;
++    user-select: none;
+ 
+     &:after {
+       clear: both;
+diff --git a/client/src/components/cards/Card/InlineContent.module.scss b/client/src/components/cards/Card/InlineContent.module.scss
+index c19bffd..5c61225 100644
+--- a/client/src/components/cards/Card/InlineContent.module.scss
++++ b/client/src/components/cards/Card/InlineContent.module.scss
+@@ -72,3 +72,21 @@
+     padding: 6px 8px;
+   }
+ }
++
++// BSY Media: dark-mode-for-cards text colors for the Grid/List board views
++// (this is the row/tile renderer Archive/Trash browsing falls back to
++// whenever board.view isn't Kanban) - matches ProjectContent.module.scss's
++// card-title color and StoryContent.module.scss's description color exactly,
++// since those are the equivalent text roles on the Kanban card face. Without
++// this, dark-mode-cards left .name/.descriptionText at their light-mode dark
++// colors while Card.module.scss's own dark-mode block already darkens the
++// card background underneath them - dark text on a near-black card.
++:global(#app.dark-mode-cards-enabled) {
++  .name {
++    color: #b6c2cf;
++  }
++
++  .descriptionText {
++    color: #9fadbc;
++  }
++}
+diff --git a/client/src/locales/en-GB/core.js b/client/src/locales/en-GB/core.js
+index 98fbe9e..b1cb0eb 100644
+--- a/client/src/locales/en-GB/core.js
++++ b/client/src/locales/en-GB/core.js
+@@ -48,12 +48,12 @@ export default {
+       archiveCards_title: 'Archive Cards',
+       areYouSureYouWantToActivateThisUser: 'Are you sure you want to activate this user?',
+       areYouSureYouWantToArchiveCards: 'Are you sure you want to archive cards?',
+-      areYouSureYouWantToArchiveSelectedCards:
+-        'Are you sure you want to archive {{count}} card(s)? They will be moved to the archive and can be restored from there.',
+       areYouSureYouWantToArchiveThisCard: 'Are you sure you want to archive this card?',
+       areYouSureYouWantToAssignThisProjectManagerAsOwner:
+         'Are you sure you want to assign this project manager as owner?',
+       areYouSureYouWantToDeactivateThisUser: 'Are you sure you want to deactivate this user?',
++      areYouSureYouWantToDeleteSelectedCards:
++        'Are you sure you want to delete {{count}} card(s)? They will be moved to the trash and can be permanently deleted from there.',
+       areYouSureYouWantToDeleteThisApiKey: 'Are you sure you want to delete this API key?',
+       areYouSureYouWantToDeleteThisAttachment: 'Are you sure you want to delete this attachment?',
+       areYouSureYouWantToDeleteThisBackgroundImage:
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 0918d08..3d84de7 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -49,14 +49,14 @@ export default {
+       archivedLists_title: 'Archived Lists',
+       areYouSureYouWantToActivateThisUser: 'Are you sure you want to activate this user?',
+       areYouSureYouWantToArchiveCards: 'Are you sure you want to archive cards?',
+-      areYouSureYouWantToArchiveSelectedCards:
+-        'Are you sure you want to archive {{count}} card(s)? They will be moved to the archive and can be restored from there.',
+       areYouSureYouWantToArchiveThisCard: 'Are you sure you want to archive this card?',
+       areYouSureYouWantToArchiveThisList:
+         'Are you sure you want to archive this list? Cards inside are not affected and remain accessible.',
+       areYouSureYouWantToAssignThisProjectManagerAsOwner:
+         'Are you sure you want to assign this project manager as owner?',
+       areYouSureYouWantToDeactivateThisUser: 'Are you sure you want to deactivate this user?',
++      areYouSureYouWantToDeleteSelectedCards:
++        'Are you sure you want to delete {{count}} card(s)? They will be moved to the trash and can be permanently deleted from there.',
+       areYouSureYouWantToDeleteThisApiKey: 'Are you sure you want to delete this API key?',
+       areYouSureYouWantToDeleteThisAttachment: 'Are you sure you want to delete this attachment?',
+       areYouSureYouWantToDeleteThisBackgroundImage:
+diff --git a/server/api/helpers/trash-expiry/process.js b/server/api/helpers/trash-expiry/process.js
+new file mode 100644
+index 0000000..a078328
+--- /dev/null
++++ b/server/api/helpers/trash-expiry/process.js
+@@ -0,0 +1,75 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++// BSY Media: called on a timer by the `trash-expiry` hook, not from an HTTP
++// request - permanently deletes any card that has been sitting in a Trash
++// system list for 30+ days. Reuses Card.listChangedAt (already refreshed to
++// "now" on every real listId change, see cards/update-one.js) as "when this
++// card entered Trash" - no new column/migration needed, and restoring a
++// card out of Trash naturally resets the clock for free, since that's also
++// a listId change.
++const EXPIRY_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000;
++
++module.exports = {
++  async fn() {
++    const adminUser = await User.qm.getOneByEmail(sails.config.custom.defaultAdminEmail || '');
++
++    if (!adminUser) {
++      sails.log.warn('trash-expiry: bootstrap admin user not found, skipping this run');
++      return;
++    }
++
++    const trashLists = await List.qm.getAllByType(List.Types.TRASH);
++
++    if (trashLists.length === 0) {
++      return;
++    }
++
++    const trashListIds = trashLists.map((list) => list.id);
++    const before = new Date(Date.now() - EXPIRY_THRESHOLD_MS);
++    const expiredCards = await Card.qm.getExpiredByListIds(trashListIds, before);
++
++    if (expiredCards.length === 0) {
++      return;
++    }
++
++    let deletedCount = 0;
++
++    // eslint-disable-next-line no-restricted-syntax
++    for (const card of expiredCards) {
++      try {
++        // eslint-disable-next-line no-await-in-loop
++        const pathToProject = await sails.helpers.cards
++          .getPathToProjectById(card.id)
++          .intercept('pathNotFound', () => null);
++
++        if (!pathToProject) {
++          continue; // eslint-disable-line no-continue
++        }
++
++        const { list, board, project } = pathToProject;
++
++        // eslint-disable-next-line no-await-in-loop
++        await sails.helpers.cards.deleteOne.with({
++          record: card,
++          project,
++          board,
++          list,
++          actorUser: adminUser,
++        });
++
++        deletedCount += 1;
++      } catch (error) {
++        sails.log.error(`trash-expiry: failed to delete expired card ${card.id}:`, error);
++      }
++    }
++
++    if (deletedCount > 0) {
++      sails.log.info(
++        `trash-expiry: permanently deleted ${deletedCount} card(s) from Trash (30+ days old)`,
++      );
++    }
++  },
++};
+diff --git a/server/api/hooks/query-methods/models/Card.js b/server/api/hooks/query-methods/models/Card.js
+index cefb45e..0fe4d94 100644
+--- a/server/api/hooks/query-methods/models/Card.js
++++ b/server/api/hooks/query-methods/models/Card.js
+@@ -163,6 +163,16 @@ const getByListIds = async (listIds, { sort = ['position', 'id'] } = {}) =>
+     { sort },
+   );
+ 
++// BSY Media: used by the trash-expiry scheduled hook - listChangedAt is
++// already refreshed to "now" every time a card's listId actually changes
++// (see cards/update-one.js), so for a card currently sitting in one of the
++// given (Trash) list ids, this is exactly "when did it enter Trash."
++const getExpiredByListIds = async (listIds, before) =>
++  Card.find({
++    listId: listIds,
++    listChangedAt: { '<=': before.toISOString() },
++  });
++
+ const getOneById = (id, { listId } = {}) => {
+   const criteria = {
+     id,
+@@ -239,6 +249,7 @@ module.exports = {
+   getByListId,
+   getByEndlessListId,
+   getByListIds,
++  getExpiredByListIds,
+   getOneById,
+   update,
+   updateOne,
+diff --git a/server/api/hooks/query-methods/models/List.js b/server/api/hooks/query-methods/models/List.js
+index 75aec55..205e7ab 100644
+--- a/server/api/hooks/query-methods/models/List.js
++++ b/server/api/hooks/query-methods/models/List.js
+@@ -52,6 +52,13 @@ const getOneTrashByBoardId = (boardId) =>
+     type: List.Types.TRASH,
+   });
+ 
++// BSY Media: platform-wide (not per-board) lookup, used by the trash-expiry
++// scheduled hook to find every board's Trash list in one query.
++const getAllByType = (typeOrTypes) =>
++  List.find({
++    type: typeOrTypes,
++  });
++
+ const updateOne = async (criteria, values) => {
+   if (values.boardId || values.type) {
+     return sails.getDatastore().transaction(async (db) => {
+@@ -138,6 +145,7 @@ module.exports = {
+   getByBoardId,
+   getOneById,
+   getOneTrashByBoardId,
++  getAllByType,
+   updateOne,
+   deleteOne,
+   delete: delete_,
+diff --git a/server/api/hooks/trash-expiry/index.js b/server/api/hooks/trash-expiry/index.js
+new file mode 100644
+index 0000000..63763af
+--- /dev/null
++++ b/server/api/hooks/trash-expiry/index.js
+@@ -0,0 +1,41 @@
++/*!
++ * Copyright (c) 2024 PLANKA Software GmbH
++ * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
++ */
++
++/**
++ * trash-expiry hook
++ *
++ * @description :: BSY Media - scans every board's Trash system list on a
++ *                 timer and permanently deletes any card that's been sitting
++ *                 there for 30+ days. Mirrors the `deadline-notifications`
++ *                 hook's setInterval pattern - this codebase has no cron/
++ *                 scheduling library, and none is added for this.
++ * @docs        :: https://sailsjs.com/docs/concepts/extending-sails/hooks
++ */
++
++module.exports = function defineTrashExpiryHook(sails) {
++  const CHECK_INTERVAL_MS = 60 * 60 * 1000;
++
++  const processTrashExpiry = async () => {
++    try {
++      await sails.helpers.trashExpiry.process();
++    } catch (error) {
++      sails.log.error('trash-expiry hook failed:', error);
++    }
++  };
++
++  return {
++    /**
++     * Runs when this Sails app loads/lifts.
++     */
++
++    async initialize() {
++      sails.log.info('Initializing custom hook (`trash-expiry`)');
++
++      setInterval(() => {
++        processTrashExpiry();
++      }, CHECK_INTERVAL_MS);
++    },
++  };
++};

@@ -4149,3 +4149,72 @@ confirmed the bar appeared, pressed Escape, confirmed the bar closed with zero c
 temp project cleaned up afterward, confirmed production back to exactly 10 real projects.
 
 Patch: `planka-custom/patches/0083-escape-clears-selection.patch`.
+
+## Bulk delete now goes to Trash, 30-day Trash auto-expiry, dark-mode Grid/List text fix, disable card text selection (2026-09-29, same day)
+
+Four follow-ups from client feedback after 0082/0083 shipped:
+
+1. **Bulk "Delete" was routing to Archive - should route to Trash.** The client pointed out PLANKA
+   already has a separate Trash system list distinct from Archive, with its own existing permanent-
+   delete button ("Empty Trash"). This was simply the wrong target from the start: PLANKA's own
+   **single-card** "Delete" action (`CardActionsStep.jsx`) already does `moveCardToTrash` (or a real
+   permanent delete if already in Trash) - the bulk-select "Delete" button now matches that existing,
+   correct behavior (`SelectionActionsBar.jsx` swaps `moveCardToArchive` for the already-existing
+   `entryActions.moveCardToTrash`). Archive and its own actions (per-card "Archive", list-level
+   "Archive cards", "Empty Archive" from 0082) are untouched - still a separate "keep forever" flow.
+2. **Trash now auto-expires after 30 days - zero new migrations.** Key discovery: `Card.
+   listChangedAt` already exists and already gets refreshed to "now" on every real `listId` change
+   (`cards/update-one.js`) - previously only used as a pagination cursor, but it's exactly "when did
+   this card enter Trash," and restoring a card out of Trash naturally resets it for free (also just
+   a listId change). New `server/api/hooks/trash-expiry/index.js` mirrors the existing
+   `deadline-notifications` hook's exact shape (`setInterval`, no cron library in this codebase,
+   same rationale) - hourly check, 30-day threshold. New helper
+   `server/api/helpers/trash-expiry/process.js`: `List.qm.getAllByType(List.Types.TRASH)` (new,
+   platform-wide lookup) finds every board's Trash list, `Card.qm.getExpiredByListIds` (new) finds
+   cards whose `listChangedAt` is 30+ days old, then each is permanently deleted via the
+   already-existing `sails.helpers.cards.deleteOne` + `getPathToProjectById` helpers - the same ones
+   "Delete Forever"/Empty Trash/Empty Archive already use, so cascade-delete, the `cardDelete` socket
+   broadcast, and the webhook all come for free. Actor resolved via the same bootstrap-admin pattern
+   `deadline-notifications` already established (`sails.config.custom.defaultAdminEmail`).
+3. **Dark-mode text fix**: "in the list view in the archive, I see black cards but their text is
+   also dark." Root cause, confirmed by reading the code: `Card.module.scss`'s `.wrapper` already
+   has a dark-mode override (background `#242528`) for the Kanban card face, but
+   `InlineContent.jsx` (the renderer for Grid/List board views - and the fallback Archive/Trash
+   browsing uses whenever `board.view` isn't Kanban) had **no dark-mode override at all** -
+   `.name` stayed hardcoded at `#17394d` and `.descriptionText` had no explicit color, both dark-
+   on-dark the instant a project's "Dark mode for cards & columns" is on. This was a pre-existing
+   gap in this fork's own dark-mode work - every other card-face text color already got a
+   dark-mode override at some point (`ProjectContent`/`StoryContent`/`Task`/`TaskList`),
+   `InlineContent` alone was missed. Fixed with the identical established pattern/colors
+   (`InlineContent.module.scss`: `.name` → `#b6c2cf`, `.descriptionText` → `#9fadbc`, matching
+   `ProjectContent`/`StoryContent`'s own dark-mode values exactly).
+4. **Card text was becoming selectable during Ctrl/Shift-click** (raised mid-session by the
+   client) - browsers natively extend a text selection on Shift-click, and since 0082 wired
+   Shift-click to the app's own range-select logic, the browser was doing its own native thing at
+   the same time. Fixed with a single `user-select: none;` on `Card.module.scss`'s existing
+   `.content` rule (already has `cursor: pointer`) - plain, unprefixed, matching this codebase's
+   existing convention elsewhere. Applies to both Kanban and Grid/List card rendering since both
+   share the same `styles.content` class.
+
+**Verified in an isolated stack** (10/10 automated checks + 2 extra Shift-click regression checks):
+bulk Delete correctly moves cards into the Trash list (not Archive, confirmed via API `listId`),
+confirmation dialog wording says "delete"/"trash" not "archive"; restoring a card out of Trash
+correctly bumps `listChangedAt` to a fresh timestamp; dark-mode List-view card text renders at the
+correct light hex (`rgb(182, 194, 207)`) against the correctly-dark card background; card content
+has `user-select: none` and a Shift-click range-select gesture produces zero native text selection
+while still correctly selecting all 3 cards in the range (regression-checked). **Trash expiry was
+additionally verified directly against real data**, not just read code: created two cards in an
+isolated stack's Trash list, backdated one's `list_changed_at` 31 days via direct Postgres access
+(isolated test DB only), added a comment to it, then invoked the real `sails.helpers.trashExpiry.
+process()` via `sails console` inside the built image (confirmed the `trash-expiry` hook
+auto-registers alongside `deadline-notifications` at boot, same folder-based hook convention) -
+the 31-day-old card and its comment were both permanently deleted, the "just now" control card was
+untouched. **Deployed to production and live-smoke-tested** via the real API/UI for all four fixes
+except the live-data trash-expiry backdate test specifically (skipped against production - direct
+SQL writes and an interactive console/REPL channel into the live system are both outside what this
+session is authorized to do unprompted; the isolated-stack test above already proves the exact same
+code path end-to-end, and the hook auto-loads via the same mechanism already proven live for
+`deadline-notifications`). Temp smoke-test projects cleaned up; confirmed production back to
+exactly the 10 real projects afterward.
+
+Patch: `planka-custom/patches/0084-trash-expiry-and-fixes.patch`.
