@@ -1,0 +1,224 @@
+diff --git a/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.jsx b/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.jsx
+index 4739e31..5106682 100644
+--- a/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.jsx
++++ b/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.jsx
+@@ -3,7 +3,7 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useCallback, useEffect } from 'react';
++import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+ import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+ import { Button } from 'semantic-ui-react';
+@@ -17,17 +17,26 @@ import ConfirmationStep from '../../../common/ConfirmationStep';
+ import styles from './SelectionActionsBar.module.scss';
+ 
+ // BSY Media: bulk card selection - a floating bar that appears whenever one
+-// or more cards are Ctrl/Shift-selected on the plain Kanban view (see
+-// Card.jsx's handleClick and the "selectedCardIds" state in reducers/core.js
+-// for how a selection gets built up). "Delete" here means move to Trash -
+-// matching the single-card "Delete" action's own existing behavior
+-// (CardActionsStep.jsx's handleDeleteConfirm: moveCardToTrash unless already
+-// in Trash, in which case it's a real permanent delete). Archive is a
+-// separate, unrelated "keep forever" action, still only reachable via a
+-// card's own actions menu or a list's "Archive cards" action.
++// or more cards are Ctrl/Shift-selected (see Card.jsx's handleClick and the
++// "selectedCardIds" state in reducers/core.js for how a selection gets
++// built up). Available actions depend on which context is being browsed:
++// - Board: Delete (moves to Trash, matching the single-card "Delete"
++//   action's own existing behavior for a card that isn't already trashed).
++// - Archive: Restore (back to each card's own prevListId, no confirmation -
++//   matching the single-card "Restore" action, which also skips it) or
++//   Delete (moves to Trash, same as the Board context - matching the
++//   single-card "Delete" action on an archived card).
++// - Trash: Restore (same as above) or Delete Permanently (a real,
++//   irreversible delete - matching the single-card "Delete" action once a
++//   card is already in Trash).
+ const SelectionActionsBar = React.memo(() => {
++  const selectCardById = useMemo(() => selectors.makeSelectCardById(), []);
++
+   const board = useSelector(selectors.selectCurrentBoard);
+   const selectedCardIds = useSelector(selectors.selectSelectedCardIds);
++  const selectedCards = useSelector((state) =>
++    selectedCardIds.map((cardId) => selectCardById(state, cardId)),
++  );
+ 
+   const dispatch = useDispatch();
+   const [t] = useTranslation();
+@@ -36,7 +45,18 @@ const SelectionActionsBar = React.memo(() => {
+     dispatch(entryActions.clearCardSelection());
+   }, [dispatch]);
+ 
+-  const handleDeleteConfirm = useCallback(() => {
++  // BSY Media: mirrors CardActionsStep.jsx's own handleRestoreClick exactly
++  // (moveCard to the card's own prevListId, no confirmation) - looped per
++  // card since each selected card can have a different original list.
++  const handleRestoreClick = useCallback(() => {
++    selectedCards.forEach((card) => {
++      dispatch(entryActions.moveCard(card.id, card.prevListId));
++    });
++
++    dispatch(entryActions.clearCardSelection());
++  }, [selectedCards, dispatch]);
++
++  const handleMoveToTrashConfirm = useCallback(() => {
+     selectedCardIds.forEach((cardId) => {
+       dispatch(entryActions.moveCardToTrash(cardId));
+     });
+@@ -44,9 +64,38 @@ const SelectionActionsBar = React.memo(() => {
+     dispatch(entryActions.clearCardSelection());
+   }, [selectedCardIds, dispatch]);
+ 
+-  const DeleteConfirmationPopup = usePopup(ConfirmationStep);
++  const handleDeleteForeverConfirm = useCallback(() => {
++    selectedCardIds.forEach((cardId) => {
++      dispatch(entryActions.deleteCard(cardId));
++    });
++
++    dispatch(entryActions.clearCardSelection());
++  }, [selectedCardIds, dispatch]);
++
++  const MoveToTrashConfirmationPopup = usePopup(ConfirmationStep);
++  const DeleteForeverConfirmationPopup = usePopup(ConfirmationStep);
++
++  // BSY Media: keep this list of contexts in sync with Card.jsx's own
++  // identical isSelectable check.
++  const isSelectableContext =
++    board.context === BoardContexts.BOARD ||
++    board.context === BoardContexts.ARCHIVE ||
++    board.context === BoardContexts.TRASH;
++
++  const hasSelection = isSelectableContext && selectedCardIds.length > 0;
+ 
+-  const hasSelection = board.context === BoardContexts.BOARD && selectedCardIds.length > 0;
++  // BSY Media: switching context (Board/Archive/Trash) clears any active
++  // selection - a selection made while browsing one context has no
++  // meaning in another, and the bar's own available actions differ per
++  // context anyway.
++  const prevContextRef = useRef(board.context);
++
++  useEffect(() => {
++    if (prevContextRef.current !== board.context) {
++      prevContextRef.current = board.context;
++      dispatch(entryActions.clearCardSelection());
++    }
++  }, [board.context, dispatch]);
+ 
+   // BSY Media: Escape clears the selection, same as the Cancel button - only
+   // wired up while there's an actual selection to clear, so this never
+@@ -87,17 +136,40 @@ const SelectionActionsBar = React.memo(() => {
+         content={t('action.cancel')}
+         onClick={handleCancelClick}
+       />
+-      <DeleteConfirmationPopup
+-        title="common.deleteCard"
+-        content="common.areYouSureYouWantToDeleteSelectedCards"
+-        contentValues={{
+-          count: selectedCardIds.length,
+-        }}
+-        buttonContent="action.deleteCard"
+-        onConfirm={handleDeleteConfirm}
+-      >
+-        <Button negative size="small" content={t('action.delete')} />
+-      </DeleteConfirmationPopup>
++      {board.context !== BoardContexts.BOARD && (
++        <Button
++          basic
++          inverted
++          size="small"
++          content={t('action.restore')}
++          onClick={handleRestoreClick}
++        />
++      )}
++      {board.context === BoardContexts.TRASH ? (
++        <DeleteForeverConfirmationPopup
++          title="common.deleteCardForever"
++          content="common.areYouSureYouWantToDeleteSelectedCardsForever"
++          contentValues={{
++            count: selectedCardIds.length,
++          }}
++          buttonContent="action.deleteCardForever"
++          onConfirm={handleDeleteForeverConfirm}
++        >
++          <Button negative size="small" content={t('action.deleteForever', { context: 'title' })} />
++        </DeleteForeverConfirmationPopup>
++      ) : (
++        <MoveToTrashConfirmationPopup
++          title="common.deleteCard"
++          content="common.areYouSureYouWantToDeleteSelectedCards"
++          contentValues={{
++            count: selectedCardIds.length,
++          }}
++          buttonContent="action.deleteCard"
++          onConfirm={handleMoveToTrashConfirm}
++        >
++          <Button negative size="small" content={t('action.delete')} />
++        </MoveToTrashConfirmationPopup>
++      )}
+     </div>
+   );
+ });
+diff --git a/client/src/components/cards/Card/Card.jsx b/client/src/components/cards/Card/Card.jsx
+index e744817..dec56a8 100755
+--- a/client/src/components/cards/Card/Card.jsx
++++ b/client/src/components/cards/Card/Card.jsx
+@@ -39,13 +39,25 @@ const Card = React.memo(({ id, isInline }) => {
+   const card = useSelector((state) => selectCardById(state, id));
+ 
+   // BSY Media: bulk card selection (Ctrl/Cmd-click toggle, Shift-click
+-  // range-within-a-list) is only meaningful on the plain Kanban view of a
+-  // board - browsing the Archive/Trash context or a dense inline row has no
+-  // selection UI to act on it, so selecting is disabled there entirely
+-  // rather than silently doing nothing.
+-  const isSelectable = useSelector(
+-    (state) => !isInline && selectors.selectCurrentBoard(state).context === BoardContexts.BOARD,
+-  );
++  // range-within-a-list) works on the plain Kanban card face in the normal
++  // board view. Archive/Trash are a deliberate exception to the "no
++  // Grid/List support yet" rule below: switching context away from BOARD
++  // always forces the board into List view (see models/Board.js's
++  // BOARD_CONTEXT_UPDATE case - `view: ... : BoardViews.LIST`, an existing,
++  // unrelated behavior this doesn't change), so Archive/Trash cards are
++  // *always* rendered inline (isInline) in practice - excluding isInline
++  // there would make Archive/Trash selection unreachable entirely, not
++  // just deferred. Keep this in sync with SelectionActionsBar.jsx's own
++  // identical context check.
++  const isSelectable = useSelector((state) => {
++    const { context } = selectors.selectCurrentBoard(state);
++
++    if (context === BoardContexts.ARCHIVE || context === BoardContexts.TRASH) {
++      return true;
++    }
++
++    return !isInline && context === BoardContexts.BOARD;
++  });
+   const isSelected = useSelector((state) => isSelectable && selectIsCardSelected(state, id));
+   const lastSelectedCardId = useSelector(selectors.selectLastSelectedCardId);
+   const cardIdsInList = useSelector((state) => selectFilteredCardIdsByListId(state, card.listId));
+diff --git a/client/src/locales/en-GB/core.js b/client/src/locales/en-GB/core.js
+index b1cb0eb..33b8a78 100644
+--- a/client/src/locales/en-GB/core.js
++++ b/client/src/locales/en-GB/core.js
+@@ -54,6 +54,8 @@ export default {
+       areYouSureYouWantToDeactivateThisUser: 'Are you sure you want to deactivate this user?',
+       areYouSureYouWantToDeleteSelectedCards:
+         'Are you sure you want to delete {{count}} card(s)? They will be moved to the trash and can be permanently deleted from there.',
++      areYouSureYouWantToDeleteSelectedCardsForever:
++        'Are you sure you want to permanently delete {{count}} card(s)? This cannot be undone.',
+       areYouSureYouWantToDeleteThisApiKey: 'Are you sure you want to delete this API key?',
+       areYouSureYouWantToDeleteThisAttachment: 'Are you sure you want to delete this attachment?',
+       areYouSureYouWantToDeleteThisBackgroundImage:
+diff --git a/client/src/locales/en-US/core.js b/client/src/locales/en-US/core.js
+index 3d84de7..1aa0fe1 100644
+--- a/client/src/locales/en-US/core.js
++++ b/client/src/locales/en-US/core.js
+@@ -57,6 +57,8 @@ export default {
+       areYouSureYouWantToDeactivateThisUser: 'Are you sure you want to deactivate this user?',
+       areYouSureYouWantToDeleteSelectedCards:
+         'Are you sure you want to delete {{count}} card(s)? They will be moved to the trash and can be permanently deleted from there.',
++      areYouSureYouWantToDeleteSelectedCardsForever:
++        'Are you sure you want to permanently delete {{count}} card(s)? This cannot be undone.',
+       areYouSureYouWantToDeleteThisApiKey: 'Are you sure you want to delete this API key?',
+       areYouSureYouWantToDeleteThisAttachment: 'Are you sure you want to delete this attachment?',
+       areYouSureYouWantToDeleteThisBackgroundImage:

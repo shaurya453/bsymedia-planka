@@ -4218,3 +4218,63 @@ code path end-to-end, and the hook auto-loads via the same mechanism already pro
 exactly the 10 real projects afterward.
 
 Patch: `planka-custom/patches/0084-trash-expiry-and-fixes.patch`.
+
+## Bulk selection extended to Archive and Trash (2026-09-29, same day)
+
+Client asked for the same Ctrl/Shift-click multi-select from patches 0082-0084 to also work while
+browsing Archive and Trash, with bulk actions there. Clarified up front (client's own answers):
+Trash gets **Restore + Delete Permanently**; Archive gets **both Restore and Move to Trash**
+("Delete", same action as the Board context's own bulk Delete).
+
+**Real bug found and fixed before this could work at all**: `models/Board.js`'s
+`BOARD_CONTEXT_UPDATE` reducer case (an existing, unrelated bit of behavior, not something this
+session added) unconditionally forces `view: BoardViews.LIST` whenever switching to Archive or
+Trash - `view: payload.value === BoardContexts.BOARD ? boardModel.defaultView : BoardViews.LIST`.
+That means Archive/Trash cards are **always** rendered inline (`Card.jsx`'s `isInline` prop, the
+same compact row renderer Grid/List board views use) in practice, never as the full Kanban card
+face - confirmed live via a failing first-draft isolated-stack test (clicks landed with `isInline`
+cards measuring 1348px-wide table rows, not card boxes, and `isSelectable`'s existing `!isInline`
+requirement silently made every click just navigate to open the card instead of selecting it).
+Fixed by carving out an explicit exception in `Card.jsx`'s `isSelectable`: Archive/Trash contexts
+are selectable regardless of `isInline`, since inline is the *only* way they're ever actually shown
+- Board context keeps the original Kanban-face-only restriction (Grid/List for normal board
+browsing is still out of scope, unchanged from 0082's original decision).
+
+- **`SelectionActionsBar.jsx`** is now fully context-aware: a `Restore` button (shown whenever
+  `board.context !== BoardContexts.BOARD`) loops `entryActions.moveCard(card.id, card.prevListId)`
+  per selected card - mirrors `CardActionsStep.jsx`'s own single-card `handleRestoreClick` exactly,
+  including having **no confirmation dialog** (restoring isn't destructive, matching the existing
+  per-card precedent) and restoring each card to its *own* original list, not one shared target
+  (verified with two cards that came from two different lists). The existing "Delete" button
+  (moves to Trash) now also renders in the Archive context, not just Board; Trash context swaps it
+  for a distinct "Delete Forever" button/confirmation (`entryActions.deleteCard`, a real permanent
+  delete) - reusing the exact `common.deleteCardForever`/`areYouSureYouWantToDeleteThisCardForever`-
+  style wording pattern already established for the single-card version, plus one new pluralized
+  content key, `areYouSureYouWantToDeleteSelectedCardsForever` (added to both `en-US`/`en-GB`).
+  `action.restore` already existed as a bare "Restore" string (used nowhere before this) - reused
+  directly, no new key needed. **Caught and fixed one ambiguity before shipping**: the Trash
+  "Delete Forever" trigger button and its confirmation dialog's own confirm button both initially
+  read identically ("Delete card forever"), matching literal text a test script (and potentially a
+  screen reader / visual scan) can't disambiguate - fixed to mirror upstream's own established
+  convention exactly (`CardActionsStep.jsx` uses a *different* label, "Delete Forever", for the
+  trigger vs. "Delete card forever" for the confirm button) via `action.deleteForever` with
+  `{context: 'title'}`.
+- Selection is now cleared automatically whenever the board's context changes (Board ↔ Archive ↔
+  Trash) via a `prevContextRef`+`useEffect` pair in `SelectionActionsBar.jsx` - a selection made in
+  one context has no meaning in another, and each context's bar shows different buttons anyway.
+- `Card.jsx`'s Shift-click range logic needed no changes - Archive/Trash cards all share the one
+  single system list id, so a range-select between two of them is always trivially "same list."
+
+**Verified in an isolated stack** (18/18 automated checks): selection reachable and countable in
+both Archive and Trash; bulk Restore in both contexts correctly returns two cards to their own,
+different original lists (not a shared/hardcoded target); Archive's bulk "Delete" moves cards into
+Trash without permanently deleting them; Trash's bulk "Delete Forever" shows the correct
+"cannot be undone" wording and genuinely permanently deletes (`404` afterward); selection
+automatically clears when switching context; a same-stack regression check confirmed the Board
+context still only shows "Delete" (no Restore button) and still correctly moves cards to Trash,
+unaffected. **Deployed to production and live-smoke-tested**: two real cards from two different
+lists, archived, bulk-selected via the real UI, and bulk-Restored - confirmed via the API each
+card landed back in its own original list, zero console errors. Temp smoke-test project cleaned
+up; confirmed production back to exactly the 10 real projects afterward.
+
+Patch: `planka-custom/patches/0085-selection-in-archive-trash.patch`.
