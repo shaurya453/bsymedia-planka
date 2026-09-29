@@ -4127,3 +4127,25 @@ projects (9 pre-existing + the "Showcase: Product Launch" project from an earlie
 afterward.
 
 Patch: `planka-custom/patches/0082-bulk-card-selection-and-delete.patch`.
+
+## Escape clears the bulk card selection (2026-09-29, same day)
+
+Small follow-up to the patch above: pressing Escape now clears an active card selection, same
+effect as clicking the floating bar's Cancel button.
+
+Wired directly into `SelectionActionsBar.jsx` via a plain `window` `keydown` listener, added/removed
+in a `useEffect` gated on `hasSelection` (`board.context === BoardContexts.BOARD &&
+selectedCardIds.length > 0`) - so it's only ever attached while there's an actual selection to
+clear, and never interferes with the app's existing `useEscapeInterceptor` hook (used by popups and
+inline-edit fields to close/cancel on Escape) or steals focus from it.
+
+Verified in an isolated stack (8/8 checks): Escape clears a 2-card selection and closes the bar;
+the two cards themselves are confirmed untouched (still on the board, not archived - Escape only
+ever clears selection state, never triggers the delete/archive action); Escape with no active
+selection is a safe no-op; and, the key regression check, Escape still closes an unrelated popup
+(a card's own actions menu) exactly as before. Deployed to production and smoke-tested live via a
+real headless-browser session against a throwaway project (Ctrl-click selected 2 real cards,
+confirmed the bar appeared, pressed Escape, confirmed the bar closed with zero console errors) -
+temp project cleaned up afterward, confirmed production back to exactly 10 real projects.
+
+Patch: `planka-custom/patches/0083-escape-clears-selection.patch`.

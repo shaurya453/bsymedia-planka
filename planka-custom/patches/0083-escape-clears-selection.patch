@@ -1,0 +1,45 @@
+diff --git a/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.jsx b/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.jsx
+index ff647f9..bbf564a 100644
+--- a/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.jsx
++++ b/client/src/components/boards/Board/SelectionActionsBar/SelectionActionsBar.jsx
+@@ -3,7 +3,7 @@
+  * Licensed under the Fair Use License: https://github.com/plankanban/planka/blob/master/LICENSE.md
+  */
+ 
+-import React, { useCallback } from 'react';
++import React, { useCallback, useEffect } from 'react';
+ import { useDispatch, useSelector } from 'react-redux';
+ import { useTranslation } from 'react-i18next';
+ import { Button } from 'semantic-ui-react';
+@@ -44,7 +44,30 @@ const SelectionActionsBar = React.memo(() => {
+ 
+   const DeleteConfirmationPopup = usePopup(ConfirmationStep);
+ 
+-  if (board.context !== BoardContexts.BOARD || selectedCardIds.length === 0) {
++  const hasSelection = board.context === BoardContexts.BOARD && selectedCardIds.length > 0;
++
++  // BSY Media: Escape clears the selection, same as the Cancel button - only
++  // wired up while there's an actual selection to clear, so this never
++  // steals Escape from an unrelated popup/inline-edit's own interceptor.
++  useEffect(() => {
++    if (!hasSelection) {
++      return undefined;
++    }
++
++    const handleKeyDown = (event) => {
++      if (event.key === 'Escape') {
++        dispatch(entryActions.clearCardSelection());
++      }
++    };
++
++    window.addEventListener('keydown', handleKeyDown);
++
++    return () => {
++      window.removeEventListener('keydown', handleKeyDown);
++    };
++  }, [hasSelection, dispatch]);
++
++  if (!hasSelection) {
+     return null;
+   }
+ 
